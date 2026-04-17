@@ -1,0 +1,95 @@
+{
+  "ads": [
+    {
+      "id": "ad_001",
+      "author": "char_051",
+      "label": "Anzeige",
+      "text": "Stabilität für Greifshafen. Partei MITTE wählen — damit die Verwaltung funktioniert.",
+      "target": { "min_political_lean": -0.3, "max_political_lean": 0.3 },
+      "tags": ["politik-mitte", "wahlwerbung"],
+      "quality_score": 0.6,
+      "outrage_score": 0.1,
+      "engagement_bait_score": 0.2,
+      "political_lean": 0.05,
+      "trigger_warning": null
+    },
+    {
+      "id": "ad_002",
+      "author": "char_053",
+      "label": "Anzeige",
+      "text": "HEIMAT. Greifshafen gehört uns — nicht denen, die zuziehen. Wähle HEIMAT.",
+      "target": { "min_political_lean": 0.2 },
+      "tags": ["politik-rechts", "wahlwerbung", "heimat"],
+      "quality_score": 0.2,
+      "outrage_score": 0.6,
+      "engagement_bait_score": 0.7,
+      "political_lean": 0.75,
+      "trigger_warning": "rechtspopulismus"
+    },
+    {
+      "id": "ad_003",
+      "author": "char_052",
+      "label": "Anzeige",
+      "text": "Mehr Radwege, günstiger ÖPNV, gute Schulen — die GRÜNEN für Greifshafen.",
+      "target": { "max_political_lean": 0.1 },
+      "tags": ["politik-links", "wahlwerbung", "klima"],
+      "quality_score": 0.6,
+      "outrage_score": 0.1,
+      "engagement_bait_score": 0.3,
+      "political_lean": -0.4,
+      "trigger_warning": null
+    },
+    {
+      "id": "ad_004",
+      "author": "char_054",
+      "label": "Anzeige",
+      "text": "Miete halbieren. Reiche besteuern. Linke Liste wählen.",
+      "target": { "max_political_lean": -0.1 },
+      "tags": ["politik-links", "wahlwerbung", "soziales"],
+      "quality_score": 0.5,
+      "outrage_score": 0.3,
+      "engagement_bait_score": 0.4,
+      "political_lean": -0.7,
+      "trigger_warning": null
+    },
+    {
+      "id": "ad_005",
+      "author": "char_020",
+      "label": "Gesponsert",
+      "text": "Glow-Serum — bei meinen Followern der Hit. 20 % mit Code NOVA20.",
+      "target": {},
+      "tags": ["lifestyle", "produktwerbung"],
+      "quality_score": 0.3,
+      "outrage_score": 0.0,
+      "engagement_bait_score": 0.5,
+      "political_lean": 0.0,
+      "trigger_warning": null
+    },
+    {
+      "id": "ad_006",
+      "author": "char_022",
+      "label": "Gesponsert",
+      "text": "Echte Männer nehmen ihr Leben in die Hand. Mein Coaching-Programm: 8 Wochen Disziplin.",
+      "target": { "min_political_lean": 0.1 },
+      "tags": ["fitness", "manosphere", "coaching"],
+      "quality_score": 0.1,
+      "outrage_score": 0.3,
+      "engagement_bait_score": 0.6,
+      "political_lean": 0.3,
+      "trigger_warning": "antifeminismus"
+    },
+    {
+      "id": "ad_007",
+      "author": "char_032",
+      "label": "Anzeige",
+      "text": "Die Wahrheit wird zensiert. Abonniere TrueFreedomTV — bevor es zu spät ist.",
+      "target": { "min_political_lean": 0.3 },
+      "tags": ["verschwoerung", "medienkritik"],
+      "quality_score": 0.0,
+      "outrage_score": 0.7,
+      "engagement_bait_score": 0.85,
+      "political_lean": 0.8,
+      "trigger_warning": "verschwoerung"
+    }
+  ]
+}
