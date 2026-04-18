@@ -1,0 +1,32 @@
+{
+  "weeks": [
+    { "week": 1,  "day": 1, "title": "Ankommen",            "narration": "Erste Woche in Greifshafen. Alles neu. Der Feed kennt dich noch kaum.", "unlock": [] },
+    { "week": 2,  "day": 1, "title": "Orientierung",        "narration": "Du scrollst durch. Was interessiert dich eigentlich?", "unlock": [] },
+    { "week": 3,  "day": 1, "title": "Neue Gesichter",      "narration": "Streem schlägt dir Leute vor, denen du folgen könntest.", "unlock": [] },
+    { "week": 4,  "day": 1, "title": "Halbzeit Tag 1",      "narration": "Kurz durchatmen — wie findest du deinen Feed bisher?", "unlock": [], "reflection": "halftime_day1" },
+    { "week": 5,  "day": 1, "title": "Gruppendynamik",      "narration": "Die Klasse hat einen Gruppenchat. Alle teilen alles.", "unlock": [] },
+    { "week": 6,  "day": 1, "title": "Diskussion",          "narration": "In der Schule wird über Klima diskutiert. Auch online.", "unlock": [] },
+    { "week": 7,  "day": 1, "title": "Erste Muster",        "narration": "Du merkst: manche Themen kommen immer öfter.", "unlock": [] },
+    { "week": 8,  "day": 1, "title": "Abend vor Tag 2",     "narration": "Morgen: Streem zeigt dir erstmalig Werbung.", "unlock": [] },
+
+    { "week": 9,  "day": 2, "title": "Werbung kommt rein",  "narration": "Ab jetzt gibt es bezahlte Anzeigen im Feed. Kennzeichnung: 'Anzeige'.", "unlock": ["ads"] },
+    { "week": 10, "day": 2, "title": "Neue Follower?",      "narration": "Konten folgen dir, die du nicht kennst. Manche klingen … automatisch.", "unlock": ["bots"] },
+    { "week": 11, "day": 2, "title": "Gilden-Einladung",    "narration": "Du wirst in Gruppenchats eingeladen — Gaming, Politik, Lifestyle.", "unlock": ["guilds"] },
+    { "week": 12, "day": 2, "title": "Empfehlungen sichtbar","narration": "Streem zeigt, was es dir empfiehlt. Kannst du dagegen steuern?", "unlock": ["algorithm_panel"] },
+    { "week": 13, "day": 2, "title": "Ein Post geht viral", "narration": "Etwas, das du gepostet oder geliked hast, wird plötzlich groß.", "unlock": [], "event": "shitstorm" },
+    { "week": 14, "day": 2, "title": "Zwischen den Fronten","narration": "Du stehst zwischen verschiedenen Lagern. Welches Gewicht hat dein Like?", "unlock": [] },
+    { "week": 15, "day": 2, "title": "Rabbit Hole",         "narration": "Dein Feed wird … spezifischer. Hast du das bemerkt?", "unlock": [] },
+    { "week": 16, "day": 2, "title": "Reflexion Mitte",     "narration": "Was weiß Streem jetzt über dich?", "unlock": [], "reflection": "midterm" },
+    { "week": 17, "day": 2, "title": "Wahlkampf startet",   "narration": "Kommunalwahl in Greifshafen. Vier Parteien. Dein Feed kennt sich aus.", "unlock": [] },
+    { "week": 18, "day": 2, "title": "Zuspitzung",          "narration": "Debatten werden härter. Influencer mischen sich ein.", "unlock": [] },
+
+    { "week": 19, "day": 3, "title": "Hate-Welle",          "narration": "Ein Hass-Trend rollt durch Streem. Betrifft es auch deinen Feed?", "unlock": [], "event": "hatewave" },
+    { "week": 20, "day": 3, "title": "Wahl-Woche I",        "narration": "Deine Wahlentscheidung formt sich — aus dem, was du siehst.", "unlock": [], "event": "election_intro" },
+    { "week": 21, "day": 3, "title": "Wahl-Woche II",       "narration": "Letzte Tage vor der Wahl. Gezielte Werbung läuft heiß.", "unlock": [] },
+    { "week": 22, "day": 3, "title": "Wahl",                "narration": "Du entscheidest. Oder der Feed hat längst entschieden.", "unlock": [], "event": "election_day" },
+    { "week": 23, "day": 3, "title": "Danach",              "narration": "Nach der Wahl: Analyse, Streit, Müdigkeit.", "unlock": [] },
+    { "week": 24, "day": 3, "title": "Einfluss-Anfrage",    "narration": "Ein großer Influencer will kooperieren. Dein Account ist Ware.", "unlock": [], "event": "influencer_offer" },
+    { "week": 25, "day": 3, "title": "Rückblick-Vorbereitung","narration": "Streem bereitet deinen Jahresrückblick vor.", "unlock": [] },
+    { "week": 26, "day": 3, "title": "Ende",                "narration": "Das war dein halbes Jahr. Was hat der Algorithmus aus dir gemacht?", "unlock": [], "reflection": "final" }
+  ]
+}

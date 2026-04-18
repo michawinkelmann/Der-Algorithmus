@@ -1,0 +1,47 @@
+{
+  "events": {
+    "shitstorm": {
+      "title": "Ein Post geht viral",
+      "text": "Ein Post aus deinem Feed, den du geteilt hast, wird von 12.000 Menschen gesehen. Manche jubeln. Manche sind wütend. Dein Postfach brennt.",
+      "choices": [
+        { "id": "apologize", "label": "Entschuldigen und löschen", "effect": { "outrage_tolerance": -0.1, "reach": -200 } },
+        { "id": "double_down", "label": "Verteidigen und nachlegen", "effect": { "outrage_tolerance": +0.2, "reach": +600, "political_intensify": true } },
+        { "id": "silent", "label": "Offline gehen", "effect": { "outrage_tolerance": -0.05, "reach": -50 } }
+      ]
+    },
+    "hatewave": {
+      "title": "Hass-Welle",
+      "text": "Ein Trend-Hashtag wird von einer Welle hasserfüllter Kommentare geflutet. Dein Feed spült dir die Debatte trotzdem vor.",
+      "choices": [
+        { "id": "report", "label": "Mehrere Posts melden", "effect": { "outrage_tolerance": -0.15, "reach": +50 } },
+        { "id": "engage", "label": "In Kommentare einsteigen", "effect": { "outrage_tolerance": +0.15, "reach": +300 } },
+        { "id": "scroll", "label": "Weiter scrollen", "effect": { "outrage_tolerance": +0.05, "reach": 0 } }
+      ]
+    },
+    "election_intro": {
+      "title": "Wahlkampf-Finale",
+      "text": "Vier Parteien, ein Stadtrat. Welche Partei ist dir aus deinem Feed am präsentesten?",
+      "choices": [
+        { "id": "inform_more", "label": "Bewusst breiter informieren", "effect": { "diversity_bonus": +0.2 } },
+        { "id": "stay_feed", "label": "Dem Feed vertrauen", "effect": { "echo_chamber": +0.2 } }
+      ]
+    },
+    "election_day": {
+      "title": "Wahltag",
+      "text": "Du gehst wählen — oder nicht. Wen hätte dein Feed dich wählen lassen? Eine Auswertung folgt.",
+      "choices": [
+        { "id": "vote_feed", "label": "Die Partei wählen, die der Feed vorgeschlagen hat", "effect": { "vote_from_feed": true } },
+        { "id": "vote_other", "label": "Gezielt anders wählen", "effect": { "vote_from_feed": false } },
+        { "id": "no_vote", "label": "Nicht wählen", "effect": { "vote_none": true } }
+      ]
+    },
+    "influencer_offer": {
+      "title": "Kooperations-Anfrage",
+      "text": "Nova Lindström schreibt dir: 'Hey! Dein Account würde perfekt passen. Kleine Kooperation? 3 Posts, 50 € pro Story.'",
+      "choices": [
+        { "id": "accept", "label": "Annehmen", "effect": { "ads_in_feed": +1, "reach": +400 } },
+        { "id": "decline", "label": "Dankend ablehnen", "effect": { "reach": -50 } }
+      ]
+    }
+  }
+}

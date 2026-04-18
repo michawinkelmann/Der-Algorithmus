@@ -1,0 +1,37 @@
+{
+  "characters": [
+    { "id": "char_001", "name": "Lina Sommer", "handle": "@lina.sommer", "type": "friend", "avatar": "pink", "bio": "Abi 2025. Kaffee, Volleyball, Klimademo." },
+    { "id": "char_002", "name": "Jonas Keller", "handle": "@jonny_k", "type": "friend", "avatar": "cyan", "bio": "Gamer. ESports. Chaos." },
+    { "id": "char_003", "name": "Mira Özdemir", "handle": "@miraoe", "type": "friend", "avatar": "purple", "bio": "Schülerzeitung. Zukunft? Mal schauen." },
+    { "id": "char_004", "name": "Paul Brehm", "handle": "@paulibrehm", "type": "friend", "avatar": "green", "bio": "FCK-Fan. Memes. Mathe-LK." },
+    { "id": "char_005", "name": "Yara Nguyen", "handle": "@yaranguyen", "type": "friend", "avatar": "yellow", "bio": "Tanzt durchs Leben." },
+
+    { "id": "char_010", "name": "Streem News", "handle": "@streemnews", "type": "journalism", "avatar": "blue", "verified": true, "bio": "Kuratiert Nachrichten. Nicht unabhängig: Plattform-eigen." },
+    { "id": "char_011", "name": "Tagesblick", "handle": "@tagesblick", "type": "journalism", "avatar": "teal", "verified": true, "bio": "Öffentlich-rechtliche Nachrichten (fiktiv)." },
+    { "id": "char_012", "name": "die Zeitung", "handle": "@diezeitung", "type": "journalism", "avatar": "indigo", "verified": true, "bio": "Qualitätsjournalismus. Paywall, leider." },
+    { "id": "char_013", "name": "Faktenprüfer DE", "handle": "@faktenpruefer", "type": "factcheck", "avatar": "green", "verified": true, "bio": "Prüft Aussagen nach. Langweilig und unverzichtbar." },
+
+    { "id": "char_020", "name": "Nova Lindström", "handle": "@nova.lifestyle", "type": "influencer", "avatar": "rose", "verified": true, "bio": "Lifestyle · Reisen · Ads." },
+    { "id": "char_021", "name": "KingKai", "handle": "@kingkai_tv", "type": "influencer", "avatar": "gold", "verified": true, "bio": "Streamer. 2,3 Mio Follower. Ist voll echt." },
+    { "id": "char_022", "name": "DrFit_Marco", "handle": "@drfit_marco", "type": "influencer", "avatar": "red", "verified": false, "bio": "Biohacking, rote Pille, disziplinierte Männer." },
+    { "id": "char_023", "name": "Lukas Wehrmann", "handle": "@wehrmann_klartext", "type": "influencer", "avatar": "grey", "verified": false, "bio": "Klartext-Politik. Unzensiert. Die Wahrheit, die sie dir verschweigen." },
+    { "id": "char_024", "name": "ErikaHeim", "handle": "@erika_heim", "type": "influencer", "avatar": "olive", "verified": false, "bio": "Heimatliebe. Familie. Tradition." },
+    { "id": "char_025", "name": "SoniaScience", "handle": "@sonia_science", "type": "influencer", "avatar": "cyan", "verified": true, "bio": "Wissenschaft erklärt. PhD Physik." },
+    { "id": "char_026", "name": "Halim Baran", "handle": "@halim_codes", "type": "influencer", "avatar": "purple", "verified": false, "bio": "Web Dev, Gaming-Reviews." },
+    { "id": "char_027", "name": "Frau Kiesewetter", "handle": "@kiesewetter_ehrlich", "type": "influencer", "avatar": "beige", "verified": false, "bio": "Mutter, Hausfrau, nachdenkliche Bürgerin." },
+
+    { "id": "char_030", "name": "GamerGhost77", "handle": "@gamerghost77", "type": "community", "avatar": "black", "verified": false, "bio": "Only rank. Only grind." },
+    { "id": "char_031", "name": "MagdaleneNRW", "handle": "@magdalene_nrw", "type": "community", "avatar": "white", "verified": false, "bio": "Zwei Kinder. Sorge um Deutschland." },
+    { "id": "char_032", "name": "TrueFreedomTV", "handle": "@truefreedomtv", "type": "community", "avatar": "grey", "verified": false, "bio": "Alternative Nachrichten. Zensurfrei." },
+
+    { "id": "char_040", "name": "StreemBot_2091", "handle": "@user_2091", "type": "bot", "avatar": "stealth", "verified": false, "bio": "" },
+    { "id": "char_041", "name": "StreemBot_7712", "handle": "@real_patriot99", "type": "bot", "avatar": "stealth", "verified": false, "bio": "WAKE UP 🇩🇪" },
+    { "id": "char_042", "name": "StreemBot_0033", "handle": "@lola_likes", "type": "bot", "avatar": "rose", "verified": false, "bio": "liebe · positivity · 🌸" },
+
+    { "id": "char_050", "name": "Bürgermeisteramt Greifshafen", "handle": "@stadt_greifshafen", "type": "official", "avatar": "blue", "verified": true, "bio": "Offizielle Seite der Stadt." },
+    { "id": "char_051", "name": "Partei MITTE", "handle": "@mitte_greifshafen", "type": "party", "avatar": "teal", "verified": true, "bio": "Partei MITTE — solide Stadtpolitik." },
+    { "id": "char_052", "name": "Die GRÜNEN Greifshafen", "handle": "@gruene_greifshafen", "type": "party", "avatar": "green", "verified": true, "bio": "Nachhaltig. Sozial. Offen." },
+    { "id": "char_053", "name": "HEIMAT-Partei", "handle": "@heimat_partei", "type": "party", "avatar": "brown", "verified": true, "bio": "Für Greifshafen. Für uns." },
+    { "id": "char_054", "name": "Linke Liste Greifshafen", "handle": "@linke_liste", "type": "party", "avatar": "magenta", "verified": true, "bio": "Solidarisch. Mieten deckeln. Klima zuerst." }
+  ]
+}
