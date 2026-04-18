@@ -16,33 +16,233 @@ export function getCharacter(id) {
 /**
  * Generiert eine SVG-Avatar-Datenstruktur aus einem Integer.
  * Deterministisch: gleiche Zahl → gleicher Avatar.
+ * Kombiniert unabhängige Merkmale (Hautton, Frisur, Brille,
+ * Accessoires, Augen, Mund) zu vielfältigen Charakter-Portraits.
  */
 export function avatarSvg(seed = 0) {
-  const palette = [
-    ['#ff2e88','#7a003d'],
-    ['#22d3ee','#034354'],
-    ['#facc15','#5a4400'],
-    ['#4ade80','#093821'],
-    ['#a78bfa','#2d1b5a'],
-    ['#fb7185','#5a1322'],
-    ['#60a5fa','#0c2855'],
-    ['#f97316','#59210a']
+  // Knuth-Hash für bessere Streuung der Merkmale über den Seed.
+  const h = (((seed | 0) + 1) * 2654435761) >>> 0;
+  const pick = (n, mix) => Math.floor((((h ^ (mix * 2246822519)) >>> 0) / 4294967296) * n);
+
+  const skinTones = [
+    '#fde0c8', '#f7c9a4', '#eab892', '#d49e74', '#b57746',
+    '#8d5a36', '#6a3f22', '#4a2c1a',
+    '#a5d8ff', '#b8f2c9', '#f4b8e4'
   ];
-  const [fg, bg] = palette[seed % palette.length];
-  const shape = seed % 4;
-  const eyeY = 42 + (seed % 3) * 2;
-  const smile = (seed % 2) ? 'M 38 65 Q 50 72 62 65' : 'M 38 68 Q 50 62 62 68';
+  const hairColors = [
+    '#1a1412', '#3d2418', '#6b3e22', '#a56b3a',
+    '#d9a441', '#ead9a8', '#b8b8b8', '#ffffff',
+    '#c83a5c', '#7a3aa5', '#3a7ac8', '#3ac8a5', '#e85a7a'
+  ];
+  const bgColors = [
+    '#ff2e88', '#22d3ee', '#facc15', '#4ade80',
+    '#a78bfa', '#fb7185', '#60a5fa', '#f97316',
+    '#34d399', '#f472b6', '#e879f9', '#f43f5e'
+  ];
+  const shirtColors = [
+    '#1f2937', '#ef4444', '#f59e0b', '#10b981',
+    '#3b82f6', '#8b5cf6', '#ec4899', '#64748b',
+    '#0ea5e9', '#a3e635'
+  ];
+
+  const skin   = skinTones[pick(skinTones.length, 1)];
+  const hair   = hairColors[pick(hairColors.length, 2)];
+  const bg     = bgColors[pick(bgColors.length, 3)];
+  const shirt  = shirtColors[pick(shirtColors.length, 4)];
+  const accent = bgColors[pick(bgColors.length, 11)];
+
+  const hairStyle  = pick(10, 5);
+  const eyeStyle   = pick(5, 6);
+  const mouthStyle = pick(5, 7);
+  const glasses    = pick(5, 8);   // 0/1 keine, 2 rund, 3 eckig, 4 Sonnenbrille
+  const accessory  = pick(6, 9);   // 0 nichts, 1 Blush, 2 Ohrringe, 3 Muttermal, 4 Sommersprossen, 5 Nasenring
+  const faceShape  = pick(3, 10);
+  const browStyle  = pick(3, 12);
+
+  // Hintergrund (farbiger „Portrait-Kreis")
+  const bgCircle = `<circle cx="50" cy="50" r="50" fill="${bg}"/>`;
+
+  // T-Shirt / Kragen
+  const shirtSvg = `<path d="M 18 100 Q 22 84 36 82 Q 42 90 50 90 Q 58 90 64 82 Q 78 84 82 100 Z" fill="${shirt}"/>`;
+  const neckSvg  = `<path d="M 44 76 Q 44 84 50 86 Q 56 84 56 76 Z" fill="${skin}"/>
+    <path d="M 44 82 Q 50 86 56 82" stroke="#000" stroke-width="0.6" stroke-opacity="0.18" fill="none"/>`;
+
+  // Kopfform
   let head;
-  if (shape === 0) head = `<circle cx="50" cy="50" r="40" fill="${bg}" />`;
-  else if (shape === 1) head = `<rect x="12" y="12" width="76" height="76" rx="14" fill="${bg}" />`;
-  else if (shape === 2) head = `<polygon points="50,10 90,50 50,90 10,50" fill="${bg}" />`;
-  else head = `<ellipse cx="50" cy="50" rx="40" ry="36" fill="${bg}" />`;
+  if (faceShape === 0) {
+    head = `<ellipse cx="50" cy="52" rx="26" ry="30" fill="${skin}"/>`;
+  } else if (faceShape === 1) {
+    head = `<path d="M 24 46 Q 24 26 50 26 Q 76 26 76 46 Q 76 70 62 78 Q 50 84 38 78 Q 24 70 24 46 Z" fill="${skin}"/>`;
+  } else {
+    head = `<path d="M 26 44 Q 26 24 50 24 Q 74 24 74 44 L 74 60 Q 74 78 50 82 Q 26 78 26 60 Z" fill="${skin}"/>`;
+  }
+  // Kinn-Schatten für etwas Tiefe
+  const shading = `<ellipse cx="50" cy="74" rx="14" ry="5" fill="#000" opacity="0.08"/>`;
+
+  // Ohren (nur wenn Frisur sie nicht verdeckt)
+  const earsVisible = ![1, 3, 4, 7].includes(hairStyle);
+  const ears = earsVisible
+    ? `<ellipse cx="23" cy="55" rx="3" ry="5" fill="${skin}"/>
+       <ellipse cx="77" cy="55" rx="3" ry="5" fill="${skin}"/>`
+    : '';
+
+  // Frisuren / Kopfbedeckung
+  let hairSvg = '';
+  if (hairStyle === 0) {
+    // Kurze, leicht strubbelige Frisur
+    hairSvg = `<path d="M 24 48 Q 22 22 50 22 Q 78 22 76 48 Q 72 36 66 34 Q 58 28 50 30 Q 42 28 34 34 Q 28 36 24 48 Z" fill="${hair}"/>`;
+  } else if (hairStyle === 1) {
+    // Lange, gerade Haare (über die Ohren)
+    hairSvg = `<path d="M 20 46 Q 20 22 50 22 Q 80 22 80 46 L 80 82 L 72 82 L 72 40 Q 50 30 28 40 L 28 82 L 20 82 Z" fill="${hair}"/>`;
+  } else if (hairStyle === 2) {
+    // Seitenscheitel
+    hairSvg = `<path d="M 24 46 Q 24 22 50 22 Q 78 22 78 46 Q 70 36 54 38 Q 46 30 34 34 Q 28 38 24 46 Z" fill="${hair}"/>`;
+  } else if (hairStyle === 3) {
+    // Dutt / Zopf oben
+    hairSvg = `<circle cx="50" cy="18" r="9" fill="${hair}"/>
+      <path d="M 24 46 Q 24 24 50 24 Q 76 24 76 46 Q 68 36 50 36 Q 32 36 24 46 Z" fill="${hair}"/>`;
+  } else if (hairStyle === 4) {
+    // Afro / Lockenkopf
+    hairSvg = `<circle cx="30" cy="36" r="11" fill="${hair}"/>
+      <circle cx="42" cy="22" r="11" fill="${hair}"/>
+      <circle cx="58" cy="22" r="11" fill="${hair}"/>
+      <circle cx="70" cy="36" r="11" fill="${hair}"/>
+      <circle cx="22" cy="50" r="9"  fill="${hair}"/>
+      <circle cx="78" cy="50" r="9"  fill="${hair}"/>
+      <circle cx="50" cy="18" r="10" fill="${hair}"/>`;
+  } else if (hairStyle === 5) {
+    // Pony (Bangs)
+    hairSvg = `<path d="M 22 48 Q 22 22 50 22 Q 78 22 78 48 Q 64 38 50 44 Q 36 38 22 48 Z" fill="${hair}"/>`;
+  } else if (hairStyle === 6) {
+    // Mohawk / Undercut
+    hairSvg = `<path d="M 42 14 L 58 14 Q 60 30 56 42 L 44 42 Q 40 30 42 14 Z" fill="${hair}"/>
+      <path d="M 24 50 Q 28 46 36 46 M 64 46 Q 72 46 76 50" stroke="${hair}" stroke-width="3" stroke-linecap="round" fill="none"/>`;
+  } else if (hairStyle === 7) {
+    // Beanie / Mütze
+    hairSvg = `<path d="M 22 46 Q 22 16 50 16 Q 78 16 78 46 L 78 50 L 22 50 Z" fill="${accent}"/>
+      <rect x="22" y="48" width="56" height="5" fill="#000" opacity="0.25"/>
+      <circle cx="50" cy="12" r="4" fill="${accent}"/>`;
+  } else if (hairStyle === 8) {
+    // Kahl / kurz rasiert
+    hairSvg = `<path d="M 26 44 Q 28 30 50 30 Q 72 30 74 44" stroke="${hair}" stroke-width="1.5" fill="none" opacity="0.7"/>`;
+  } else {
+    // Pferdeschwanz hinter dem Kopf
+    hairSvg = `<path d="M 24 46 Q 24 22 50 22 Q 76 22 76 46 Q 70 36 56 36 Q 50 28 44 36 Q 30 36 24 46 Z" fill="${hair}"/>
+      <path d="M 76 42 Q 90 52 84 74 Q 80 66 76 58 Z" fill="${hair}"/>`;
+  }
+
+  // Augenbrauen
+  const by = 46;
+  let brows;
+  if (browStyle === 0) {
+    brows = `<path d="M 34 ${by} Q 40 ${by - 2} 46 ${by}" stroke="${hair}" stroke-width="2" stroke-linecap="round" fill="none"/>
+      <path d="M 54 ${by} Q 60 ${by - 2} 66 ${by}" stroke="${hair}" stroke-width="2" stroke-linecap="round" fill="none"/>`;
+  } else if (browStyle === 1) {
+    brows = `<path d="M 34 ${by} L 46 ${by}" stroke="${hair}" stroke-width="2" stroke-linecap="round"/>
+      <path d="M 54 ${by} L 66 ${by}" stroke="${hair}" stroke-width="2" stroke-linecap="round"/>`;
+  } else {
+    brows = `<path d="M 34 ${by + 1} Q 40 ${by - 3} 46 ${by - 1}" stroke="${hair}" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+      <path d="M 54 ${by - 1} Q 60 ${by - 3} 66 ${by + 1}" stroke="${hair}" stroke-width="2.2" stroke-linecap="round" fill="none"/>`;
+  }
+
+  // Augen
+  const eyeY = 54;
+  let eyes;
+  if (eyeStyle === 0) {
+    eyes = `<circle cx="40" cy="${eyeY}" r="2.2" fill="#1a1a1a"/>
+            <circle cx="60" cy="${eyeY}" r="2.2" fill="#1a1a1a"/>`;
+  } else if (eyeStyle === 1) {
+    eyes = `<path d="M 36 ${eyeY} Q 40 ${eyeY - 3} 44 ${eyeY} Q 40 ${eyeY + 2} 36 ${eyeY} Z" fill="#1a1a1a"/>
+            <path d="M 56 ${eyeY} Q 60 ${eyeY - 3} 64 ${eyeY} Q 60 ${eyeY + 2} 56 ${eyeY} Z" fill="#1a1a1a"/>`;
+  } else if (eyeStyle === 2) {
+    eyes = `<path d="M 36 ${eyeY} Q 40 ${eyeY - 3} 44 ${eyeY}" stroke="#1a1a1a" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+            <path d="M 56 ${eyeY} Q 60 ${eyeY - 3} 64 ${eyeY}" stroke="#1a1a1a" stroke-width="1.6" fill="none" stroke-linecap="round"/>`;
+  } else if (eyeStyle === 3) {
+    eyes = `<circle cx="40" cy="${eyeY}" r="3" fill="#1a1a1a"/>
+            <circle cx="60" cy="${eyeY}" r="3" fill="#1a1a1a"/>
+            <circle cx="41" cy="${eyeY - 1}" r="1" fill="#fff"/>
+            <circle cx="61" cy="${eyeY - 1}" r="1" fill="#fff"/>`;
+  } else {
+    // Offene Augen mit Iris in Akzentfarbe
+    eyes = `<ellipse cx="40" cy="${eyeY}" rx="3.2" ry="2.4" fill="#fff"/>
+            <ellipse cx="60" cy="${eyeY}" rx="3.2" ry="2.4" fill="#fff"/>
+            <circle cx="40" cy="${eyeY}" r="1.8" fill="${accent}"/>
+            <circle cx="60" cy="${eyeY}" r="1.8" fill="${accent}"/>
+            <circle cx="40.5" cy="${eyeY - 0.5}" r="0.6" fill="#fff"/>
+            <circle cx="60.5" cy="${eyeY - 0.5}" r="0.6" fill="#fff"/>`;
+  }
+
+  // Brille / Sonnenbrille
+  let glassesSvg = '';
+  if (glasses === 2) {
+    glassesSvg = `<circle cx="40" cy="${eyeY}" r="6" fill="none" stroke="#1a1a1a" stroke-width="1.4"/>
+      <circle cx="60" cy="${eyeY}" r="6" fill="none" stroke="#1a1a1a" stroke-width="1.4"/>
+      <line x1="46" y1="${eyeY}" x2="54" y2="${eyeY}" stroke="#1a1a1a" stroke-width="1.4"/>`;
+  } else if (glasses === 3) {
+    glassesSvg = `<rect x="33" y="${eyeY - 5}" width="14" height="10" rx="1.5" fill="none" stroke="#1a1a1a" stroke-width="1.4"/>
+      <rect x="53" y="${eyeY - 5}" width="14" height="10" rx="1.5" fill="none" stroke="#1a1a1a" stroke-width="1.4"/>
+      <line x1="47" y1="${eyeY}" x2="53" y2="${eyeY}" stroke="#1a1a1a" stroke-width="1.4"/>`;
+  } else if (glasses === 4) {
+    glassesSvg = `<rect x="32" y="${eyeY - 5}" width="16" height="10" rx="4" fill="#1a1a1a"/>
+      <rect x="52" y="${eyeY - 5}" width="16" height="10" rx="4" fill="#1a1a1a"/>
+      <line x1="48" y1="${eyeY}" x2="52" y2="${eyeY}" stroke="#1a1a1a" stroke-width="1.4"/>
+      <rect x="35" y="${eyeY - 4}" width="4" height="3" rx="1" fill="#fff" opacity="0.35"/>
+      <rect x="55" y="${eyeY - 4}" width="4" height="3" rx="1" fill="#fff" opacity="0.35"/>`;
+  }
+
+  // Nase (dezent)
+  const nose = `<path d="M 50 56 Q 48 62 50 64 Q 52 62 50 56" fill="#000" opacity="0.08"/>`;
+
+  // Mund
+  const my = 70;
+  let mouth;
+  if (mouthStyle === 0) {
+    mouth = `<path d="M 44 ${my} Q 50 ${my + 4} 56 ${my}" stroke="#4a2518" stroke-width="1.6" fill="none" stroke-linecap="round"/>`;
+  } else if (mouthStyle === 1) {
+    mouth = `<path d="M 42 ${my - 1} Q 50 ${my + 6} 58 ${my - 1} Q 50 ${my + 2} 42 ${my - 1} Z" fill="#c83a5c"/>
+      <path d="M 42 ${my - 1} Q 50 ${my + 2} 58 ${my - 1}" stroke="#fff" stroke-width="0.8" fill="none" opacity="0.5"/>`;
+  } else if (mouthStyle === 2) {
+    mouth = `<line x1="46" y1="${my + 1}" x2="54" y2="${my + 1}" stroke="#4a2518" stroke-width="1.6" stroke-linecap="round"/>`;
+  } else if (mouthStyle === 3) {
+    mouth = `<path d="M 43 ${my - 1} Q 50 ${my + 7} 57 ${my - 1} Z" fill="#4a2518"/>
+      <path d="M 45 ${my + 1} Q 50 ${my + 3} 55 ${my + 1}" stroke="#fff" stroke-width="1.2" fill="none" stroke-linecap="round"/>`;
+  } else {
+    mouth = `<path d="M 44 ${my + 1} Q 48 ${my - 1} 52 ${my + 1} Q 56 ${my - 1} 58 ${my + 1}" stroke="#4a2518" stroke-width="1.5" fill="none" stroke-linecap="round"/>`;
+  }
+
+  // Accessoires
+  let acc = '';
+  if (accessory === 1) {
+    acc = `<ellipse cx="34" cy="66" rx="3" ry="2" fill="#ff7aa2" opacity="0.4"/>
+      <ellipse cx="66" cy="66" rx="3" ry="2" fill="#ff7aa2" opacity="0.4"/>`;
+  } else if (accessory === 2 && earsVisible) {
+    acc = `<circle cx="23" cy="62" r="2" fill="${accent}"/>
+      <circle cx="77" cy="62" r="2" fill="${accent}"/>`;
+  } else if (accessory === 3) {
+    acc = `<circle cx="42" cy="66" r="1" fill="#4a2518"/>`;
+  } else if (accessory === 4) {
+    acc = `<circle cx="38" cy="60" r="0.8" fill="#8d5a36" opacity="0.7"/>
+      <circle cx="44" cy="62" r="0.8" fill="#8d5a36" opacity="0.7"/>
+      <circle cx="56" cy="62" r="0.8" fill="#8d5a36" opacity="0.7"/>
+      <circle cx="62" cy="60" r="0.8" fill="#8d5a36" opacity="0.7"/>`;
+  } else if (accessory === 5) {
+    acc = `<circle cx="46" cy="64" r="1.1" fill="none" stroke="#d9a441" stroke-width="0.8"/>`;
+  }
 
   return `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    ${bgCircle}
+    ${shirtSvg}
+    ${neckSvg}
+    ${ears}
     ${head}
-    <circle cx="38" cy="${eyeY}" r="4" fill="${fg}" />
-    <circle cx="62" cy="${eyeY}" r="4" fill="${fg}" />
-    <path d="${smile}" stroke="${fg}" stroke-width="3" stroke-linecap="round" fill="none" />
+    ${shading}
+    ${hairSvg}
+    ${brows}
+    ${eyes}
+    ${glassesSvg}
+    ${nose}
+    ${mouth}
+    ${acc}
   </svg>`;
 }
 
