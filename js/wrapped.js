@@ -1,0 +1,317 @@
+// wrapped.js — Jahresrückblick im "Wrapped"-Stil.
+
+import { Store } from './state.js';
+
+let POSTS_LOOKUP = null;
+
+export function setPostsLookup(posts) {
+  POSTS_LOOKUP = new Map(posts.map(p => [p.id, p]));
+}
+
+/**
+ * Analysiert die gespielte Historie und erzeugt Slides.
+ */
+export function buildWrapped() {
+  const d = Store.data;
+  const actions = d.history.flatMap(h => h.actions || []);
+  const feedSeen = d.history.flatMap(h => h.feedSeen || []);
+
+  // Top-Interessen
+  const interests = { ...d.userProfile.interests };
+  const topInterests = Object.entries(interests)
+    .filter(([, v]) => v > 0.05)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+
+  const topWord = topInterests[0] ? labelFor(topInterests[0][0]) : 'Lifestyle';
+
+  // Anteil politischer Likes nach Richtung
+  let leftActions = 0, rightActions = 0, totalPolitical = 0;
+  for (const a of actions) {
+    const post = POSTS_LOOKUP?.get(a.postId);
+    if (!post) continue;
+    const lean = post.political_lean || 0;
+    if (Math.abs(lean) > 0.1 && ['like','comment','share','angry_comment'].includes(a.type)) {
+      totalPolitical++;
+      if (lean > 0) rightActions++;
+      else leftActions++;
+    }
+  }
+  const dominantShare = totalPolitical > 0
+    ? Math.max(leftActions, rightActions) / totalPolitical
+    : 0;
+
+  // Rabbit-Hole-Pfad: Abfolge der dominanten Tags pro Woche
+  const pathway = [];
+  for (const h of d.history) {
+    const counts = {};
+    for (const a of h.actions || []) {
+      const post = POSTS_LOOKUP?.get(a.postId);
+      if (!post) continue;
+      for (const t of post.tags || []) counts[t] = (counts[t] || 0) + 1;
+    }
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+    if (top) pathway.push({ week: h.week, tag: top[0] });
+  }
+
+  // „Werbeprofil"
+  const adProfile = generateAdProfile(topInterests, d.userProfile);
+
+  // Was wurde NICHT gezeigt? (gegenteilige Richtung)
+  const missed = generateMissedList(d.userProfile, feedSeen);
+
+  // Screen-Time
+  const totalActions = actions.length;
+  const estimatedMinutes = totalActions * 2.3 + d.history.length * 5;
+
+  // Zeit mit Warnhinweisen
+  const twStats = d.contentWarningsAccepted || {};
+  const twShown = Object.values(twStats).reduce((a, b) => a + (b.shown || 0), 0);
+  const twSkipped = Object.values(twStats).reduce((a, b) => a + (b.skipped || 0), 0);
+
+  // Eigene Posts
+  const ownCount = d.ownPosts.length;
+
+  // Lean-Score
+  const lean = d.userProfile.political_lean_estimated;
+
+  return [
+    {
+      id: 's1',
+      html: `
+        <h1>Dein Streem-Rückblick</h1>
+        <p>Ein halbes Jahr. ${d.history.length} Aktionen. Tausende Entscheidungen. Los.</p>
+      `
+    },
+    {
+      id: 's2',
+      html: `
+        <h2>Dein Jahres-Wort</h2>
+        <div class="big-word">${escapeHtml(topWord)}</div>
+        <p>Dein Feed wurde von diesem Thema dominiert.</p>
+      `
+    },
+    {
+      id: 's3',
+      html: `
+        <h2>Deine Top-Interessen laut Algorithmus</h2>
+        <div class="wrapped-bars">
+          ${topInterests.map(([k, v]) => `
+            <div class="row">
+              <span class="lbl">${escapeHtml(labelFor(k))}</span>
+              <div class="bar"><div class="fill" style="width:${Math.round(v*100)}%"></div></div>
+              <span>${Math.round(v*100)}%</span>
+            </div>
+          `).join('')}
+        </div>
+        <p class="muted small">Das System hat aus ${actions.length} Interaktionen gelernt.</p>
+      `
+    },
+    {
+      id: 's4',
+      html: `
+        <h2>Dein Echokammer-Score</h2>
+        <div class="big-num">${Math.round(dominantShare * 100)}%</div>
+        <p>${dominantShare > 0.7
+          ? 'deiner politischen Likes gingen in eine einzige Richtung.'
+          : dominantShare > 0.5
+          ? 'deiner politischen Likes gingen in eine dominante Richtung.'
+          : 'deiner politischen Likes waren über Richtungen verteilt.'}</p>
+        <div class="wrapped-lean">
+          <div class="lean-track"><div class="lean-dot" style="left:${Math.round((lean+1)*50)}%"></div></div>
+          <div class="labels"><span>links</span><span>Mitte</span><span>rechts</span></div>
+        </div>
+        <p class="muted small">${totalPolitical} politische Interaktionen insgesamt.</p>
+      `
+    },
+    {
+      id: 's5',
+      html: `
+        <h2>Dein Pfad durchs Rabbit Hole</h2>
+        <div class="wrapped-pathway">
+          <div class="pathway-line">
+            ${pathway.map((p, i) => `
+              <span class="pathway-node ${isRadical(p.tag) ? 'radical' : ''}">W${p.week} · ${escapeHtml(labelFor(p.tag))}</span>
+              ${i < pathway.length - 1 ? '<span class="pathway-arrow">→</span>' : ''}
+            `).join('')}
+          </div>
+        </div>
+        <p class="muted small">Jedes Kästchen ist das Thema, auf das du in dieser Woche am meisten reagiert hast.</p>
+      `
+    },
+    {
+      id: 's6',
+      html: `
+        <h2>Wer der Algorithmus denkt, dass du bist</h2>
+        <div class="wrapped-ads">
+          <div class="ad-label">Werbeprofil · für Anzeigenkunden</div>
+          <ul>
+            ${adProfile.map(a => `<li>${escapeHtml(a)}</li>`).join('')}
+          </ul>
+        </div>
+        <p class="muted small">So würde ein Werbetreibender dich ansprechen.</p>
+      `
+    },
+    {
+      id: 's7',
+      html: `
+        <h2>Was du nicht gesehen hast</h2>
+        <div class="wrapped-missed">
+          ${missed.map(m => `<div class="card"><strong>${escapeHtml(m.title)}</strong><br/>${escapeHtml(m.desc)}</div>`).join('')}
+        </div>
+        <p class="muted small">Diese Themen und Perspektiven hat dein Feed dir selten gezeigt.</p>
+      `
+    },
+    {
+      id: 's8',
+      html: `
+        <h2>Deine Streem-Zeit</h2>
+        <div class="big-num">${Math.round(estimatedMinutes)} min</div>
+        <p>Ungefähr auf der App verbracht. ${ownCount} eigene Posts. ${twShown} Inhaltswarnungen angeschaut, ${twSkipped} übersprungen.</p>
+      `
+    },
+    {
+      id: 's9',
+      html: `
+        <h2>Und jetzt?</h2>
+        <p>Du hast gerade gesehen, wie ein Algorithmus dich ausliest, gewichtet und zurückspielt.</p>
+        <p>Das Spiel ist nicht echt. Die Mechanik ist es.</p>
+        <div class="wrapped-final-actions">
+          <button class="btn btn-primary" id="btn-go-sandbox">Dein eigener Algorithmus →</button>
+          <button class="btn btn-ghost" id="btn-go-manifest">Medien-Manifest →</button>
+        </div>
+      `
+    }
+  ];
+}
+
+function labelFor(tag) {
+  const m = {
+    gaming: 'Gaming',
+    'politik-links': 'Politik (links)',
+    'politik-rechts': 'Politik (rechts)',
+    'politik-mitte': 'Politik (Mitte)',
+    lifestyle: 'Lifestyle',
+    wissenschaft: 'Wissenschaft',
+    verschwoerung: 'Verschwörung',
+    humor: 'Humor',
+    hass: 'Hass',
+    feminismus: 'Feminismus',
+    'anti-feminismus': 'Anti-Feminismus',
+    musik: 'Musik',
+    sport: 'Sport',
+    klima: 'Klima',
+    'true-crime': 'True Crime'
+  };
+  return m[tag] || tag;
+}
+
+function isRadical(tag) {
+  return ['politik-rechts','verschwoerung','hass','anti-feminismus'].includes(tag);
+}
+
+function generateAdProfile(topInterests, profile) {
+  const lines = [];
+  const lean = profile.political_lean_estimated;
+  if (lean > 0.35) lines.push('politisch: konservativ bis rechts');
+  else if (lean < -0.35) lines.push('politisch: progressiv bis links');
+  else lines.push('politisch: Mitte');
+
+  if (profile.interests['gaming'] > 0.3) lines.push('Zielgruppe: Gaming');
+  if (profile.interests['klima'] > 0.3) lines.push('affin für: Nachhaltigkeit');
+  if (profile.interests['verschwoerung'] > 0.2) lines.push('empfänglich für: „alternative Erklärungen"');
+  if (profile.interests['anti-feminismus'] > 0.2) lines.push('empfänglich für: Männer-Coaching-Angebote');
+  if (profile.interests['feminismus'] > 0.3) lines.push('affin für: progressive Marken, Diversity');
+  if (profile.interests['lifestyle'] > 0.4) lines.push('hoher Konsumindex');
+  if (profile.outrage_tolerance > 0.4) lines.push('toleriert Empörungsmarketing');
+  if (lines.length < 2) lines.push('Interessen-Cluster: ' + topInterests.slice(0, 3).map(([k]) => labelFor(k)).join(', '));
+  return lines;
+}
+
+function generateMissedList(profile, feedSeen) {
+  const items = [];
+  if (profile.political_lean_estimated > 0.25) {
+    items.push({ title: 'Linke Argumente zur Klimapolitik', desc: 'Dein Feed hat sie kaum gezeigt.' });
+    items.push({ title: 'Wissenschaftliche Einordnungen', desc: 'Oft zugunsten lauter Meinungen ausgeblendet.' });
+  } else if (profile.political_lean_estimated < -0.25) {
+    items.push({ title: 'Konservative Wirtschaftsargumente', desc: 'Wurden selten oben sortiert.' });
+    items.push({ title: 'Ländlich-konservative Stimmen', desc: 'Kaum Reichweite in deinem Feed.' });
+  }
+  if ((profile.interests['wissenschaft'] || 0) < 0.2) {
+    items.push({ title: 'Faktenchecks', desc: 'Wurden von Empörungsposts verdrängt.' });
+  }
+  if ((profile.interests['politik-mitte'] || 0) < 0.2) {
+    items.push({ title: 'Stimmen der politischen Mitte', desc: 'Sie bekommen selten Reichweite.' });
+  }
+  items.push({ title: 'Lokale, konstruktive Lösungen', desc: 'Greifshafen hat mehr als nur Empörung.' });
+  return items.slice(0, 4);
+}
+
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+/**
+ * Rendert alle Slides und steuert die Navigation.
+ */
+export function renderWrapped(onSandbox, onManifest) {
+  const slides = buildWrapped();
+  const root = document.getElementById('wrapped-root');
+  root.innerHTML = '';
+
+  for (let i = 0; i < slides.length; i++) {
+    const s = document.createElement('div');
+    s.className = 'wrapped-slide' + (i === 0 ? ' active' : '');
+    s.dataset.idx = i;
+    s.innerHTML = slides[i].html;
+    root.appendChild(s);
+  }
+
+  const dots = document.createElement('div');
+  dots.className = 'wrapped-dots';
+  for (let i = 0; i < slides.length; i++) {
+    const d = document.createElement('span');
+    if (i === 0) d.className = 'on';
+    dots.appendChild(d);
+  }
+  root.appendChild(dots);
+
+  const nav = document.createElement('div');
+  nav.className = 'wrapped-nav';
+  nav.innerHTML = `
+    <button class="btn btn-ghost" id="wr-back">Zurück</button>
+    <button class="btn btn-primary" id="wr-next">Weiter</button>
+  `;
+  root.appendChild(nav);
+
+  let idx = 0;
+  const show = (n) => {
+    if (n < 0 || n >= slides.length) return;
+    root.querySelectorAll('.wrapped-slide').forEach(el => el.classList.toggle('active', +el.dataset.idx === n));
+    root.querySelectorAll('.wrapped-dots span').forEach((d, i) => d.classList.toggle('on', i === n));
+    idx = n;
+    // letzte Slide: Buttons wiring
+    if (n === slides.length - 1) {
+      setTimeout(() => {
+        const sbx = root.querySelector('#btn-go-sandbox');
+        if (sbx) sbx.onclick = () => onSandbox && onSandbox();
+        const mf = root.querySelector('#btn-go-manifest');
+        if (mf) mf.onclick = () => onManifest && onManifest();
+      }, 20);
+    }
+  };
+  nav.querySelector('#wr-back').onclick = () => show(idx - 1);
+  nav.querySelector('#wr-next').onclick = () => show(idx + 1);
+
+  // Tastatur
+  document.addEventListener('keydown', wrappedKey);
+  function wrappedKey(e) {
+    const active = document.getElementById('screen-wrapped').classList.contains('active');
+    if (!active) { document.removeEventListener('keydown', wrappedKey); return; }
+    if (e.key === 'ArrowRight' || e.key === ' ') show(idx + 1);
+    if (e.key === 'ArrowLeft') show(idx - 1);
+  }
+}

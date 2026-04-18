@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>Streem — Data-Validator</title>
+  <style>
+    body { font-family: -apple-system, "Segoe UI", sans-serif; max-width: 900px; margin: 2rem auto; padding: 1rem; background: #0b0d12; color: #e8ebf3; }
+    h1 { color: #ff2e88; }
+    .ok { color: #4ade80; }
+    .err { color: #f87171; }
+    pre { background: #1d2130; padding: 10px; border-radius: 6px; overflow: auto; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { padding: 6px 10px; border: 1px solid #262b3a; text-align: left; font-size: 13px; }
+    th { background: #1d2130; }
+  </style>
+</head>
+<body>
+  <h1>Data-Validator</h1>
+  <p>Prüft die JSON-Dateien in <code>../data/</code>.</p>
+  <div id="out">Lade…</div>
+
+  <script type="module">
+    const FILES = ['posts.json','characters.json','events.json','ads.json','weeks.json'];
+    const out = document.getElementById('out');
+    const results = [];
+    for (const f of FILES) {
+      try {
+        const r = await fetch('../data/' + f);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        let summary = '';
+        if (f === 'posts.json') summary = `${d.posts.length} Posts`;
+        else if (f === 'characters.json') summary = `${d.characters.length} Charaktere`;
+        else if (f === 'events.json') summary = `${d.events.length} Events · ${d.guilds.length} Gilden · ${d.parties.length} Parteien`;
+        else if (f === 'ads.json') summary = `${d.ads.length} Anzeigen`;
+        else if (f === 'weeks.json') summary = `${d.weeks.length} Wochen`;
+        results.push({ f, ok: true, summary });
+      } catch (e) {
+        results.push({ f, ok: false, summary: e.message });
+      }
+    }
+
+    // Posts-Validierung: prüfen, dass jeder Autor existiert
+    let orphanAuthors = [];
+    try {
+      const chars = await (await fetch('../data/characters.json')).json();
+      const charIds = new Set(chars.characters.map(c => c.id));
+      const posts = await (await fetch('../data/posts.json')).json();
+      const ads = await (await fetch('../data/ads.json')).json();
+      for (const p of posts.posts) {
+        if (!charIds.has(p.author)) orphanAuthors.push({ post: p.id, author: p.author });
+      }
+      for (const a of ads.ads) {
+        if (!charIds.has(a.author)) orphanAuthors.push({ post: a.id, author: a.author });
+      }
+    } catch {}
+
+    let html = '<table><tr><th>Datei</th><th>Status</th><th>Info</th></tr>';
+    for (const r of results) {
+      html += `<tr><td>${r.f}</td><td class="${r.ok?'ok':'err'}">${r.ok?'✓':'✗'}</td><td>${r.summary}</td></tr>`;
+    }
+    html += '</table>';
+    html += `<h2>Author-Referenzen</h2>`;
+    if (orphanAuthors.length === 0) html += '<p class="ok">✓ alle Autoren referenzieren existierende Charaktere.</p>';
+    else html += `<pre class="err">${orphanAuthors.map(o => o.post + ' → ' + o.author).join('\n')}</pre>`;
+
+    out.innerHTML = html;
+  </script>
+</body>
+</html>
