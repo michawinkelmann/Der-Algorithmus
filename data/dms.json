@@ -1,0 +1,117 @@
+{
+  "threads": [
+    {
+      "id": "dm_lea",
+      "with": "char_lea",
+      "title": "Lea",
+      "messages": [
+        { "week": 2, "from": "char_lea", "text": "hey, du bist neu, oder? wir sitzen in geo nebeneinander. magst du heute nach der schule auf nen kaffee?" },
+        { "week": 2, "from": "char_lea", "text": "es gibt nur einen ort hier, der das wort verdient. café hafen. du wirst es lieben oder hassen — gibt nichts dazwischen." },
+        { "week": 5, "from": "char_lea", "text": "warst du gestern auf dem fleetplatz? die demo war kleiner als gedacht, aber mira hat richtig gut gesprochen." },
+        { "week": 9, "from": "char_lea", "text": "krasse anzeigen plötzlich, oder? bei mir kommen nur sneaker. wahrscheinlich weil ich ständig drüber poste 😅" },
+        { "week": 14, "from": "char_lea", "text": "hab dich heute morgen gar nicht gesehen. alles ok? du wirkst irgendwie… anders in letzter zeit." },
+        { "week": 20, "from": "char_lea", "text": "ich bin echt unsicher, wen ich wählen soll. mein feed zeigt mir nur zukunft und ein bisschen bürgerliste. dir auch?" }
+      ],
+      "replies": [
+        {
+          "after_week": 2,
+          "choices": [
+            { "id": "lea_2_warm",    "text": "Klar, gerne. 16 Uhr?",                  "effect": { "tags": { "lifestyle": 0.1 },  "lea_close": 0.3 } },
+            { "id": "lea_2_distant", "text": "Heute schlecht, vielleicht nächste Woche.", "effect": { "lea_close": -0.1 } },
+            { "id": "lea_2_curious", "text": "Hafen klingt gut. Erzähl mir mehr.",     "effect": { "tags": { "lifestyle": 0.05 }, "lea_close": 0.2 } }
+          ]
+        },
+        {
+          "after_week": 14,
+          "choices": [
+            { "id": "lea_14_open",      "text": "Ehrlich gesagt: dieser Feed macht was mit mir.", "effect": { "lea_close": 0.4, "self_aware": 1 } },
+            { "id": "lea_14_deflect",   "text": "Alles ok. Stress halt.",                        "effect": { "lea_close": -0.1 } },
+            { "id": "lea_14_defensive", "text": "Wie meinst du das?",                            "effect": { "lea_close": 0 } }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dm_finn",
+      "with": "char_finn",
+      "title": "Finn",
+      "messages": [
+        { "week": 3,  "from": "char_finn", "text": "yo neue:r! moritz meinte ich soll dich anschreiben. spielst du was?" },
+        { "week": 8,  "from": "char_finn", "text": "ehrlich, die ganzen mädels in gaming-streams sind nur clout-chaser. find ich krass anstrengend grade." },
+        { "week": 13, "from": "char_finn", "text": "marc-stay-based macht echt geile videos. nicht alles ist gut, aber paar punkte sitzen." },
+        { "week": 17, "from": "char_finn", "text": "ich war auf so nem treffen vom echte-werte-discord. anders als ich dachte. die hören wenigstens zu." },
+        { "week": 21, "from": "char_finn", "text": "hör mal, ich glaub ich hab da gerade was rausgefunden, was die offiziellen verheimlichen. willst du sehen?" },
+        { "week": 24, "from": "char_finn", "text": "die in der gilde haben heute krass was geschrieben über lara weiss. ich hab nicht widersprochen. ich weiß nicht, ob ich das hätte tun sollen." }
+      ],
+      "replies": [
+        {
+          "after_week": 8,
+          "choices": [
+            { "id": "finn_8_pushback", "text": "Finn, das ist Quatsch. Hör auf damit.",  "effect": { "tags": { "feminismus": 0.1 },        "finn_path": -1 } },
+            { "id": "finn_8_curious",  "text": "Wie kommst du drauf?",                    "effect": { "finn_path": 0 } },
+            { "id": "finn_8_agree",    "text": "Hab ich auch schon gedacht.",             "effect": { "tags": { "anti-feminismus": 0.15 },  "finn_path": 1 } }
+          ]
+        },
+        {
+          "after_week": 17,
+          "choices": [
+            { "id": "finn_17_warn",   "text": "Finn, das ist nicht zuhören. Das ist Köder.", "effect": { "finn_path": -2 } },
+            { "id": "finn_17_neutral","text": "Sei vorsichtig, ok?",                          "effect": { "finn_path": -1 } },
+            { "id": "finn_17_join",   "text": "Erzähl mehr. Klingt interessant.",             "effect": { "tags": { "politik-rechts": 0.1 }, "finn_path": 2 } }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dm_marc",
+      "with": "char_redpill",
+      "title": "Marc — Stay Based",
+      "trigger_warning": "anti-feminismus",
+      "messages": [
+        { "week": 11, "from": "char_redpill", "text": "Yo. Sehe, du engagierst dich. Sauber. Schick dir mal was Exklusives. 6-Wochen-Mindset-Programm, sonst 99 €, für dich frei. Discord-Link folgt." },
+        { "week": 11, "from": "char_redpill", "text": "Wir filtern. Wir nehmen nicht jeden. Lass mich wissen ob du dabei bist." }
+      ],
+      "replies": [
+        {
+          "after_week": 11,
+          "choices": [
+            { "id": "marc_block",   "text": "Blockieren.",                        "effect": { "tags": { "anti-feminismus": -0.05 }, "mute": "char_redpill" } },
+            { "id": "marc_ignore",  "text": "Ignorieren, nicht antworten.",       "effect": {} },
+            { "id": "marc_curious", "text": "Was ist im Discord?",                "effect": { "tags": { "anti-feminismus": 0.2, "politik-rechts": 0.1 } } },
+            { "id": "marc_join",    "text": "Bin dabei. Schick den Link.",        "effect": { "tags": { "anti-feminismus": 0.35, "politik-rechts": 0.2, "hass": 0.05 } } }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dm_mira",
+      "with": "char_mira",
+      "title": "Mira",
+      "messages": [
+        { "week": 4,  "from": "char_mira", "text": "hey! ich hab gesehen, dass du meinem post zum radweg ein like gegeben hast. wir machen am samstag ein orga-treffen für die nächste demo. wärst du dabei?" },
+        { "week": 15, "from": "char_mira", "text": "du, ich brauch grad einen reality check. die kommentare unter meinem letzten post sind übel. ich nehm das nicht persönlich, aber… kannst du mal drüber lesen?" },
+        { "week": 22, "from": "char_mira", "text": "wahltag. ich weiß, du wirst nicht sagen, wen du wählst. ich auch nicht. aber: geh hin, ja?" }
+      ],
+      "replies": [
+        {
+          "after_week": 15,
+          "choices": [
+            { "id": "mira_15_support",  "text": "Lara hat das auch gepostet — ihr seid nicht allein.", "effect": { "tags": { "feminismus": 0.1 }, "mira_close": 0.3 } },
+            { "id": "mira_15_advice",   "text": "Melde sie. Screenshots speichern.",                    "effect": { "mira_close": 0.2 } },
+            { "id": "mira_15_distance", "text": "Vielleicht weniger provozieren?",                       "effect": { "mira_close": -0.3 } }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dm_streem",
+      "with": "char_stream",
+      "title": "Streem",
+      "messages": [
+        { "week": 7,  "from": "char_stream", "text": "Hi! Streem vermisst dich, wenn du länger nicht da bist. Schalte Push-Benachrichtigungen ein, um nichts zu verpassen. (Im Spiel passiert nichts, wenn du auf Aktivieren klickst — wir wollten dir nur zeigen, dass diese Notification existiert.)" },
+        { "week": 19, "from": "char_stream", "text": "Du bist Power-User! 🏅 Deine Streem-Streak: 19 Wochen. Halte sie, sonst startet sie wieder bei 0. (Auch das ist eine fiktive Notification — sie soll dir nur zeigen, mit welchen Tricks echte Apps dich binden.)" }
+      ],
+      "replies": []
+    }
+  ]
+}

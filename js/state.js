@@ -33,8 +33,8 @@ const INITIAL_WEIGHTS = {
 function freshSave() {
   const now = Date.now();
   return {
-    meta: { version: 1, createdAt: now, lastSavedAt: now, day: 1 },
-    character: { name: 'Alex', pronoun: 'sie/ihr', avatar: 0, interests_initial: [], city: 'Greifshafen' },
+    meta: { version: 2, createdAt: now, lastSavedAt: now, day: 1 },
+    character: { name: 'Alex', pronoun: 'sie/ihr', avatar: 0, interests_initial: [], city: 'Greifshafen', bio: '', protagonist: 'alex' },
     currentWeek: 0,
     weekFeedIndex: 0,
     history: [],
@@ -59,6 +59,16 @@ function freshSave() {
     likedPosts: {},
     sharedPosts: {},
     initialProfileSnapshot: null,
+    dmThreads: {},
+    dmReplies: {},
+    dmUnread: 0,
+    npcArcs: { lea_close: 0, finn_path: 0, mira_close: 0, self_aware: 0 },
+    storiesViewed: {},
+    placesVisited: {},
+    soundEnabled: true,
+    challengeMode: null,
+    minigameResults: {},
+    ending: null,
     random_seed: Math.floor(Math.random() * 1e9)
   };
 }

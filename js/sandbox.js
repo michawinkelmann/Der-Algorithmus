@@ -55,17 +55,20 @@ export function renderSandbox(onClose) {
   }
 
   const presetRow = document.createElement('div');
-  presetRow.style.display = 'flex';
-  presetRow.style.gap = '6px';
-  presetRow.style.flexWrap = 'wrap';
-  presetRow.style.marginTop = '10px';
+  presetRow.className = 'sandbox-presets';
   presetRow.innerHTML = `
     <button class="btn btn-ghost" data-preset="current">Wie bisher</button>
     <button class="btn btn-ghost" data-preset="quality">Qualität</button>
     <button class="btn btn-ghost" data-preset="chrono">Chronologisch</button>
     <button class="btn btn-ghost" data-preset="balance">Ausgleich</button>
+    <button class="btn btn-ghost preset-challenge" data-preset="empoerung">Empörungs-Booster ⚠</button>
+    <button class="btn btn-ghost preset-challenge" data-preset="calm">Ruhe-Modus 🧘</button>
   `;
   sliders.appendChild(presetRow);
+  const desc = document.createElement('p');
+  desc.className = 'muted small sandbox-preset-desc';
+  desc.textContent = 'Probier die Challenge-Presets: „Empörungs-Booster" zeigt, was eine reine Outrage-Maschine produziert. „Ruhe-Modus" ist das Gegenteil — wie würde dein Feed aussehen, wenn du gar nicht mehr gehookt werden sollst?';
+  sliders.appendChild(desc);
 
   const rules = { ...current };
   sliders.querySelectorAll('[data-slider]').forEach(el => {
@@ -97,9 +100,11 @@ export function renderSandbox(onClose) {
 function applyPreset(name, rules, container) {
   const presets = {
     current: { ...Store.data.weights },
-    quality: { affinity: 0.3, engagement: 0.2, recency: 0.5, social: 0.3, ads: 0.2, diversity: 0.7, quality: 1.5, outragePenalty: 1.0, balance: 0.5 },
-    chrono:  { affinity: 0.0, engagement: 0.0, recency: 1.8, social: 1.0, ads: 0.2, diversity: 0.0, quality: 0.2, outragePenalty: 0.0, balance: 0.0 },
-    balance: { affinity: 0.3, engagement: 0.2, recency: 0.5, social: 0.5, ads: 0.2, diversity: 0.8, quality: 0.8, outragePenalty: 0.8, balance: 1.5 }
+    quality:    { affinity: 0.3, engagement: 0.2, recency: 0.5, social: 0.3, ads: 0.2, diversity: 0.7, quality: 1.5, outragePenalty: 1.0, balance: 0.5 },
+    chrono:     { affinity: 0.0, engagement: 0.0, recency: 1.8, social: 1.0, ads: 0.2, diversity: 0.0, quality: 0.2, outragePenalty: 0.0, balance: 0.0 },
+    balance:    { affinity: 0.3, engagement: 0.2, recency: 0.5, social: 0.5, ads: 0.2, diversity: 0.8, quality: 0.8, outragePenalty: 0.8, balance: 1.5 },
+    empoerung:  { affinity: 0.4, engagement: 2.0, recency: 0.3, social: 0.4, ads: 0.6, diversity: 0.0, quality: 0.0, outragePenalty: 0.0, balance: 0.0 },
+    calm:       { affinity: 0.6, engagement: 0.1, recency: 0.4, social: 0.7, ads: 0.1, diversity: 1.0, quality: 1.2, outragePenalty: 1.8, balance: 0.8 }
   };
   const p = presets[name];
   if (!p) return;

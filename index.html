@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="css/feed.css" />
   <link rel="stylesheet" href="css/animations.css" />
   <link rel="stylesheet" href="css/wrapped.css" />
+  <link rel="stylesheet" href="css/extras.css" />
 </head>
 <body>
   <div id="app">
@@ -33,6 +34,10 @@
         <p class="intro-text">Du ziehst gerade von einer kleinen Stadt nach <strong>Greifshafen</strong>. Neue Schule, neues Zimmer, neue Zeitzone im Kopf. Dein Handy ist voll — und ein neues soziales Netzwerk bittet dich, ein Profil anzulegen.</p>
 
         <div class="char-form">
+          <fieldset class="proto-fieldset">
+            <legend>Wähle deine Spielfigur:</legend>
+            <div class="protagonist-picker" id="protagonist-picker"></div>
+          </fieldset>
           <label>Wie sollen wir dich nennen?
             <input type="text" id="inp-name" maxlength="20" placeholder="z.B. Alex" />
           </label>
@@ -43,6 +48,9 @@
               <option value="they/them">they / them</option>
               <option value="keine">keine Angabe</option>
             </select>
+          </label>
+          <label>Bio <span class="muted small">(optional, 180 Zeichen)</span>
+            <textarea id="inp-bio" maxlength="180" rows="2" placeholder="z.B. „Neu in Greifshafen. Lieblingsplatz: Café Hafen."""></textarea>
           </label>
           <div class="char-avatars" id="avatar-picker" aria-label="Avatar wählen"></div>
           <fieldset>
@@ -62,6 +70,7 @@
           <span class="week-indicator" id="week-indicator">W 1</span>
         </div>
         <div class="topbar-right">
+          <button class="iconbtn" id="btn-map" title="Karte" aria-label="Greifshafen-Karte" hidden>🗺️</button>
           <button class="iconbtn" id="btn-algo-panel" title="Algorithmus" aria-label="Blick hinter den Algorithmus" hidden>🔍</button>
           <button class="iconbtn" id="btn-guilds" title="Gilden" aria-label="Gilden" hidden>💬</button>
           <button class="iconbtn" id="btn-profile" title="Profil" aria-label="Profil">👤</button>
@@ -80,6 +89,9 @@
         </button>
         <button class="navbtn" data-view="compose" aria-label="Posten">
           <span class="navicon">✏️</span><span>Posten</span>
+        </button>
+        <button class="navbtn" data-view="dms" aria-label="Nachrichten">
+          <span class="navicon">✉️</span><span>DMs</span>
         </button>
         <button class="navbtn" data-view="notifications" aria-label="Mitteilungen">
           <span class="navicon">🔔</span><span>Inbox</span>
@@ -194,6 +206,11 @@
         <h2>Einstellungen</h2>
         <p class="muted">Spielstand: automatisch gespeichert.</p>
         <div class="settings-list">
+          <label class="settings-toggle">
+            <input type="checkbox" id="chk-sound" />
+            <span>Sound aktiv (Like-Pop, DM-Ping etc.)</span>
+          </label>
+          <button class="btn btn-ghost" id="btn-classcompare">Klassen-Vergleich (Saves laden)</button>
           <button class="btn btn-ghost" id="btn-export-report">Lehr-Bericht exportieren (HTML)</button>
           <button class="btn btn-ghost" id="btn-save-export">Spielstand exportieren (JSON)</button>
           <button class="btn btn-ghost" id="btn-show-wrapped-now">Jahresrückblick jetzt öffnen</button>

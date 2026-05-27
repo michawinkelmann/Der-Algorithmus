@@ -7,13 +7,18 @@ import { setCharacters, avatarSvg, getCharacter } from './characters.js';
 import { setPostsLookup, renderWrapped } from './wrapped.js';
 import { initSandbox, renderSandbox } from './sandbox.js';
 import { explainPost } from './algorithm.js';
+import { initDms, renderDmList, renderDmThread, unreadCount as dmUnread } from './dms.js';
+import { initPlaces, renderMap } from './places.js';
+import { runMinigame } from './minigame.js';
+import { renderClassCompare } from './classcompare.js';
+import { SFX, setSoundEnabled } from './sound.js';
 
 // ===== Daten-Bundle (statt fetch, damit file:// funktioniert) =====
 // Die JSONs werden zur Laufzeit geladen — funktioniert per fetch() auch bei file://
 // nicht in allen Browsern. Daher: wir importieren sie per script-tags als ES-module-wrapped JSON.
 // Alternative: fetch mit Fallback. Wir nutzen fetch + try/catch.
 
-const DATA_FILES = ['posts.json','characters.json','events.json','ads.json','weeks.json'];
+const DATA_FILES = ['posts.json','characters.json','events.json','ads.json','weeks.json','protagonists.json','dms.json','stories.json'];
 let DATA = {};
 
 async function loadData() {
@@ -63,7 +68,8 @@ async function boot() {
   initFeed({
     posts: DATA.posts.posts,
     ads: DATA.ads.ads,
-    weeks: DATA.weeks.weeks
+    weeks: DATA.weeks.weeks,
+    stories: DATA.stories?.stories || []
   });
   initEvents({
     events: DATA.events.events,
@@ -74,10 +80,13 @@ async function boot() {
   });
   setPostsLookup(DATA.posts.posts);
   initSandbox(DATA.posts.posts, DATA.ads.ads);
+  initDms({ threads: DATA.dms?.threads || [] });
+  initPlaces({ places: DATA.stories?.places || [] });
 
   setFeedCallbacks({
     onWeekEnd: handleWeekEnd,
-    onOpenCompose: () => {}
+    onOpenCompose: () => {},
+    onOpenStory: openStory
   });
 
   bindGlobal();
@@ -149,9 +158,32 @@ function bindGlobal() {
     b.onclick = () => {
       document.querySelectorAll('.navbtn').forEach(x => x.classList.remove('active'));
       b.classList.add('active');
-      renderFeed(b.dataset.view);
+      const view = b.dataset.view;
+      if (view === 'dms') {
+        openDmInbox();
+      } else {
+        renderFeed(view);
+      }
     };
   });
+
+  // Karte
+  const mapBtn = document.getElementById('btn-map');
+  if (mapBtn) mapBtn.onclick = openMap;
+
+  // Klassen-Vergleich
+  const ccBtn = document.getElementById('btn-classcompare');
+  if (ccBtn) ccBtn.onclick = openClassCompare;
+
+  // Sound-Toggle
+  const soundChk = document.getElementById('chk-sound');
+  if (soundChk) {
+    soundChk.checked = Store.data?.soundEnabled !== false;
+    soundChk.onchange = () => {
+      setSoundEnabled(soundChk.checked);
+      if (soundChk.checked) SFX.toast();
+    };
+  }
 
   // Manifest
   document.getElementById('btn-manifest-back').onclick = () => showScreen('screen-main');
@@ -173,17 +205,64 @@ const INTERESTS = [
 ];
 
 function buildIntroForm() {
-  // Avatare
+  // Protagonist-Picker (oben).
+  const pp = document.getElementById('protagonist-picker');
+  const protagonists = DATA.protagonists?.protagonists || [];
+  let chosenProtagonist = protagonists[0]?.id || 'alex';
+  if (pp) {
+    pp.innerHTML = '';
+    for (const pr of protagonists) {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'protagonist-card' + (pr.id === chosenProtagonist ? ' selected' : '');
+      card.dataset.id = pr.id;
+      card.setAttribute('aria-pressed', pr.id === chosenProtagonist ? 'true' : 'false');
+      card.innerHTML = `
+        <div class="proto-avatar">${avatarSvg(pr.avatar_suggest || 0)}</div>
+        <div class="proto-name">${escapeHtml(pr.name)}</div>
+        <div class="proto-tag">${escapeHtml(pr.tagline)}</div>
+        <div class="proto-back muted small">${escapeHtml(pr.backstory)}</div>
+      `;
+      card.onclick = () => {
+        pp.querySelectorAll('.protagonist-card').forEach(x => { x.classList.remove('selected'); x.setAttribute('aria-pressed','false'); });
+        card.classList.add('selected');
+        card.setAttribute('aria-pressed','true');
+        chosenProtagonist = pr.id;
+        applyProtoDefaults(pr);
+      };
+      pp.appendChild(card);
+    }
+  }
+
+  function applyProtoDefaults(pr) {
+    const nameInput = document.getElementById('inp-name');
+    if (nameInput && !nameInput.dataset.userEdited) nameInput.value = pr.name;
+    chosenAvatar = pr.avatar_suggest || 0;
+    ap.querySelectorAll('button').forEach((x, i) => {
+      x.classList.toggle('selected', i === chosenAvatar);
+      x.setAttribute('aria-pressed', i === chosenAvatar ? 'true' : 'false');
+    });
+    chosen.clear();
+    for (const t of pr.start_interests || []) chosen.add(t);
+    ig.querySelectorAll('button').forEach(btn => {
+      btn.classList.toggle('selected', chosen.has(btn.dataset.tag));
+    });
+  }
+
+  const nameInput = document.getElementById('inp-name');
+  if (nameInput) nameInput.addEventListener('input', () => { nameInput.dataset.userEdited = '1'; });
+
+  // Avatare.
   const ap = document.getElementById('avatar-picker');
   ap.innerHTML = '';
-  let chosenAvatar = 0;
+  let chosenAvatar = protagonists[0]?.avatar_suggest || 0;
   for (let i = 0; i < 12; i++) {
     const b = document.createElement('button');
     b.type = 'button';
     b.innerHTML = avatarSvg(i);
     b.setAttribute('aria-label', `Avatar ${i + 1} von 12`);
-    b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
-    if (i === 0) b.classList.add('selected');
+    b.setAttribute('aria-pressed', i === chosenAvatar ? 'true' : 'false');
+    if (i === chosenAvatar) b.classList.add('selected');
     b.onclick = () => {
       ap.querySelectorAll('button').forEach(x => { x.classList.remove('selected'); x.setAttribute('aria-pressed','false'); });
       b.classList.add('selected');
@@ -196,11 +275,13 @@ function buildIntroForm() {
 
   const ig = document.getElementById('interest-grid');
   ig.innerHTML = '';
-  const chosen = new Set();
+  const chosen = new Set(protagonists[0]?.start_interests || []);
   for (const t of INTERESTS) {
     const b = document.createElement('button');
     b.type = 'button';
     b.textContent = t.label;
+    b.dataset.tag = t.k;
+    if (chosen.has(t.k)) b.classList.add('selected');
     b.onclick = () => {
       if (chosen.has(t.k)) { chosen.delete(t.k); b.classList.remove('selected'); }
       else if (chosen.size < 4) { chosen.add(t.k); b.classList.add('selected'); }
@@ -208,8 +289,11 @@ function buildIntroForm() {
     ig.appendChild(b);
   }
 
-  // Merker — über window scope, damit startGame es findet
-  window.__introState = { get avatar() { return chosenAvatar; }, get interests() { return [...chosen]; } };
+  window.__introState = {
+    get avatar() { return chosenAvatar; },
+    get interests() { return [...chosen]; },
+    get protagonist() { return chosenProtagonist; }
+  };
 }
 
 function openIntro() { showScreen('screen-intro'); }
@@ -217,9 +301,17 @@ function openIntro() { showScreen('screen-intro'); }
 function startGame() {
   const name = document.getElementById('inp-name').value.trim() || 'Alex';
   const pronoun = document.getElementById('inp-pronoun').value;
+  const bio = (document.getElementById('inp-bio')?.value || '').trim().slice(0, 180);
   const avatar = window.__introState.avatar;
   const interests = window.__introState.interests.length ? window.__introState.interests : ['lifestyle','humor'];
-  Store.start({ name, pronoun, avatar, interests_initial: interests, city: 'Greifshafen' });
+  const protaId = window.__introState.protagonist || 'alex';
+  const pro = (DATA.protagonists?.protagonists || []).find(p => p.id === protaId);
+  Store.start({ name, pronoun, avatar, interests_initial: interests, city: 'Greifshafen', bio, protagonist: protaId });
+  if (pro && typeof pro.start_lean === 'number') {
+    Store.data.userProfile.political_lean_estimated = pro.start_lean;
+    Store.data.initialProfileSnapshot = structuredClone(Store.data.userProfile);
+    Store.save();
+  }
   enterMain();
   toast('Willkommen bei Streem!', { long: true });
 }
@@ -238,6 +330,132 @@ function updateTopbar() {
   ind.textContent = `W ${w} · Tag ${Store.getDay()}`;
   document.getElementById('btn-algo-panel').hidden = !Store.isUnlocked('algorithm_panel');
   document.getElementById('btn-guilds').hidden = !Store.isUnlocked('discord');
+  const mb = document.getElementById('btn-map');
+  if (mb) mb.hidden = false;
+  updateDmBadge();
+}
+
+function updateDmBadge() {
+  const btn = document.querySelector('.navbtn[data-view="dms"]');
+  if (!btn) return;
+  const n = dmUnread();
+  let badge = btn.querySelector('.nav-badge');
+  if (n > 0) {
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'nav-badge';
+      btn.appendChild(badge);
+    }
+    badge.textContent = String(n);
+  } else if (badge) {
+    badge.remove();
+  }
+}
+
+function openDmInbox() {
+  const root = document.getElementById('feed-root');
+  root.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'dm-inbox';
+  wrap.innerHTML = `
+    <div class="feed-header"><h2>Nachrichten</h2><p class="muted small">Direkte Konversationen.</p></div>
+    <div id="dm-list-root"></div>
+  `;
+  root.appendChild(wrap);
+  renderDmList(wrap.querySelector('#dm-list-root'), (thread) => {
+    SFX.swipe();
+    const root2 = document.getElementById('feed-root');
+    root2.innerHTML = '';
+    const w2 = document.createElement('div');
+    w2.className = 'dm-thread-wrap';
+    root2.appendChild(w2);
+    renderDmThread(w2, thread, () => {
+      openDmInbox();
+      updateDmBadge();
+    });
+  });
+  updateDmBadge();
+}
+
+function openStory(story) {
+  SFX.swipe();
+  const c = getCharacter(story.author);
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay story-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.innerHTML = `
+    <div class="story-box">
+      <div class="story-bar"><div class="story-bar-fill"></div></div>
+      <header class="story-head">
+        <div class="avatar small">${avatarSvg(c?.avatar || 0)}</div>
+        <div>
+          <div class="name">${escapeHtml(c?.name || story.author)}</div>
+          <div class="muted small">${escapeHtml(c?.handle || '')} · W${story.week}</div>
+        </div>
+        <button class="story-close" aria-label="Schließen">×</button>
+      </header>
+      <div class="story-emoji-big">${story.emoji || '·'}</div>
+      <div class="story-text">${escapeHtml(story.text)}</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+    clearTimeout(autoClose);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', e => { if (e.target === overlay || e.target.classList.contains('story-close')) close(); });
+  const autoClose = setTimeout(close, 5000);
+}
+
+function openMap() {
+  SFX.swipe();
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  const box = document.createElement('div');
+  box.className = 'tw-box big';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  renderMap(box, close);
+}
+
+function openClassCompare() {
+  SFX.swipe();
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  const box = document.createElement('div');
+  box.className = 'tw-box big';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  renderClassCompare(box, close);
+}
+
+function openBotMinigame() {
+  SFX.swipe();
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  const box = document.createElement('div');
+  box.className = 'tw-box big';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  runMinigame(box, close);
 }
 
 function maybeUnlockForWeek() {
@@ -246,6 +464,16 @@ function maybeUnlockForWeek() {
   if (!weekDef) return;
   for (const u of weekDef.unlock || []) Store.unlock(u);
   updateTopbar();
+  // Bot-Minigame als optionales Bonbon in W12 (Bot-Unlock-Woche).
+  if (w === 12 && !Store.data.minigameResults?.bot_or_human && !Store.data.minigameAsked_bot) {
+    Store.data.minigameAsked_bot = true;
+    Store.save();
+    setTimeout(() => {
+      if (confirm('Streem hat dir gerade Bot-Profile vorgesetzt. Willst du ein kurzes Quiz spielen: Bot oder Mensch?')) {
+        openBotMinigame();
+      }
+    }, 600);
+  }
 }
 
 function handleWeekEnd(seenIds) {
@@ -343,6 +571,7 @@ function showWeekendCard(weekNum, eventResults, badges) {
 
   // Event-Buttons in story html
   showScreen('screen-weekend');
+  SFX.weekend();
   story.querySelectorAll('[data-open-guild]').forEach(b => {
     b.onclick = () => { showScreen('screen-main'); setTimeout(openGuilds, 50); };
   });

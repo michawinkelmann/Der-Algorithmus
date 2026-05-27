@@ -4,23 +4,35 @@ import { Store } from './state.js';
 import { buildFeed, explainPost, scorePost } from './algorithm.js';
 import { getCharacter, avatarSvg, memeSvg } from './characters.js';
 import { askWarning } from './warnings.js';
+import { SFX } from './sound.js';
 
 let POSTS = [];
 let ADS = [];
 let WEEKS = [];
+let STORIES = [];
 let onWeekEnd = null;      // Callback wenn Woche zuende
 let onOpenCompose = null;
+let onOpenStory = null;
 let currentFeed = [];      // Für Woche sichtbarer Feed
 
 export function initFeed(data) {
   POSTS = data.posts;
   ADS = data.ads;
   WEEKS = data.weeks;
+  STORIES = data.stories || [];
 }
 
-export function setCallbacks({ onWeekEnd: wEnd, onOpenCompose: oc }) {
+// Stories-Bar: Stories aus den letzten 1-2 Wochen, deren Autor:in der User folgt
+// oder die durch Wochenfortschritt freigeschaltet sind.
+function getActiveStories() {
+  const w = Store.data.currentWeek;
+  return STORIES.filter(s => s.week <= w && s.week >= w - 1);
+}
+
+export function setCallbacks({ onWeekEnd: wEnd, onOpenCompose: oc, onOpenStory: os }) {
   onWeekEnd = wEnd;
   onOpenCompose = oc;
+  onOpenStory = os;
 }
 
 // Regex für Wahl-Kontext: ganze Wortgrenzen, mehrere Trigger.
@@ -106,6 +118,38 @@ export async function renderFeed(view = 'feed') {
   const w = WEEKS[d.currentWeek] || WEEKS[WEEKS.length - 1];
 
   if (view === 'feed') {
+    // Stories-Bar (oben, scrollbar).
+    const stories = getActiveStories();
+    if (stories.length) {
+      const bar = document.createElement('div');
+      bar.className = 'stories-bar';
+      bar.setAttribute('role', 'list');
+      for (const s of stories) {
+        const c = getCharacter(s.author);
+        const viewed = !!Store.data.storiesViewed?.[s.id];
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'story-item' + (viewed ? ' viewed' : '');
+        item.setAttribute('aria-label', `Story von ${c?.name || s.author}`);
+        item.innerHTML = `
+          <div class="story-ring">
+            <div class="avatar">${avatarSvg(c?.avatar || 0)}</div>
+            <span class="story-emoji">${s.emoji || '·'}</span>
+          </div>
+          <div class="story-name">${escapeHtml((c?.name || '').split(' ')[0])}</div>
+        `;
+        item.onclick = () => {
+          if (!Store.data.storiesViewed) Store.data.storiesViewed = {};
+          Store.data.storiesViewed[s.id] = true;
+          Store.save();
+          item.classList.add('viewed');
+          if (onOpenStory) onOpenStory(s);
+        };
+        bar.appendChild(item);
+      }
+      root.appendChild(bar);
+    }
+
     const header = document.createElement('div');
     header.className = 'feed-header';
     header.innerHTML = `
@@ -394,6 +438,7 @@ async function handleAction(act, post, btn, card) {
       btn.setAttribute('aria-pressed', 'true');
       const lbl = btn.querySelector('.action-label'); if (lbl) lbl.textContent = 'Geliked';
       spawnHeartFloater(btn);
+      SFX.like();
       maybeShowAlgoNudge(post);
     }
   } else if (act === 'share') {
@@ -402,6 +447,7 @@ async function handleAction(act, post, btn, card) {
     Store.data.sharedPosts[post.id] = { week: Store.data.currentWeek, ts: Date.now() };
     Store.recordAction(post.id, 'share', post);
     toast('Geteilt.');
+    SFX.share();
     btn.classList.add('active');
     const lbl = btn.querySelector('.action-label'); if (lbl) lbl.textContent = 'Geteilt';
   } else if (act === 'follow') {
