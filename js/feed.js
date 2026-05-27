@@ -1,7 +1,7 @@
 // feed.js — Feed-Rendering und Interaktionen.
 
 import { Store } from './state.js';
-import { buildFeed, explainPost } from './algorithm.js';
+import { buildFeed, explainPost, scorePost } from './algorithm.js';
 import { getCharacter, avatarSvg, memeSvg } from './characters.js';
 import { askWarning } from './warnings.js';
 
@@ -23,28 +23,44 @@ export function setCallbacks({ onWeekEnd: wEnd, onOpenCompose: oc }) {
   onOpenCompose = oc;
 }
 
-/**
- * Baut den Feed für die aktuelle Woche.
- */
-export function computeCurrentFeed() {
-  const d = Store.data;
-  const w = WEEKS[d.currentWeek] || WEEKS[WEEKS.length - 1];
-  // Posts dürfen pro Woche "reifen": wir erlauben alle Posts, Recency steuert Relevanz
-  const eligible = POSTS.filter(p => {
-    // Politik-rechts und Verschwörung erst ab W5 (didaktischer Bogen)
-    const tags = p.tags || [];
-    if (d.currentWeek < 3 && (tags.includes('politik-rechts') || tags.includes('politik-links') || tags.includes('verschwoerung'))) return false;
-    if (d.currentWeek < 5 && tags.includes('politik-rechts') && (p.outrage_score || 0) > 0.5) return false;
-    if (d.currentWeek < 8 && tags.includes('hass')) return false;
-    if (d.currentWeek < 10 && tags.includes('anti-feminismus')) return false;
-    // Wahl-Posts nur ab W19
-    if ((tags.includes('politik-rechts') || tags.includes('politik-links') || tags.includes('politik-mitte')) && p.text.toLowerCase().includes('wahl') && d.currentWeek < 19) return false;
-    // Nicht doppelt in Folge
-    if (d.seenPosts.includes(p.id)) return false;
-    return true;
-  });
+// Regex für Wahl-Kontext: ganze Wortgrenzen, mehrere Trigger.
+const ELECTION_RE = /\b(wahl|wahllokal|wahlkampf|wahlurne|kandidat(?:in|en)?|stimm(?:e|en|zettel)|wahlplakat|wahlsieger|wahlergebnis|stimmabgabe)\b/i;
 
-  // Bot-Accounts erst ab W12
+function isFeedEligible(p, d) {
+  const tags = p.tags || [];
+  if (d.currentWeek < 3 && (tags.includes('politik-rechts') || tags.includes('politik-links') || tags.includes('verschwoerung'))) return false;
+  if (d.currentWeek < 5 && tags.includes('politik-rechts') && (p.outrage_score || 0) > 0.5) return false;
+  if (d.currentWeek < 8 && tags.includes('hass')) return false;
+  if (d.currentWeek < 10 && tags.includes('anti-feminismus')) return false;
+  const isPolitical = tags.includes('politik-rechts') || tags.includes('politik-links') || tags.includes('politik-mitte');
+  if (isPolitical && d.currentWeek < 19 && ELECTION_RE.test(p.text || '')) return false;
+  if (d.seenPosts.includes(p.id)) return false;
+  return true;
+}
+
+/**
+ * Baut den Feed für die aktuelle Woche — mit Cache, damit Tab-Wechsel
+ * den Feed nicht zerstört. Liked/Geteilt/Stummgeschaltet bleiben dabei
+ * stabil zwischen Tab-Wechseln innerhalb einer Woche.
+ */
+export function computeCurrentFeed(force = false) {
+  const d = Store.data;
+  const cached = !force ? Store.getWeekFeedCache(d.currentWeek) : null;
+  if (cached && cached.length) {
+    const map = new Map(POSTS.map(p => [p.id, p]));
+    for (const a of ADS) map.set(a.id, { ...a, isAd: true });
+    const fromCache = cached.map(id => map.get(id)).filter(Boolean);
+    if (fromCache.length === cached.length) {
+      currentFeed = fromCache;
+      // Score-Breakdown für "Warum?"-Button nachreichen.
+      attachBreakdownToCachedFeed(fromCache, d);
+      return currentFeed;
+    }
+  }
+
+  const eligible = POSTS.filter(p => isFeedEligible(p, d));
+
+  // Bot-Accounts erst ab Bots-Unlock (W12).
   const finalEligible = eligible.filter(p => {
     const c = getCharacter(p.author);
     if (!c) return true;
@@ -64,7 +80,20 @@ export function computeCurrentFeed() {
       weekOffset: 0
     }
   );
+  Store.cacheWeekFeed(d.currentWeek, currentFeed.map(p => p.id));
   return currentFeed;
+}
+
+// Reicht den Algo-Breakdown für den "Warum?"-Button nach, wenn der Feed aus
+// dem Cache gerendert wird.
+function attachBreakdownToCachedFeed(feed, d) {
+  const recentTags = {};
+  for (const p of feed) {
+    const { total, parts } = scorePost({ ...p, weekOffset: 0 }, d.userProfile, d.weights, recentTags);
+    p._algoBreakdown = parts;
+    p._algoScore = total;
+    for (const t of p.tags || []) recentTags[t] = (recentTags[t] || 0) + 1;
+  }
 }
 
 /**
@@ -88,6 +117,10 @@ export async function renderFeed(view = 'feed') {
     const list = document.createElement('div');
     list.className = 'feed-list';
     root.appendChild(list);
+
+    // Eigener Post dieser Woche oben pinnen (wenn vorhanden).
+    const ownThisWeek = [...Store.data.ownPosts].reverse().find(p => p.week === d.currentWeek);
+    if (ownThisWeek) list.appendChild(renderOwnPost(ownThisWeek, { pinned: true }));
 
     const feed = computeCurrentFeed();
     for (const post of feed) {
@@ -156,6 +189,9 @@ function renderPost(post) {
   card.dataset.postId = post.id;
   const char = getCharacter(post.author);
   const hasMedia = (post.outrage_score || 0) > 0.4 || (post.engagement_bait_score || 0) > 0.5 || post.tags?.includes('meme');
+  const liked = Store.data.likedPosts?.[post.id];
+  const shared = Store.data.sharedPosts?.[post.id];
+  const followed = Store.data.userProfile.followed.includes(char.id);
 
   const head = `
     <div class="post-head">
@@ -164,7 +200,7 @@ function renderPost(post) {
         <div class="name">${escapeHtml(char.name)} ${char.type === 'journalist' || char.type === 'linker_journalist' ? '<span class="verified">· verifiziert</span>' : ''}</div>
         <div class="meta">${escapeHtml(char.handle)} · W ${Store.data.currentWeek}</div>
       </div>
-      ${Store.isUnlocked('algorithm_panel') ? `<button class="why-btn" data-why="${post.id}">Warum?</button>` : ''}
+      ${Store.isUnlocked('algorithm_panel') ? `<button class="why-btn" data-why="${post.id}" aria-label="Warum sehe ich diesen Beitrag?">Warum?</button>` : ''}
     </div>
   `;
 
@@ -180,15 +216,22 @@ function renderPost(post) {
 
   const actions = `
     <div class="actions">
-      <button class="action-btn like-btn" data-act="like">❤ <span>Like</span></button>
-      <button class="action-btn" data-act="comment">💬 <span>Antworten</span></button>
-      <button class="action-btn" data-act="share">↗ <span>Teilen</span></button>
-      <button class="action-btn" data-act="follow">${Store.data.userProfile.followed.includes(char.id) ? '✓ Folgst du' : '+ Folgen'}</button>
-      <button class="action-btn dislike" data-act="mute">🚫</button>
+      <button class="action-btn like-btn ${liked ? 'active' : ''}" data-act="like" aria-pressed="${liked ? 'true' : 'false'}">
+        <span class="action-icon">❤</span><span class="action-label">${liked ? 'Geliked' : 'Like'}</span>
+      </button>
+      <button class="action-btn" data-act="comment" aria-label="Antworten"><span class="action-icon">💬</span><span class="action-label">Antworten</span></button>
+      <button class="action-btn ${shared ? 'active' : ''}" data-act="share" aria-label="Teilen"><span class="action-icon">↗</span><span class="action-label">${shared ? 'Geteilt' : 'Teilen'}</span></button>
+      <button class="action-btn ${followed ? 'active' : ''}" data-act="follow">${followed ? '✓ Folgst du' : '+ Folgen'}</button>
+      <button class="action-btn dislike" data-act="mute" aria-label="Stummschalten">🚫</button>
     </div>
   `;
 
-  card.innerHTML = head + body + actions;
+  const ownComment = pickStoredComment(post.id);
+  const replyBlock = ownComment
+    ? `<div class="post-reply"><div class="reply-author">${escapeHtml(Store.data.character.name)} <span class="muted small">· du</span></div><div class="reply-body">${escapeHtml(ownComment)}</div></div>`
+    : '';
+
+  card.innerHTML = head + body + actions + replyBlock;
 
   // Event-Wiring
   const twShield = card.querySelector('[data-tw]');
@@ -222,15 +265,15 @@ function renderPost(post) {
   return card;
 }
 
-function renderOwnPost(op) {
+function renderOwnPost(op, opts = {}) {
   const card = document.createElement('article');
-  card.className = 'post-card';
+  card.className = 'post-card own-post' + (opts.pinned ? ' pinned' : '');
   card.innerHTML = `
     <div class="post-head">
       <div class="avatar" aria-hidden="true">${avatarSvg(Store.data.character.avatar || 0)}</div>
       <div class="name-block">
         <div class="name">${escapeHtml(Store.data.character.name)} <span class="verified">· du</span></div>
-        <div class="meta">Woche ${op.week}</div>
+        <div class="meta">Woche ${op.week}${opts.pinned ? ' · oben angepinnt' : ''}</div>
       </div>
     </div>
     <div class="post-body">${escapeHtml(op.text)}</div>
@@ -244,10 +287,14 @@ function buildComposeBox() {
   wrap.className = 'compose-box';
   const topics = ['lifestyle','humor','gaming','musik','sport','wissenschaft','klima','politik-links','politik-mitte','politik-rechts','feminismus','verschwoerung'];
   const chosen = new Set();
+  const MAX = 280;
 
   wrap.innerHTML = `
-    <textarea id="compose-text" maxlength="280" placeholder="Was ist los?"></textarea>
-    <div class="muted small">Wähle 1–3 Themen:</div>
+    <textarea id="compose-text" maxlength="${MAX}" placeholder="Was ist los?" aria-label="Beitragstext"></textarea>
+    <div class="compose-meta">
+      <span class="muted small">Wähle 1–3 Themen:</span>
+      <span class="compose-counter" id="compose-counter" aria-live="polite">0 / ${MAX}</span>
+    </div>
     <div class="compose-topic-grid" id="compose-topics"></div>
     <div class="compose-row">
       <span class="muted small" id="compose-status"></span>
@@ -257,6 +304,7 @@ function buildComposeBox() {
   const grid = wrap.querySelector('#compose-topics');
   for (const t of topics) {
     const b = document.createElement('button');
+    b.type = 'button';
     b.textContent = t;
     b.onclick = () => {
       if (chosen.has(t)) { chosen.delete(t); b.classList.remove('selected'); }
@@ -264,15 +312,27 @@ function buildComposeBox() {
     };
     grid.appendChild(b);
   }
+  const txt = wrap.querySelector('#compose-text');
+  const counter = wrap.querySelector('#compose-counter');
+  txt.addEventListener('input', () => {
+    const n = txt.value.length;
+    counter.textContent = `${n} / ${MAX}`;
+    counter.classList.toggle('warn', n > MAX - 30);
+    counter.classList.toggle('over', n >= MAX);
+  });
+  // iPad: bei Fokus in den sichtbaren Bereich scrollen.
+  txt.addEventListener('focus', () => {
+    setTimeout(() => txt.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200);
+  });
+
   wrap.querySelector('#btn-publish').onclick = () => {
-    const text = wrap.querySelector('#compose-text').value.trim();
+    const text = txt.value.trim();
     const status = wrap.querySelector('#compose-status');
     if (!text) { status.textContent = 'Du hast noch nichts geschrieben.'; return; }
     if (chosen.size === 0) { status.textContent = 'Wähle mindestens ein Thema.'; return; }
     const tags = [...chosen];
     const outrage = tags.some(t => ['politik-rechts','politik-links','verschwoerung','hass','feminismus','anti-feminismus'].includes(t)) ? 0.3 : 0.1;
     Store.addOwnPost({ text, tags, outrage });
-    // Eigenes Posten verstärkt die gewählten Themen
     for (const t of tags) {
       Store.data.userProfile.interests[t] = Math.min(1, (Store.data.userProfile.interests[t] || 0) + 0.1);
     }
@@ -319,20 +379,40 @@ function renderNotifications() {
 async function handleAction(act, post, btn, card) {
   const char = getCharacter(post.author);
   if (act === 'like') {
-    Store.recordAction(post.id, 'like', post);
-    btn.classList.toggle('active');
-    btn.querySelector('span').textContent = btn.classList.contains('active') ? 'Geliked' : 'Like';
+    const isLiked = !!Store.data.likedPosts?.[post.id];
+    if (isLiked) {
+      delete Store.data.likedPosts[post.id];
+      Store.save();
+      btn.classList.remove('active');
+      btn.setAttribute('aria-pressed', 'false');
+      const lbl = btn.querySelector('.action-label'); if (lbl) lbl.textContent = 'Like';
+    } else {
+      if (!Store.data.likedPosts) Store.data.likedPosts = {};
+      Store.data.likedPosts[post.id] = { week: Store.data.currentWeek, ts: Date.now() };
+      Store.recordAction(post.id, 'like', post);
+      btn.classList.add('active');
+      btn.setAttribute('aria-pressed', 'true');
+      const lbl = btn.querySelector('.action-label'); if (lbl) lbl.textContent = 'Geliked';
+      spawnHeartFloater(btn);
+      maybeShowAlgoNudge(post);
+    }
   } else if (act === 'share') {
+    if (Store.data.sharedPosts?.[post.id]) return;
+    if (!Store.data.sharedPosts) Store.data.sharedPosts = {};
+    Store.data.sharedPosts[post.id] = { week: Store.data.currentWeek, ts: Date.now() };
     Store.recordAction(post.id, 'share', post);
     toast('Geteilt.');
     btn.classList.add('active');
+    const lbl = btn.querySelector('.action-label'); if (lbl) lbl.textContent = 'Geteilt';
   } else if (act === 'follow') {
     if (Store.data.userProfile.followed.includes(char.id)) {
       Store.unfollow(char.id);
+      btn.classList.remove('active');
       btn.innerHTML = '+ Folgen';
     } else {
       Store.follow(char.id);
       Store.recordAction(post.id, 'follow', post);
+      btn.classList.add('active');
       btn.innerHTML = '✓ Folgst du';
       toast(`Du folgst jetzt ${char.name}.`);
     }
@@ -342,27 +422,85 @@ async function handleAction(act, post, btn, card) {
     card.style.opacity = '0.3';
     toast(`${char.name} stummgeschaltet.`);
   } else if (act === 'comment') {
-    showCommentOptions(post);
+    showCommentOptions(post, card);
   }
 }
 
-function showCommentOptions(post) {
+function spawnHeartFloater(btn) {
+  const rect = btn.getBoundingClientRect();
+  const float = document.createElement('span');
+  float.className = 'heart-floater';
+  float.textContent = '❤';
+  float.style.left = (rect.left + rect.width / 2) + 'px';
+  float.style.top = (rect.top + rect.height / 2) + 'px';
+  document.body.appendChild(float);
+  setTimeout(() => float.remove(), 1100);
+}
+
+let lastAlgoNudgeWeek = -1;
+function maybeShowAlgoNudge(post) {
+  // Nicht jeden Like kommentieren — nur bei polarisierendem Content,
+  // und höchstens 1× pro Woche, damit es nicht nervt.
+  if (Store.data.currentWeek === lastAlgoNudgeWeek) return;
+  const tags = post.tags || [];
+  const isHot = tags.includes('politik-rechts') || tags.includes('politik-links')
+    || tags.includes('verschwoerung') || tags.includes('anti-feminismus') || tags.includes('feminismus')
+    || (post.outrage_score || 0) > 0.5;
+  if (!isHot) return;
+  if (!Store.isUnlocked('algorithm_panel')) return;
+  lastAlgoNudgeWeek = Store.data.currentWeek;
+  toast('Notiert. Streem zeigt dir bald mehr in diese Richtung.', { long: true });
+}
+
+function showCommentOptions(post, card) {
   const overlay = document.getElementById('comment-overlay');
   const list = document.getElementById('comment-options');
   list.innerHTML = '';
   const opts = generateCommentOptions(post);
   for (const o of opts) {
     const b = document.createElement('button');
+    b.type = 'button';
     b.textContent = o.text;
     b.onclick = () => {
+      // Anführungszeichen entfernen für die Reply-Anzeige.
+      const clean = o.text.replace(/^[„"”]/, '').replace(/[“"”]$/, '');
+      if (!Store.data.commentSelections) Store.data.commentSelections = {};
+      Store.data.commentSelections[post.id] = clean;
       Store.recordAction(post.id, o.type, post);
+      injectReplyIntoCard(card, clean);
       overlay.hidden = true;
       toast('Kommentar abgeschickt.');
     };
     list.appendChild(b);
   }
-  document.getElementById('comment-cancel').onclick = () => overlay.hidden = true;
+  const close = () => {
+    overlay.hidden = true;
+    document.removeEventListener('keydown', onKey);
+    overlay.removeEventListener('click', onClick);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  const onClick = (e) => { if (e.target === overlay) close(); };
+  document.getElementById('comment-cancel').onclick = close;
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', onClick);
   overlay.hidden = false;
+}
+
+function pickStoredComment(postId) {
+  return Store.data.commentSelections?.[postId] || null;
+}
+
+function injectReplyIntoCard(card, text) {
+  if (!card) return;
+  let block = card.querySelector('.post-reply');
+  if (!block) {
+    block = document.createElement('div');
+    block.className = 'post-reply';
+    block.innerHTML = `<div class="reply-author">${escapeHtml(Store.data.character.name)} <span class="muted small">· du</span></div><div class="reply-body"></div>`;
+    card.appendChild(block);
+  }
+  block.querySelector('.reply-body').textContent = text;
+  block.classList.remove('reply-in'); void block.offsetWidth; block.classList.add('reply-in');
 }
 
 function generateCommentOptions(post) {
@@ -375,101 +513,101 @@ function generateCommentOptions(post) {
 
 function contextualCommentOptions(post) {
   // Vier Tonlagen, aber inhaltlich an den Post angepasst: zustimmend, skeptisch, empört, humorvoll.
+  // Wortgrenzen via \b, damit "Auswahl" nicht für "wahl" matcht und "Bildgilde" nicht für "gilde".
   const tags = post.tags || [];
   const t = (post.text || '').toLowerCase();
 
-  // Keyword-basierte Spezialfälle
-  if (/kaffee|café|tee /.test(t)) return [
+  if (/\b(kaffee|filterkaffee|café|cafe|latte|kakao|tee)\b/.test(t)) return [
     { text: '„Welches Café? Brauche ich."',                  type: 'comment' },
     { text: '„Stimmt. Kaffee hier ist eine Enttäuschung."',  type: 'comment' },
     { text: '„Du und dein Kaffee, jede Woche."',             type: 'angry_comment' },
     { text: '„Morgens ohne geht eh nicht."',                 type: 'comment' }
   ];
-  if (/roboter|projekt/.test(t) && tags.includes('wissenschaft')) return [
+  if (/\b(roboter|projektroboter|robotik|sensor|mikrocontroller)\b/.test(t) && tags.includes('wissenschaft')) return [
     { text: '„Sick! Gibt’s Video?"',                         type: 'comment' },
     { text: '„Welcher Mikrocontroller?"',                    type: 'comment' },
     { text: '„Meiner rollt nur im Kreis, hilf mir."',        type: 'comment' },
     { text: '„Bis er dich verrät, ist das ok."',             type: 'comment' }
   ];
-  if (/gilde|patch|queue|emote|skin|ranked|platin|turnier/.test(t)) return [
+  if (/\b(gilde|patch|queue|emote|skin|ranked|platin|turnier|nerf|meta)\b/.test(t)) return [
     { text: '„Bin dabei, ping mich."',                       type: 'comment' },
     { text: '„Das Patch ist broken, komm schon."',           type: 'angry_comment' },
     { text: '„Gilde heute Abend?"',                          type: 'comment' },
     { text: '„Meine Mutter sagt das auch."',                 type: 'comment' }
   ];
-  if (/playlist|album|track|song |dj |karaoke|studio|set im |gig/.test(t)) return [
+  if (/\b(playlist|album|track|song|dj|karaoke|studio|gig|konzert|live-set)\b/.test(t)) return [
     { text: '„Link? Jetzt? Bitte?"',                         type: 'comment' },
     { text: '„Klang gestern im ZEK wirklich gut."',          type: 'comment' },
     { text: '„Nicht wieder 90er-Nostalgie."',                type: 'angry_comment' },
     { text: '„Auf Repeat. Danke."',                          type: 'comment' }
   ];
-  if (/buch|autor|rezension|buchhandlung|roman|dystopie/.test(t)) return [
+  if (/\b(buch|bücher|autor(?:in)?|rezension|buchhandlung|roman|dystopie|lesekreis|hörbuch)\b/.test(t)) return [
     { text: '„Auf die Liste. Danke."',                       type: 'comment' },
     { text: '„Hab ich angefangen, konnte nicht weiter."',    type: 'comment' },
     { text: '„Nele, dein Geschmack, immer."',                type: 'comment' },
     { text: '„Lieber Hörbuch — gibt’s das?"',                type: 'comment' }
   ];
-  if (/deepfake|manipuliert|faktencheck|bildersuche/.test(t)) return [
+  if (/\b(deepfake|manipuliert|faktencheck|bildersuche|desinformation)\b/.test(t)) return [
     { text: '„Wichtig. Teile ich weiter."',                  type: 'comment' },
     { text: '„Faktenchecker sind selbst befangen."',         type: 'angry_comment' },
     { text: '„Gute Checkliste, speichere ich."',             type: 'comment' },
     { text: '„Bin trotzdem reingefallen. Peinlich."',        type: 'comment' }
   ];
-  if (/wahl|wahlergebnis|kandidat|stimme|ankreuzen/.test(t)) return [
+  if (/\b(wahl|wahlergebnis|wahllokal|wahlkampf|kandidat(?:in|en)?|stimme|stimmzettel|ankreuzen)\b/.test(t)) return [
     { text: '„Danke für die Erinnerung."',                   type: 'comment' },
     { text: '„Ergebnis ist doch Show, Wahlen ändern nichts."', type: 'angry_comment' },
     { text: '„Bin schon im Wahllokal, gleich."',             type: 'comment' },
     { text: '„Gibt es eine Wahl-Hilfe für die Stadt?"',      type: 'comment' }
   ];
-  if (/klima|kohle|klimakrise|klimaziele/.test(t)) return [
+  if (/\b(klima|kohle|klimakrise|klimaziele|klimaschutz|emissionen)\b/.test(t)) return [
     { text: '„Fakten > Bauchgefühl."',                       type: 'comment' },
     { text: '„Strukturell ja, individuell auch."',           type: 'comment' },
     { text: '„Hört auf, uns Angst zu machen."',              type: 'angry_comment' },
     { text: '„Kann man das nachlesen?"',                     type: 'comment' }
   ];
-  if (/equal pay|gehalt|statistik/.test(t)) return [
+  if (/\b(equal pay|gehalt|gehälter|statistik|lohnlücke|gender pay gap)\b/.test(t)) return [
     { text: '„Danke, dass du dranbleibst."',                 type: 'comment' },
     { text: '„Zahlen sind bekannt, bitte handeln."',         type: 'comment' },
     { text: '„Die Methodik ist doch fragwürdig."',           type: 'angry_comment' },
     { text: '„Habe letztes Jahr endlich verhandelt."',       type: 'comment' }
   ];
-  if (/mainstream|zensur|verschwör|akten|gelder verschoben/.test(t)) return [
+  if (/\b(mainstream|zensur|verschwör|akten|umverteilung|kartell)\b/.test(t)) return [
     { text: '„Endlich sagt’s jemand."',                      type: 'comment' },
     { text: '„Quelle? Ernsthaft, bitte."',                   type: 'comment' },
     { text: '„Das ist Stimmungsmache."',                     type: 'angry_comment' },
     { text: '„Ich warte auf die Doku."',                     type: 'comment' }
   ];
-  if (/studie|universität|korrelation|kausalität|forschung/.test(t)) return [
+  if (/\b(studie|universität|uni|korrelation|kausalität|forschung|peer-review|methodik)\b/.test(t)) return [
     { text: '„Endlich mal sauber differenziert."',           type: 'comment' },
     { text: '„Link zur Primärquelle?"',                      type: 'comment' },
     { text: '„Wissenschaft ist nicht Demokratie."',          type: 'angry_comment' },
     { text: '„Screenshot für die Lerngruppe."',              type: 'comment' }
   ];
-  if (/radweg|fahrrad|kreisverkehr/.test(t)) return [
+  if (/\b(radweg|fahrrad|kreisverkehr|innenstadt|verkehrswende)\b/.test(t)) return [
     { text: '„Gute Nachricht für die Stadt."',               type: 'comment' },
     { text: '„Mal sehen, ob sie’s wirklich bauen."',         type: 'comment' },
     { text: '„Und die Autofahrer?"',                         type: 'angry_comment' },
     { text: '„Endlich, nach Jahren."',                       type: 'comment' }
   ];
-  if (/regen|sturm|wolken|mond|wetter/.test(t)) return [
+  if (/\b(regen|sturm|wolken|mond|wetter|nebel|fähren)\b/.test(t)) return [
     { text: '„Greifshafen-Stimmung."',                       type: 'comment' },
     { text: '„Hab ich auch gesehen — krass."',               type: 'comment' },
     { text: '„Ich liebe das Wetter hier nicht."',            type: 'angry_comment' },
     { text: '„Jacke an, Kamera raus."',                      type: 'comment' }
   ];
-  if (/demo|protest|kundgebung|bürgerversammlung|fleetplatz/.test(t)) return [
+  if (/\b(demo|protest|kundgebung|bürgerversammlung|fleetplatz|marktplatz)\b/.test(t)) return [
     { text: '„Bin dabei."',                                  type: 'comment' },
     { text: '„Weniger Symbolik, mehr Plan."',                type: 'comment' },
     { text: '„Das bringt gar nichts."',                      type: 'angry_comment' },
     { text: '„Danke für die Info, teile ich."',              type: 'comment' }
   ];
-  if (/hass|angepöbelt|hasskommentare|chatgruppe/.test(t)) return [
+  if (/\b(hass|angepöbelt|hasskommentare|chatgruppe|beleidigt|diskriminier)/.test(t)) return [
     { text: '„Tut mir leid, das zu lesen."',                 type: 'comment' },
     { text: '„Meldet das. Jedes Mal."',                      type: 'comment' },
     { text: '„Übertreibt ihr nicht ein bisschen?"',          type: 'angry_comment' },
     { text: '„Ihr seid nicht allein."',                      type: 'comment' }
   ];
-  if (/testosteron|männer|männlich|dating/.test(t) && tags.includes('anti-feminismus')) return [
+  if (/\b(testosteron|männer|männlich|dating|alpha|mindset)\b/.test(t) && tags.includes('anti-feminismus')) return [
     { text: '„Stark formuliert. Keep going."',               type: 'comment' },
     { text: '„Das ist kein Mindset, das ist Angst."',        type: 'angry_comment' },
     { text: '„Hast du Quellen oder nur Parolen?"',           type: 'comment' },
@@ -531,7 +669,16 @@ function showWhy(post) {
   html += '</ul>';
   if (post.isAd) html += '<p class="muted small">Anzeigen sind nach deinen Interessen-Schätzwerten gezielt.</p>';
   body.innerHTML = html;
-  document.getElementById('why-close').onclick = () => overlay.hidden = true;
+  const close = () => {
+    overlay.hidden = true;
+    document.removeEventListener('keydown', onKey);
+    overlay.removeEventListener('click', onClickBackdrop);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  const onClickBackdrop = (e) => { if (e.target === overlay) close(); };
+  document.getElementById('why-close').onclick = close;
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', onClickBackdrop);
   overlay.hidden = false;
 }
 

@@ -53,6 +53,12 @@ function freshSave() {
     badges: [],
     sandboxRules: null,
     contentWarningsAccepted: {},
+    weekFeedCache: {},
+    postReplies: {},
+    commentSelections: {},
+    likedPosts: {},
+    sharedPosts: {},
+    initialProfileSnapshot: null,
     random_seed: Math.floor(Math.random() * 1e9)
   };
 }
@@ -101,6 +107,8 @@ export const Store = {
     for (const tag of character.interests_initial || []) {
       this.data.userProfile.interests[tag] = 0.4;
     }
+    // Snapshot des Start-Profils für die Sandbox-Vergleichs-Simulation.
+    this.data.initialProfileSnapshot = structuredClone(this.data.userProfile);
     this.save();
   },
 
@@ -159,7 +167,14 @@ export const Store = {
     }
 
     this.data.actionsThisWeek.push({ postId, type, week: this.data.currentWeek, ts: Date.now() });
-    this.data.seenPosts.push(postId);
+    if (!this.data.seenPosts.includes(postId)) {
+      this.data.seenPosts.push(postId);
+    }
+    if (!this.data.postReplies) this.data.postReplies = {};
+    if (type === 'comment' || type === 'angry_comment') {
+      if (!this.data.postReplies[postId]) this.data.postReplies[postId] = [];
+      this.data.postReplies[postId].push({ type, week: this.data.currentWeek, ts: Date.now() });
+    }
     this.save();
   },
 
@@ -175,6 +190,16 @@ export const Store = {
     this.data.weekFeedIndex = 0;
     this.data.currentWeek += 1;
     this.save();
+  },
+
+  cacheWeekFeed(weekNum, postIds) {
+    if (!this.data.weekFeedCache) this.data.weekFeedCache = {};
+    this.data.weekFeedCache[weekNum] = postIds.slice();
+    this.save();
+  },
+
+  getWeekFeedCache(weekNum) {
+    return this.data.weekFeedCache?.[weekNum] || null;
   },
 
   unlock(name) {

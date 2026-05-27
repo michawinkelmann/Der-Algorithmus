@@ -127,10 +127,14 @@ function bindGlobal() {
     const blob = new Blob([Store.exportJson()], { type: 'application/json' });
     downloadBlob(blob, 'streem-save.json');
   };
+  const reportBtn = document.getElementById('btn-export-report');
+  if (reportBtn) reportBtn.onclick = exportReport;
   document.getElementById('btn-show-wrapped-now').onclick = () => {
     showScreen('screen-wrapped');
-    renderWrapped(() => showScreen('screen-sandbox') | renderSandbox(() => showScreen('screen-main')),
-                  () => showScreen('screen-manifest') | renderManifestForm());
+    renderWrapped(
+      () => { showScreen('screen-sandbox'); renderSandbox(() => showScreen('screen-main')); },
+      () => { showScreen('screen-manifest'); renderManifestForm(); }
+    );
   };
   document.getElementById('btn-show-sandbox-now').onclick = () => {
     showScreen('screen-sandbox');
@@ -177,10 +181,13 @@ function buildIntroForm() {
     const b = document.createElement('button');
     b.type = 'button';
     b.innerHTML = avatarSvg(i);
+    b.setAttribute('aria-label', `Avatar ${i + 1} von 12`);
+    b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
     if (i === 0) b.classList.add('selected');
     b.onclick = () => {
-      ap.querySelectorAll('button').forEach(x => x.classList.remove('selected'));
+      ap.querySelectorAll('button').forEach(x => { x.classList.remove('selected'); x.setAttribute('aria-pressed','false'); });
       b.classList.add('selected');
+      b.setAttribute('aria-pressed', 'true');
       chosenAvatar = i;
     };
     b.dataset.idx = i;
@@ -271,7 +278,7 @@ function showWeekendCard(weekNum, eventResults, badges) {
   stats.innerHTML = `
     <div class="stat"><div class="num">${d.userProfile.followed.length}</div><div class="lbl">du folgst</div><div class="delta ${followedDelta>=0?'up':'down'}">${followedDelta>=0?'+':''}${followedDelta}</div></div>
     <div class="stat"><div class="num">${(d.history[d.history.length-1]?.actions||[]).length}</div><div class="lbl">Interaktionen</div></div>
-    <div class="stat"><div class="num">${topInterest ? topInterest[0] : '—'}</div><div class="lbl">Top-Thema</div></div>
+    <div class="stat"><div class="num">${topInterest ? tagLabel(topInterest[0]) : '—'}</div><div class="lbl">Top-Thema</div></div>
     <div class="stat"><div class="num">${(d.userProfile.political_lean_estimated).toFixed(2)}</div><div class="lbl">Lean</div><div class="delta">${leanDelta>=0?'+':''}${leanDelta.toFixed(2)}</div></div>
   `;
 
@@ -355,8 +362,18 @@ function queueReflection(which) {
 }
 
 function advanceWeek() {
+  // Wahl unerledigt? Erzwingen, sonst geht das didaktische Highlight verloren.
+  if (Store.data.electionData && !Store.data.electionVote) {
+    openElection();
+    return;
+  }
   // Wrapped?
   if (Store.data.currentWeek >= DATA.weeks.weeks.length) {
+    // Letzte Reflexion vor Wrapped, falls noch nicht gemacht.
+    if (!Store.data.reflections.final) {
+      openReflection('final');
+      return;
+    }
     showScreen('screen-wrapped');
     renderWrapped(
       () => { showScreen('screen-sandbox'); renderSandbox(() => { showScreen('screen-main'); renderFeed('feed'); }); },
@@ -391,6 +408,11 @@ function openReflection(which) {
       'Welche Inhalte sind dir im zweiten Drittel aufgefallen?',
       'Hast du bemerkt, dass dein Feed anders geworden ist?',
       'Was denkst du gerade über Algorithmen?'
+    ],
+    final: [
+      'Welcher Moment im Spiel ist dir am stärksten geblieben?',
+      'Worüber hat dich der Algorithmus am meisten überrascht?',
+      'Was nimmst du für deinen echten Social-Media-Alltag mit?'
     ]
   };
   const container = document.getElementById('reflection-questions');
@@ -412,6 +434,11 @@ function finishReflection() {
   Store.data.reflections[which] = answers;
   Store.save();
   pendingReflection = null;
+  // Wenn das die Schluss-Reflexion war, geht's direkt ins Wrapped.
+  if (which === 'final') {
+    advanceWeek();
+    return;
+  }
   enterMain();
 }
 
@@ -470,6 +497,18 @@ function openAlgoPanel() {
   `;
   body.innerHTML = html;
   showScreen('screen-algo');
+}
+
+function tagLabel(tag) {
+  const m = {
+    gaming: 'Gaming', musik: 'Musik', lifestyle: 'Lifestyle', sport: 'Sport',
+    wissenschaft: 'Wissenschaft', klima: 'Klima', humor: 'Humor',
+    'politik-mitte': 'Politik (Mitte)', 'politik-links': 'Politik (links)',
+    'politik-rechts': 'Politik (rechts)', feminismus: 'Feminismus',
+    'anti-feminismus': 'Anti-Fem.', verschwoerung: 'Verschwörung',
+    hass: 'Hass', 'true-crime': 'True Crime'
+  };
+  return m[tag] || tag;
 }
 
 function describeAudience(profile) {
@@ -565,18 +604,26 @@ function openHateIncident() {
 }
 
 // ===== Wahl =====
+const PARTY_COLORS = {
+  p_zukunft: '#4ade80',   // grün
+  p_buerger: '#60a5fa',   // blau
+  p_alt:     '#f97316',   // orange
+  p_heimat:  '#a16207',   // braun
+  sonst:     '#94a3b8'
+};
+
 function openElection() {
-  const parties = getParties();
-  const res = Store.data.electionData;
+  const parties = [...getParties()].sort((a, b) => (a.lean ?? 0) - (b.lean ?? 0));
   const body = document.getElementById('election-body');
   body.innerHTML = `
-    <p class="muted">Wen willst du wählen? Die Parteien, wie dein Feed sie dir gezeigt hat:</p>
+    <p class="muted">Wen willst du wählen? Die Parteien — sortiert von links nach rechts, wie sie dir im Feed begegnet sind:</p>
     <div class="party-grid">
       ${parties.map(p => {
         const cov = estimateCoverageFor(p);
+        const col = PARTY_COLORS[p.id] || '#888';
         return `
-        <div class="party-card">
-          <div class="name">${escapeHtml(p.name)}</div>
+        <div class="party-card" style="border-left:4px solid ${col}">
+          <div class="name" style="color:${col}">${escapeHtml(p.name)}</div>
           <div class="slogan">„${escapeHtml(p.slogan)}"</div>
           <div class="coverage">In deinem Feed: ${cov}</div>
           <div class="party-vote-bar">
@@ -594,6 +641,7 @@ function openElection() {
       showElectionResult();
     };
   });
+  if (Store.data.electionVote) showElectionResult();
   showScreen('screen-election');
 }
 
@@ -622,26 +670,31 @@ function showElectionResult() {
   const voted = Store.data.electionVote;
   const parties = getParties();
   const votedName = parties.find(p => p.id === voted)?.name || 'keine';
+  // Nach Lean sortieren (links → rechts), Sonstige ans Ende.
+  const order = [...data.objective].sort((a, b) => {
+    const la = parties.find(x => x.id === a.id)?.lean ?? 99;
+    const lb = parties.find(x => x.id === b.id)?.lean ?? 99;
+    return la - lb;
+  });
   slot.innerHTML = `
-    <h3>Du hast für: ${escapeHtml(votedName)}</h3>
-    <p class="muted small">Das fiktive Ergebnis in Greifshafen — links das objektive Ergebnis, rechts das, was dein Feed dir vermittelt hat:</p>
-    <div class="wrapped-bars">
-      ${data.objective.map((p, i) => {
-        const pc = data.perceived[i];
-        const obj = Math.round(p.share*100);
-        const per = Math.round(pc.perceived*100);
+    <h3>Du hast für: <span style="color:${PARTY_COLORS[voted] || 'var(--accent)'}">${escapeHtml(votedName)}</span></h3>
+    <p class="muted small">Links das objektive Ergebnis. Daneben das, was dein Feed dir vermittelt hat — die Differenz ist die Filterblase.</p>
+    <div class="election-compare">
+      <div class="col-head"><span>Partei</span><span class="muted small">objektiv</span><span class="muted small">in deinem Feed</span></div>
+      ${order.map(p => {
+        const pc = data.perceived.find(x => x.id === p.id);
+        const col = PARTY_COLORS[p.id] || '#888';
+        const obj = Math.round(p.share * 100);
+        const per = Math.round((pc?.perceived || 0) * 100);
+        const diff = per - obj;
         return `
-          <div class="row">
-            <span class="lbl">${escapeHtml(p.name)}</span>
-            <div class="bar"><div class="fill" style="width:${obj}%"></div></div>
-            <span>${obj}%</span>
-          </div>
-          <div class="row">
-            <span class="lbl muted">in deinem Feed</span>
-            <div class="bar"><div class="fill" style="width:${per}%;background:linear-gradient(90deg,var(--warn),var(--accent))"></div></div>
-            <span>${per}%</span>
-          </div>
-        `;
+          <div class="election-row">
+            <div class="party-label" style="color:${col}">${escapeHtml(p.name)}</div>
+            <div class="bar-pair">
+              <div class="bar"><div class="fill" style="width:${obj}%;background:${col};opacity:0.55"></div><span class="bar-val">${obj}%</span></div>
+              <div class="bar"><div class="fill" style="width:${per}%;background:${col}"></div><span class="bar-val">${per}% <em class="diff ${diff>=0?'pos':'neg'}">${diff>=0?'+':''}${diff}</em></span></div>
+            </div>
+          </div>`;
       }).join('')}
     </div>
     <button class="btn btn-primary" id="btn-elec-close" style="margin-top:14px">Zurück</button>
@@ -655,10 +708,11 @@ function openProfileModal() {
   const profile = Store.data.userProfile;
   const body = document.createElement('div');
   body.className = 'profile-box';
+  const pronounLine = c.pronoun && c.pronoun !== 'keine' ? `${escapeHtml(c.pronoun)} · ` : '';
   body.innerHTML = `
     <div class="big-avatar">${avatarSvg(c.avatar || 0)}</div>
     <h2 style="text-align:center;margin:0">${escapeHtml(c.name)}</h2>
-    <p class="muted small" style="text-align:center">${escapeHtml(c.pronoun || '')} · ${escapeHtml(c.city)}</p>
+    <p class="muted small" style="text-align:center">${pronounLine}${escapeHtml(c.city)}</p>
     <p class="muted small" style="text-align:center">Woche ${Store.data.currentWeek} · Tag ${Store.getDay()}</p>
     <div class="stat-row" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0">
       <div class="stat"><div class="num">${profile.followed.length}</div><div class="lbl">folgst du</div></div>
@@ -669,9 +723,18 @@ function openProfileModal() {
   `;
   const overlay = document.createElement('div');
   overlay.className = 'tw-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
   overlay.appendChild(body);
   document.body.appendChild(overlay);
-  body.querySelector('#profile-close').onclick = () => overlay.remove();
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', onKey);
+  body.querySelector('#profile-close').onclick = close;
 }
 
 // ===== Manifest =====
@@ -720,6 +783,96 @@ function exportManifest() {
   const blob = new Blob([html], { type: 'text/html' });
   downloadBlob(blob, 'medien-manifest.html');
   toast('Manifest exportiert.', { long: true });
+}
+
+function exportReport() {
+  const d = Store.data;
+  if (!d || !d.character) { alert('Noch kein Spielstand.'); return; }
+  const c = d.character;
+  const refs = d.reflections || {};
+  const profile = d.userProfile || {};
+  const topInterests = Object.entries(profile.interests || {})
+    .filter(([,v]) => v > 0.05).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const actions = (d.history || []).flatMap(h => h.actions || []);
+  const likes = actions.filter(a => a.type === 'like').length;
+  const angry = actions.filter(a => a.type === 'angry_comment').length;
+  const comments = actions.filter(a => a.type === 'comment').length;
+  const shares = actions.filter(a => a.type === 'share').length;
+  const followed = profile.followed?.length || 0;
+  const muted = profile.muted?.length || 0;
+  const guilds = d.guildMemberships || [];
+  const parties = getParties();
+  const votedName = d.electionVote ? (parties.find(p => p.id === d.electionVote)?.name || d.electionVote) : '—';
+
+  const refBlock = (title, key) => {
+    const obj = refs[key];
+    if (!obj || !Object.keys(obj).length) return `<section><h2>${title}</h2><p class="empty">— nicht ausgefüllt —</p></section>`;
+    return `<section><h2>${title}</h2>${Object.entries(obj).map(([q,a]) =>
+      `<div class="qa"><div class="q">${escapeHtml(q)}</div><div class="a">${a ? escapeHtml(String(a)) : '<em>— leer —</em>'}</div></div>`
+    ).join('')}</section>`;
+  };
+
+  const manifest = refs.manifest || {};
+  const manifestList = [1,2,3,4,5].map(i =>
+    `<li>${manifest[i] ? escapeHtml(manifest[i]) : '<em>— leer —</em>'}</li>`
+  ).join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="de">
+<head><meta charset="UTF-8"><title>Streem-Bericht: ${escapeHtml(c.name)}</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; max-width: 760px; margin: 2rem auto; padding: 1rem; color: #1f2230; line-height: 1.5; }
+  h1 { color: #c026d3; border-bottom: 2px solid #eee; padding-bottom: .5rem; }
+  h2 { color: #4338ca; margin-top: 2rem; }
+  .meta { color: #555; font-size: 14px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 1rem 0; }
+  .stat { background: #f4f5fa; padding: 10px; border-radius: 8px; border-left: 3px solid #c026d3; }
+  .stat b { display: block; font-size: 22px; color: #1f2230; }
+  .stat small { color: #666; }
+  .qa { margin: .8rem 0; padding: .6rem .8rem; background: #f8f9fc; border-left: 3px solid #4338ca; border-radius: 4px; }
+  .qa .q { font-weight: 600; color: #4338ca; margin-bottom: 4px; font-size: 14px; }
+  .qa .a { white-space: pre-wrap; }
+  .empty { color: #999; font-style: italic; }
+  ol li { margin: .6rem 0; }
+  .foot { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #ddd; color: #777; font-size: 13px; }
+  ul.interests { list-style: none; padding: 0; }
+  ul.interests li { display: inline-block; background: #eef; padding: 2px 8px; border-radius: 10px; margin: 2px; font-size: 13px; }
+</style></head>
+<body>
+  <h1>Streem-Bericht</h1>
+  <p class="meta"><strong>${escapeHtml(c.name)}</strong>${c.pronoun && c.pronoun !== 'keine' ? ' · ' + escapeHtml(c.pronoun) : ''} · ${escapeHtml(c.city || '')}<br/>Stand: Woche ${d.currentWeek} · erstellt ${new Date().toLocaleString('de-DE')}</p>
+
+  <h2>Übersicht</h2>
+  <div class="stats">
+    <div class="stat"><b>${likes}</b><small>Likes</small></div>
+    <div class="stat"><b>${comments + angry}</b><small>Kommentare (${angry} wütend)</small></div>
+    <div class="stat"><b>${shares}</b><small>geteilt</small></div>
+    <div class="stat"><b>${followed}</b><small>folgst du</small></div>
+    <div class="stat"><b>${muted}</b><small>stummgeschaltet</small></div>
+    <div class="stat"><b>${(profile.political_lean_estimated ?? 0).toFixed(2)}</b><small>politische Neigung (−1 links · +1 rechts)</small></div>
+    <div class="stat"><b>${guilds.length}</b><small>Gilden beigetreten</small></div>
+    <div class="stat"><b>${escapeHtml(votedName)}</b><small>gewählt</small></div>
+  </div>
+
+  <h2>Top-Interessen laut Algorithmus</h2>
+  <ul class="interests">${topInterests.map(([k,v]) => `<li>${escapeHtml(tagLabel(k))} · ${Math.round(v*100)}%</li>`).join('') || '<li><em>noch keine Daten</em></li>'}</ul>
+
+  ${refBlock('Reflexion · 1. Drittel', 'halftime')}
+  ${refBlock('Reflexion · 2. Drittel', 'mid')}
+  ${refBlock('Schluss-Reflexion', 'final')}
+
+  <h2>Medien-Manifest</h2>
+  <ol>${manifestList}</ol>
+
+  <div class="foot">
+    Erstellt mit dem Lernspiel „Der Algorithmus". Dokument zur Vorlage in der Projektwoche.<br/>
+    Anlaufstellen: bpb.de · klicksafe.de · hateaid.org · Telefonseelsorge 0800 111 0 111.
+  </div>
+</body>
+</html>`;
+  const blob = new Blob([html], { type: 'text/html' });
+  downloadBlob(blob, `streem-bericht-${(c.name||'spieler').toLowerCase().replace(/[^a-z0-9]/g,'_')}.html`);
+  toast('Bericht exportiert.', { long: true });
 }
 
 function downloadBlob(blob, filename) {
