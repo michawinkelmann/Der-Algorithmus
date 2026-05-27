@@ -85,6 +85,13 @@ export function renderSandbox(onClose) {
 
   document.getElementById('btn-sim').onclick = () => simulate(rules);
   document.getElementById('btn-sandbox-close').onclick = () => onClose && onClose();
+  // Reset-Toggle: simulieren wir auf dem Start-Profil oder dem aktuellen Profil?
+  const simModeRow = document.querySelector('#sandbox-sim-mode');
+  if (simModeRow) {
+    simModeRow.querySelectorAll('input[name=sim-mode]').forEach(r => {
+      r.onchange = () => previewFeed(rules);
+    });
+  }
 }
 
 function applyPreset(name, rules, container) {
@@ -136,39 +143,66 @@ function previewFeed(rules) {
 }
 
 function simulate(rules) {
-  // Einfache Simulation: 10 Wochen-Iterationen, in jeder Woche Feed bauen, Top-3 „liken", Profil updaten.
-  const simProfile = structuredClone(Store.data.userProfile);
-  const statsBefore = scoreProfile(Store.data.userProfile);
+  // Welches Profil als Ausgangspunkt? "current" = aktuelles Spielprofil, "fresh" = Start-Profil.
+  const mode = document.querySelector('input[name=sim-mode]:checked')?.value || 'current';
+  const baseSource = (mode === 'fresh' && Store.data.initialProfileSnapshot)
+    ? Store.data.initialProfileSnapshot
+    : Store.data.userProfile;
+  const baseProfile = structuredClone(baseSource);
+  const statsBefore = scoreProfile(baseProfile);
+
+  // Parallel-Simulation: Original-Gewichte vs. eigene Regeln, damit der Vergleich sichtbar wird.
+  const baselineWeights = Store.data.weights;
+  const simOwn = structuredClone(baseProfile);
+  const simOrig = structuredClone(baseProfile);
   for (let i = 0; i < 10; i++) {
-    const feed = buildFeed(POSTS, ADS, simProfile, rules, { limit: 10, unlocked: ['ads'], muted: [] });
-    for (let j = 0; j < Math.min(3, feed.length); j++) {
-      const p = feed[j];
-      for (const t of p.tags || []) {
-        simProfile.interests[t] = Math.min(1, (simProfile.interests[t] || 0) + 0.05);
-      }
-      if (p.political_lean !== undefined) {
-        simProfile.political_lean_estimated = clamp(
-          simProfile.political_lean_estimated + p.political_lean * 0.03, -1, 1
-        );
-      }
-    }
+    advanceSimWeek(simOwn, rules);
+    advanceSimWeek(simOrig, baselineWeights);
   }
-  const statsAfter = scoreProfile(simProfile);
+  const statsOwn = scoreProfile(simOwn);
+  const statsOrig = scoreProfile(simOrig);
 
   const result = document.getElementById('sim-result');
   result.classList.add('visible');
   result.innerHTML = `
-    <h4>Nach 10 Wochen mit deinen Regeln:</h4>
-    <div class="wrapped-bars">
-      ${renderProfileRow('Wissenschaft', statsBefore.wissenschaft, statsAfter.wissenschaft)}
-      ${renderProfileRow('Politik-rechts', statsBefore.politikRechts, statsAfter.politikRechts)}
-      ${renderProfileRow('Politik-links', statsBefore.politikLinks, statsAfter.politikLinks)}
-      ${renderProfileRow('Verschwörung', statsBefore.verschwoerung, statsAfter.verschwoerung)}
-      ${renderProfileRow('Vielfalt', statsBefore.diversity, statsAfter.diversity)}
+    <h4>Nach 10 simulierten Wochen — links Original-Algorithmus, rechts deine Regeln:</h4>
+    <div class="sim-compare">
+      ${renderCompareRow('Wissenschaft', statsBefore.wissenschaft, statsOrig.wissenschaft, statsOwn.wissenschaft)}
+      ${renderCompareRow('Politik (rechts)', statsBefore.politikRechts, statsOrig.politikRechts, statsOwn.politikRechts)}
+      ${renderCompareRow('Politik (links)', statsBefore.politikLinks, statsOrig.politikLinks, statsOwn.politikLinks)}
+      ${renderCompareRow('Verschwörung', statsBefore.verschwoerung, statsOrig.verschwoerung, statsOwn.verschwoerung)}
+      ${renderCompareRow('Vielfalt', statsBefore.diversity, statsOrig.diversity, statsOwn.diversity)}
     </div>
-    <p class="muted small">Politische Neigung: ${statsBefore.lean.toFixed(2)} → <strong>${statsAfter.lean.toFixed(2)}</strong>.</p>
-    <p class="muted small">Vergleich mit dem Original-Algorithmus: Schiebe die Slider → sieh, wie sich alles ändert.</p>
+    <p class="muted small">Politische Neigung: Start ${statsBefore.lean.toFixed(2)} · Original ${statsOrig.lean.toFixed(2)} · deine Regeln <strong>${statsOwn.lean.toFixed(2)}</strong></p>
+    <p class="muted small">Ausgangsbasis: ${mode === 'fresh' ? 'Start-Profil (vor dem Spiel)' : 'aktuelles Profil (nach den gespielten Wochen)'}.</p>
   `;
+}
+
+function advanceSimWeek(profile, weights) {
+  const feed = buildFeed(POSTS, ADS, profile, weights, { limit: 10, unlocked: ['ads'], muted: [] });
+  for (let j = 0; j < Math.min(3, feed.length); j++) {
+    const p = feed[j];
+    for (const t of p.tags || []) {
+      profile.interests[t] = Math.min(1, (profile.interests[t] || 0) + 0.05);
+    }
+    if (p.political_lean !== undefined) {
+      profile.political_lean_estimated = clamp(
+        profile.political_lean_estimated + p.political_lean * 0.03, -1, 1
+      );
+    }
+  }
+}
+
+function renderCompareRow(label, start, orig, own) {
+  return `
+    <div class="sim-row">
+      <span class="lbl">${label}</span>
+      <div class="sim-bars">
+        <div class="sim-bar"><span class="sim-bar-label">Start</span><div class="bar small"><div class="fill base" style="width:${Math.round(start*100)}%"></div></div><span>${Math.round(start*100)}%</span></div>
+        <div class="sim-bar"><span class="sim-bar-label">Original</span><div class="bar small"><div class="fill orig" style="width:${Math.round(orig*100)}%"></div></div><span>${Math.round(orig*100)}%</span></div>
+        <div class="sim-bar"><span class="sim-bar-label">Du</span><div class="bar small"><div class="fill own" style="width:${Math.round(own*100)}%"></div></div><span>${Math.round(own*100)}%</span></div>
+      </div>
+    </div>`;
 }
 
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
@@ -188,18 +222,6 @@ function stddev(arr) {
   const m = arr.reduce((a, b) => a + b, 0) / arr.length;
   const v = arr.reduce((a, b) => a + (b - m) ** 2, 0) / arr.length;
   return Math.sqrt(v);
-}
-
-function renderProfileRow(label, before, after) {
-  const delta = after - before;
-  const arrow = delta > 0.02 ? '↑' : delta < -0.02 ? '↓' : '→';
-  return `
-    <div class="row">
-      <span class="lbl">${label}</span>
-      <div class="bar"><div class="fill" style="width:${Math.round(after*100)}%"></div></div>
-      <span>${Math.round(after*100)}% ${arrow}</span>
-    </div>
-  `;
 }
 
 function truncate(s, n) {

@@ -111,12 +111,15 @@ export function buildWrapped() {
       id: 's4',
       html: `
         <h2>Dein Echokammer-Score</h2>
-        <div class="big-num">${Math.round(dominantShare * 100)}%</div>
-        <p>${dominantShare > 0.7
-          ? 'deiner politischen Likes gingen in eine einzige Richtung.'
-          : dominantShare > 0.5
-          ? 'deiner politischen Likes gingen in eine dominante Richtung.'
-          : 'deiner politischen Likes waren über Richtungen verteilt.'}</p>
+        ${totalPolitical === 0
+          ? `<div class="big-word">—</div>
+             <p>Du hast politisch kaum interagiert. Sehr bewusst beobachtet — oder bewusst gemieden?</p>`
+          : `<div class="big-num">${Math.round(dominantShare * 100)}%</div>
+             <p>${dominantShare > 0.7
+               ? 'deiner politischen Likes gingen in eine einzige Richtung.'
+               : dominantShare > 0.5
+               ? 'deiner politischen Likes gingen in eine dominante Richtung.'
+               : 'deiner politischen Likes waren über Richtungen verteilt.'}</p>`}
         <div class="wrapped-lean">
           <div class="lean-track"><div class="lean-dot" style="left:${Math.round((lean+1)*50)}%"></div></div>
           <div class="labels"><span>links</span><span>Mitte</span><span>rechts</span></div>
@@ -229,22 +232,55 @@ function generateAdProfile(topInterests, profile) {
 }
 
 function generateMissedList(profile, feedSeen) {
-  const items = [];
-  if (profile.political_lean_estimated > 0.25) {
-    items.push({ title: 'Linke Argumente zur Klimapolitik', desc: 'Dein Feed hat sie kaum gezeigt.' });
-    items.push({ title: 'Wissenschaftliche Einordnungen', desc: 'Oft zugunsten lauter Meinungen ausgeblendet.' });
-  } else if (profile.political_lean_estimated < -0.25) {
-    items.push({ title: 'Konservative Wirtschaftsargumente', desc: 'Wurden selten oben sortiert.' });
-    items.push({ title: 'Ländlich-konservative Stimmen', desc: 'Kaum Reichweite in deinem Feed.' });
+  // Echte Posts, die NICHT gesehen wurden — mit der politisch gegenteiligen
+  // Richtung des Spielers und/oder hoher Qualität.
+  const seenSet = new Set(feedSeen);
+  const lean = profile.political_lean_estimated;
+  const unseen = [];
+  for (const p of POSTS_LOOKUP?.values() || []) {
+    if (seenSet.has(p.id)) continue;
+    unseen.push(p);
   }
-  if ((profile.interests['wissenschaft'] || 0) < 0.2) {
-    items.push({ title: 'Faktenchecks', desc: 'Wurden von Empörungsposts verdrängt.' });
+
+  function score(p) {
+    const pLean = p.political_lean ?? 0;
+    let s = 0;
+    // Gegen-Perspektive belohnen.
+    s += Math.abs(pLean - lean);
+    // Wissenschaftliche / qualitative Posts belohnen.
+    s += (p.quality_score ?? 0.5) * 0.7;
+    // Politik-Mitte belohnen, falls Profil sie kaum kennt.
+    if (p.tags?.includes('politik-mitte') && (profile.interests['politik-mitte'] || 0) < 0.2) s += 0.5;
+    if (p.tags?.includes('wissenschaft') && (profile.interests['wissenschaft'] || 0) < 0.2) s += 0.5;
+    // Empörung leicht abwerten, weil das didaktisch nicht "fehlt".
+    s -= 0.6 * (p.outrage_score ?? 0);
+    return s;
   }
-  if ((profile.interests['politik-mitte'] || 0) < 0.2) {
-    items.push({ title: 'Stimmen der politischen Mitte', desc: 'Sie bekommen selten Reichweite.' });
+
+  const ranked = unseen
+    .filter(p => (p.text || '').length > 0)
+    .sort((a, b) => score(b) - score(a))
+    .slice(0, 4);
+
+  if (!ranked.length) {
+    return [{ title: 'Dein Feed hat fast alles abgedeckt.', desc: 'Bemerkenswert breit für ein automatisches System.' }];
   }
-  items.push({ title: 'Lokale, konstruktive Lösungen', desc: 'Greifshafen hat mehr als nur Empörung.' });
-  return items.slice(0, 4);
+  return ranked.map(p => ({
+    title: shortenTitle(p.text),
+    desc: `von ${authorLabel(p.author)} · ${(p.tags || []).slice(0,2).map(labelFor).join(', ') || 'allgemein'}`
+  }));
+}
+
+function shortenTitle(text) {
+  if (!text) return '—';
+  const t = text.replace(/\s+/g, ' ').trim();
+  return t.length > 110 ? t.slice(0, 108) + '…' : t;
+}
+
+function authorLabel(authorId) {
+  // Schlanker Fallback, ohne Charaktere-Modul zu importieren.
+  if (!authorId) return 'jemand';
+  return authorId.replace(/^char_/, '').replace(/_/g, ' ');
 }
 
 function escapeHtml(s) {

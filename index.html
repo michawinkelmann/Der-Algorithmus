@@ -153,6 +153,11 @@
             <h3>Vorschau-Feed</h3>
             <p class="muted small">So würde dein Feed aussehen, wenn diese Regeln gelten.</p>
             <div id="sandbox-feed" class="feed-list compact"></div>
+            <div id="sandbox-sim-mode" class="sandbox-sim-mode" role="radiogroup" aria-label="Ausgangsbasis für die Simulation">
+              <span class="muted small">Simulation startet von:</span>
+              <label><input type="radio" name="sim-mode" value="fresh" checked /> Start-Profil</label>
+              <label><input type="radio" name="sim-mode" value="current" /> aktuellem Profil</label>
+            </div>
             <button class="btn btn-primary" id="btn-sim">10 Wochen simulieren</button>
             <div id="sim-result"></div>
           </section>
@@ -189,6 +194,7 @@
         <h2>Einstellungen</h2>
         <p class="muted">Spielstand: automatisch gespeichert.</p>
         <div class="settings-list">
+          <button class="btn btn-ghost" id="btn-export-report">Lehr-Bericht exportieren (HTML)</button>
           <button class="btn btn-ghost" id="btn-save-export">Spielstand exportieren (JSON)</button>
           <button class="btn btn-ghost" id="btn-show-wrapped-now">Jahresrückblick jetzt öffnen</button>
           <button class="btn btn-ghost" id="btn-show-sandbox-now">Sandbox öffnen</button>

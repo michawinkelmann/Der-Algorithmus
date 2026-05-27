@@ -59,6 +59,12 @@ function freshSave() {
     badges: [],
     sandboxRules: null,
     contentWarningsAccepted: {},
+    weekFeedCache: {},
+    postReplies: {},
+    commentSelections: {},
+    likedPosts: {},
+    sharedPosts: {},
+    initialProfileSnapshot: null,
     random_seed: Math.floor(Math.random() * 1e9)
   };
 }
@@ -107,6 +113,8 @@ const Store = {
     for (const tag of character.interests_initial || []) {
       this.data.userProfile.interests[tag] = 0.4;
     }
+    // Snapshot des Start-Profils für die Sandbox-Vergleichs-Simulation.
+    this.data.initialProfileSnapshot = structuredClone(this.data.userProfile);
     this.save();
   },
 
@@ -165,7 +173,14 @@ const Store = {
     }
 
     this.data.actionsThisWeek.push({ postId, type, week: this.data.currentWeek, ts: Date.now() });
-    this.data.seenPosts.push(postId);
+    if (!this.data.seenPosts.includes(postId)) {
+      this.data.seenPosts.push(postId);
+    }
+    if (!this.data.postReplies) this.data.postReplies = {};
+    if (type === 'comment' || type === 'angry_comment') {
+      if (!this.data.postReplies[postId]) this.data.postReplies[postId] = [];
+      this.data.postReplies[postId].push({ type, week: this.data.currentWeek, ts: Date.now() });
+    }
     this.save();
   },
 
@@ -181,6 +196,16 @@ const Store = {
     this.data.weekFeedIndex = 0;
     this.data.currentWeek += 1;
     this.save();
+  },
+
+  cacheWeekFeed(weekNum, postIds) {
+    if (!this.data.weekFeedCache) this.data.weekFeedCache = {};
+    this.data.weekFeedCache[weekNum] = postIds.slice();
+    this.save();
+  },
+
+  getWeekFeedCache(weekNum) {
+    return this.data.weekFeedCache?.[weekNum] || null;
   },
 
   unlock(name) {
@@ -263,14 +288,19 @@ function seededRandom(seed) {
 
 /**
  * Affinity: Übereinstimmung Post-Tags vs. User-Interessen.
+ * Mischung aus Summe (mehr Treffer = besser) und Max (ein Top-Tag schlägt durch).
  * @returns {number} 0..1
  */
 function affinity(post, profile) {
   const tags = post.tags || [];
   if (!tags.length) return 0.1;
-  let sum = 0;
-  for (const t of tags) sum += profile.interests[t] || 0;
-  return clamp(sum / tags.length, 0, 1);
+  let sum = 0, max = 0;
+  for (const t of tags) {
+    const v = profile.interests[t] || 0;
+    sum += v;
+    if (v > max) max = v;
+  }
+  return clamp(0.5 * max + 0.5 * Math.min(1, sum), 0, 1);
 }
 
 /**
@@ -284,12 +314,13 @@ function engagementBoost(post) {
 }
 
 /**
- * Recency: jüngere Posts höher gewichten (simuliert, Post-Index).
- * post.weekOffset = wie viele Wochen alt (0 = aktuell).
+ * Recency: jüngere Posts höher gewichten.
+ * weekOffset = wie viele Wochen alt (0 = aktuell). Fehlt der Wert,
+ * wird der Post als "frisch" behandelt (≈ 1).
  */
 function recency(post) {
-  const age = post.weekOffset || 0;
-  return Math.exp(-age * 0.5);
+  const age = Math.max(0, post.weekOffset || 0);
+  return Math.exp(-age * 0.45);
 }
 
 /**
@@ -323,9 +354,17 @@ function diversityPenalty(post, recentTags) {
 
 /**
  * Qualitäts-Bonus (in Sandbox aktivierbar).
+ * Spreizt den im Datensatz oft flachen quality_score, damit der Slider
+ * "Qualitäts-Bonus" sichtbar differenziert. Empörung + Engagement-Bait
+ * drücken die wahrgenommene Qualität, ein Artikel-Anhang hebt sie.
  */
 function qualityBonus(post) {
-  return post.quality_score || 0.5;
+  let q = post.quality_score;
+  if (q === undefined || q === null) q = 0.5;
+  q -= 0.45 * (post.outrage_score || 0);
+  q -= 0.2 * (post.engagement_bait_score || 0);
+  if (post.article) q += 0.15;
+  return clamp(q, 0, 1);
 }
 
 /**
@@ -491,29 +530,26 @@ function askWarning(twKey) {
 
     txt.textContent = `Im folgenden Beitrag werden Inhalte gezeigt: ${describeTW(twKey)}.`;
     overlay.hidden = false;
+    // Fokus auf "Überspringen" (sichere Default-Aktion).
+    setTimeout(() => skip.focus(), 30);
 
-    const cleanup = () => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') finish(false);
+    };
+    const finish = (showIt) => {
+      Store.data.contentWarningsAccepted[twKey] =
+        (Store.data.contentWarningsAccepted[twKey] || { shown: 0, skipped: 0 });
+      Store.data.contentWarningsAccepted[twKey][showIt ? 'shown' : 'skipped']++;
+      Store.save();
       overlay.hidden = true;
       skip.onclick = null;
       show.onclick = null;
+      document.removeEventListener('keydown', onKey);
+      resolve({ show: showIt });
     };
-
-    skip.onclick = () => {
-      Store.data.contentWarningsAccepted[twKey] =
-        (Store.data.contentWarningsAccepted[twKey] || { shown: 0, skipped: 0 });
-      Store.data.contentWarningsAccepted[twKey].skipped++;
-      Store.save();
-      cleanup();
-      resolve({ show: false });
-    };
-    show.onclick = () => {
-      Store.data.contentWarningsAccepted[twKey] =
-        (Store.data.contentWarningsAccepted[twKey] || { shown: 0, skipped: 0 });
-      Store.data.contentWarningsAccepted[twKey].shown++;
-      Store.save();
-      cleanup();
-      resolve({ show: true });
-    };
+    document.addEventListener('keydown', onKey);
+    skip.onclick = () => finish(false);
+    show.onclick = () => finish(true);
   });
 }
 
@@ -545,6 +581,7 @@ function getCharacter(id) {
  * Accessoires, Augen, Mund) zu vielfältigen Charakter-Portraits.
  */
 function avatarSvg(seed = 0) {
+  // Knuth-Hash für bessere Streuung der Merkmale über den Seed.
   const h = (((seed | 0) + 1) * 2654435761) >>> 0;
   const pick = (n, mix) => Math.floor((((h ^ (mix * 2246822519)) >>> 0) / 4294967296) * n);
 
@@ -578,17 +615,20 @@ function avatarSvg(seed = 0) {
   const hairStyle  = pick(10, 5);
   const eyeStyle   = pick(5, 6);
   const mouthStyle = pick(5, 7);
-  const glasses    = pick(5, 8);
-  const accessory  = pick(6, 9);
+  const glasses    = pick(5, 8);   // 0/1 keine, 2 rund, 3 eckig, 4 Sonnenbrille
+  const accessory  = pick(6, 9);   // 0 nichts, 1 Blush, 2 Ohrringe, 3 Muttermal, 4 Sommersprossen, 5 Nasenring
   const faceShape  = pick(3, 10);
   const browStyle  = pick(3, 12);
 
+  // Hintergrund (farbiger „Portrait-Kreis")
   const bgCircle = `<circle cx="50" cy="50" r="50" fill="${bg}"/>`;
 
+  // T-Shirt / Kragen
   const shirtSvg = `<path d="M 18 100 Q 22 84 36 82 Q 42 90 50 90 Q 58 90 64 82 Q 78 84 82 100 Z" fill="${shirt}"/>`;
   const neckSvg  = `<path d="M 44 76 Q 44 84 50 86 Q 56 84 56 76 Z" fill="${skin}"/>
     <path d="M 44 82 Q 50 86 56 82" stroke="#000" stroke-width="0.6" stroke-opacity="0.18" fill="none"/>`;
 
+  // Kopfform
   let head;
   if (faceShape === 0) {
     head = `<ellipse cx="50" cy="52" rx="26" ry="30" fill="${skin}"/>`;
@@ -597,25 +637,33 @@ function avatarSvg(seed = 0) {
   } else {
     head = `<path d="M 26 44 Q 26 24 50 24 Q 74 24 74 44 L 74 60 Q 74 78 50 82 Q 26 78 26 60 Z" fill="${skin}"/>`;
   }
+  // Kinn-Schatten für etwas Tiefe
   const shading = `<ellipse cx="50" cy="74" rx="14" ry="5" fill="#000" opacity="0.08"/>`;
 
+  // Ohren (nur wenn Frisur sie nicht verdeckt)
   const earsVisible = ![1, 3, 4, 7].includes(hairStyle);
   const ears = earsVisible
     ? `<ellipse cx="23" cy="55" rx="3" ry="5" fill="${skin}"/>
        <ellipse cx="77" cy="55" rx="3" ry="5" fill="${skin}"/>`
     : '';
 
+  // Frisuren / Kopfbedeckung
   let hairSvg = '';
   if (hairStyle === 0) {
+    // Kurze, leicht strubbelige Frisur
     hairSvg = `<path d="M 24 48 Q 22 22 50 22 Q 78 22 76 48 Q 72 36 66 34 Q 58 28 50 30 Q 42 28 34 34 Q 28 36 24 48 Z" fill="${hair}"/>`;
   } else if (hairStyle === 1) {
+    // Lange, gerade Haare (über die Ohren)
     hairSvg = `<path d="M 20 46 Q 20 22 50 22 Q 80 22 80 46 L 80 82 L 72 82 L 72 40 Q 50 30 28 40 L 28 82 L 20 82 Z" fill="${hair}"/>`;
   } else if (hairStyle === 2) {
+    // Seitenscheitel
     hairSvg = `<path d="M 24 46 Q 24 22 50 22 Q 78 22 78 46 Q 70 36 54 38 Q 46 30 34 34 Q 28 38 24 46 Z" fill="${hair}"/>`;
   } else if (hairStyle === 3) {
+    // Dutt / Zopf oben
     hairSvg = `<circle cx="50" cy="18" r="9" fill="${hair}"/>
       <path d="M 24 46 Q 24 24 50 24 Q 76 24 76 46 Q 68 36 50 36 Q 32 36 24 46 Z" fill="${hair}"/>`;
   } else if (hairStyle === 4) {
+    // Afro / Lockenkopf
     hairSvg = `<circle cx="30" cy="36" r="11" fill="${hair}"/>
       <circle cx="42" cy="22" r="11" fill="${hair}"/>
       <circle cx="58" cy="22" r="11" fill="${hair}"/>
@@ -624,21 +672,27 @@ function avatarSvg(seed = 0) {
       <circle cx="78" cy="50" r="9"  fill="${hair}"/>
       <circle cx="50" cy="18" r="10" fill="${hair}"/>`;
   } else if (hairStyle === 5) {
+    // Pony (Bangs)
     hairSvg = `<path d="M 22 48 Q 22 22 50 22 Q 78 22 78 48 Q 64 38 50 44 Q 36 38 22 48 Z" fill="${hair}"/>`;
   } else if (hairStyle === 6) {
+    // Mohawk / Undercut
     hairSvg = `<path d="M 42 14 L 58 14 Q 60 30 56 42 L 44 42 Q 40 30 42 14 Z" fill="${hair}"/>
       <path d="M 24 50 Q 28 46 36 46 M 64 46 Q 72 46 76 50" stroke="${hair}" stroke-width="3" stroke-linecap="round" fill="none"/>`;
   } else if (hairStyle === 7) {
+    // Beanie / Mütze
     hairSvg = `<path d="M 22 46 Q 22 16 50 16 Q 78 16 78 46 L 78 50 L 22 50 Z" fill="${accent}"/>
       <rect x="22" y="48" width="56" height="5" fill="#000" opacity="0.25"/>
       <circle cx="50" cy="12" r="4" fill="${accent}"/>`;
   } else if (hairStyle === 8) {
+    // Kahl / kurz rasiert
     hairSvg = `<path d="M 26 44 Q 28 30 50 30 Q 72 30 74 44" stroke="${hair}" stroke-width="1.5" fill="none" opacity="0.7"/>`;
   } else {
+    // Pferdeschwanz hinter dem Kopf
     hairSvg = `<path d="M 24 46 Q 24 22 50 22 Q 76 22 76 46 Q 70 36 56 36 Q 50 28 44 36 Q 30 36 24 46 Z" fill="${hair}"/>
       <path d="M 76 42 Q 90 52 84 74 Q 80 66 76 58 Z" fill="${hair}"/>`;
   }
 
+  // Augenbrauen
   const by = 46;
   let brows;
   if (browStyle === 0) {
@@ -652,6 +706,7 @@ function avatarSvg(seed = 0) {
       <path d="M 54 ${by - 1} Q 60 ${by - 3} 66 ${by + 1}" stroke="${hair}" stroke-width="2.2" stroke-linecap="round" fill="none"/>`;
   }
 
+  // Augen
   const eyeY = 54;
   let eyes;
   if (eyeStyle === 0) {
@@ -669,6 +724,7 @@ function avatarSvg(seed = 0) {
             <circle cx="41" cy="${eyeY - 1}" r="1" fill="#fff"/>
             <circle cx="61" cy="${eyeY - 1}" r="1" fill="#fff"/>`;
   } else {
+    // Offene Augen mit Iris in Akzentfarbe
     eyes = `<ellipse cx="40" cy="${eyeY}" rx="3.2" ry="2.4" fill="#fff"/>
             <ellipse cx="60" cy="${eyeY}" rx="3.2" ry="2.4" fill="#fff"/>
             <circle cx="40" cy="${eyeY}" r="1.8" fill="${accent}"/>
@@ -677,6 +733,7 @@ function avatarSvg(seed = 0) {
             <circle cx="60.5" cy="${eyeY - 0.5}" r="0.6" fill="#fff"/>`;
   }
 
+  // Brille / Sonnenbrille
   let glassesSvg = '';
   if (glasses === 2) {
     glassesSvg = `<circle cx="40" cy="${eyeY}" r="6" fill="none" stroke="#1a1a1a" stroke-width="1.4"/>
@@ -694,8 +751,10 @@ function avatarSvg(seed = 0) {
       <rect x="55" y="${eyeY - 4}" width="4" height="3" rx="1" fill="#fff" opacity="0.35"/>`;
   }
 
+  // Nase (dezent)
   const nose = `<path d="M 50 56 Q 48 62 50 64 Q 52 62 50 56" fill="#000" opacity="0.08"/>`;
 
+  // Mund
   const my = 70;
   let mouth;
   if (mouthStyle === 0) {
@@ -712,6 +771,7 @@ function avatarSvg(seed = 0) {
     mouth = `<path d="M 44 ${my + 1} Q 48 ${my - 1} 52 ${my + 1} Q 56 ${my - 1} 58 ${my + 1}" stroke="#4a2518" stroke-width="1.5" fill="none" stroke-linecap="round"/>`;
   }
 
+  // Accessoires
   let acc = '';
   if (accessory === 1) {
     acc = `<ellipse cx="34" cy="66" rx="3" ry="2" fill="#ff7aa2" opacity="0.4"/>
@@ -1013,6 +1073,7 @@ function renderMotif(m, bg, fg, tone, seed) {
   var Store = __M.Store;
   var buildFeed = __M.buildFeed;
   var explainPost = __M.explainPost;
+  var scorePost = __M.scorePost;
   var getCharacter = __M.getCharacter;
   var avatarSvg = __M.avatarSvg;
   var memeSvg = __M.memeSvg;
@@ -1040,28 +1101,44 @@ function setCallbacks({ onWeekEnd: wEnd, onOpenCompose: oc }) {
   onOpenCompose = oc;
 }
 
-/**
- * Baut den Feed für die aktuelle Woche.
- */
-function computeCurrentFeed() {
-  const d = Store.data;
-  const w = WEEKS[d.currentWeek] || WEEKS[WEEKS.length - 1];
-  // Posts dürfen pro Woche "reifen": wir erlauben alle Posts, Recency steuert Relevanz
-  const eligible = POSTS.filter(p => {
-    // Politik-rechts und Verschwörung erst ab W5 (didaktischer Bogen)
-    const tags = p.tags || [];
-    if (d.currentWeek < 3 && (tags.includes('politik-rechts') || tags.includes('politik-links') || tags.includes('verschwoerung'))) return false;
-    if (d.currentWeek < 5 && tags.includes('politik-rechts') && (p.outrage_score || 0) > 0.5) return false;
-    if (d.currentWeek < 8 && tags.includes('hass')) return false;
-    if (d.currentWeek < 10 && tags.includes('anti-feminismus')) return false;
-    // Wahl-Posts nur ab W19
-    if ((tags.includes('politik-rechts') || tags.includes('politik-links') || tags.includes('politik-mitte')) && p.text.toLowerCase().includes('wahl') && d.currentWeek < 19) return false;
-    // Nicht doppelt in Folge
-    if (d.seenPosts.includes(p.id)) return false;
-    return true;
-  });
+// Regex für Wahl-Kontext: ganze Wortgrenzen, mehrere Trigger.
+const ELECTION_RE = /\b(wahl|wahllokal|wahlkampf|wahlurne|kandidat(?:in|en)?|stimm(?:e|en|zettel)|wahlplakat|wahlsieger|wahlergebnis|stimmabgabe)\b/i;
 
-  // Bot-Accounts erst ab W12
+function isFeedEligible(p, d) {
+  const tags = p.tags || [];
+  if (d.currentWeek < 3 && (tags.includes('politik-rechts') || tags.includes('politik-links') || tags.includes('verschwoerung'))) return false;
+  if (d.currentWeek < 5 && tags.includes('politik-rechts') && (p.outrage_score || 0) > 0.5) return false;
+  if (d.currentWeek < 8 && tags.includes('hass')) return false;
+  if (d.currentWeek < 10 && tags.includes('anti-feminismus')) return false;
+  const isPolitical = tags.includes('politik-rechts') || tags.includes('politik-links') || tags.includes('politik-mitte');
+  if (isPolitical && d.currentWeek < 19 && ELECTION_RE.test(p.text || '')) return false;
+  if (d.seenPosts.includes(p.id)) return false;
+  return true;
+}
+
+/**
+ * Baut den Feed für die aktuelle Woche — mit Cache, damit Tab-Wechsel
+ * den Feed nicht zerstört. Liked/Geteilt/Stummgeschaltet bleiben dabei
+ * stabil zwischen Tab-Wechseln innerhalb einer Woche.
+ */
+function computeCurrentFeed(force = false) {
+  const d = Store.data;
+  const cached = !force ? Store.getWeekFeedCache(d.currentWeek) : null;
+  if (cached && cached.length) {
+    const map = new Map(POSTS.map(p => [p.id, p]));
+    for (const a of ADS) map.set(a.id, { ...a, isAd: true });
+    const fromCache = cached.map(id => map.get(id)).filter(Boolean);
+    if (fromCache.length === cached.length) {
+      currentFeed = fromCache;
+      // Score-Breakdown für "Warum?"-Button nachreichen.
+      attachBreakdownToCachedFeed(fromCache, d);
+      return currentFeed;
+    }
+  }
+
+  const eligible = POSTS.filter(p => isFeedEligible(p, d));
+
+  // Bot-Accounts erst ab Bots-Unlock (W12).
   const finalEligible = eligible.filter(p => {
     const c = getCharacter(p.author);
     if (!c) return true;
@@ -1081,7 +1158,20 @@ function computeCurrentFeed() {
       weekOffset: 0
     }
   );
+  Store.cacheWeekFeed(d.currentWeek, currentFeed.map(p => p.id));
   return currentFeed;
+}
+
+// Reicht den Algo-Breakdown für den "Warum?"-Button nach, wenn der Feed aus
+// dem Cache gerendert wird.
+function attachBreakdownToCachedFeed(feed, d) {
+  const recentTags = {};
+  for (const p of feed) {
+    const { total, parts } = scorePost({ ...p, weekOffset: 0 }, d.userProfile, d.weights, recentTags);
+    p._algoBreakdown = parts;
+    p._algoScore = total;
+    for (const t of p.tags || []) recentTags[t] = (recentTags[t] || 0) + 1;
+  }
 }
 
 /**
@@ -1105,6 +1195,10 @@ async function renderFeed(view = 'feed') {
     const list = document.createElement('div');
     list.className = 'feed-list';
     root.appendChild(list);
+
+    // Eigener Post dieser Woche oben pinnen (wenn vorhanden).
+    const ownThisWeek = [...Store.data.ownPosts].reverse().find(p => p.week === d.currentWeek);
+    if (ownThisWeek) list.appendChild(renderOwnPost(ownThisWeek, { pinned: true }));
 
     const feed = computeCurrentFeed();
     for (const post of feed) {
@@ -1173,6 +1267,9 @@ function renderPost(post) {
   card.dataset.postId = post.id;
   const char = getCharacter(post.author);
   const hasMedia = (post.outrage_score || 0) > 0.4 || (post.engagement_bait_score || 0) > 0.5 || post.tags?.includes('meme');
+  const liked = Store.data.likedPosts?.[post.id];
+  const shared = Store.data.sharedPosts?.[post.id];
+  const followed = Store.data.userProfile.followed.includes(char.id);
 
   const head = `
     <div class="post-head">
@@ -1181,7 +1278,7 @@ function renderPost(post) {
         <div class="name">${escapeHtml(char.name)} ${char.type === 'journalist' || char.type === 'linker_journalist' ? '<span class="verified">· verifiziert</span>' : ''}</div>
         <div class="meta">${escapeHtml(char.handle)} · W ${Store.data.currentWeek}</div>
       </div>
-      ${Store.isUnlocked('algorithm_panel') ? `<button class="why-btn" data-why="${post.id}">Warum?</button>` : ''}
+      ${Store.isUnlocked('algorithm_panel') ? `<button class="why-btn" data-why="${post.id}" aria-label="Warum sehe ich diesen Beitrag?">Warum?</button>` : ''}
     </div>
   `;
 
@@ -1197,15 +1294,22 @@ function renderPost(post) {
 
   const actions = `
     <div class="actions">
-      <button class="action-btn like-btn" data-act="like">❤ <span>Like</span></button>
-      <button class="action-btn" data-act="comment">💬 <span>Antworten</span></button>
-      <button class="action-btn" data-act="share">↗ <span>Teilen</span></button>
-      <button class="action-btn" data-act="follow">${Store.data.userProfile.followed.includes(char.id) ? '✓ Folgst du' : '+ Folgen'}</button>
-      <button class="action-btn dislike" data-act="mute">🚫</button>
+      <button class="action-btn like-btn ${liked ? 'active' : ''}" data-act="like" aria-pressed="${liked ? 'true' : 'false'}">
+        <span class="action-icon">❤</span><span class="action-label">${liked ? 'Geliked' : 'Like'}</span>
+      </button>
+      <button class="action-btn" data-act="comment" aria-label="Antworten"><span class="action-icon">💬</span><span class="action-label">Antworten</span></button>
+      <button class="action-btn ${shared ? 'active' : ''}" data-act="share" aria-label="Teilen"><span class="action-icon">↗</span><span class="action-label">${shared ? 'Geteilt' : 'Teilen'}</span></button>
+      <button class="action-btn ${followed ? 'active' : ''}" data-act="follow">${followed ? '✓ Folgst du' : '+ Folgen'}</button>
+      <button class="action-btn dislike" data-act="mute" aria-label="Stummschalten">🚫</button>
     </div>
   `;
 
-  card.innerHTML = head + body + actions;
+  const ownComment = pickStoredComment(post.id);
+  const replyBlock = ownComment
+    ? `<div class="post-reply"><div class="reply-author">${escapeHtml(Store.data.character.name)} <span class="muted small">· du</span></div><div class="reply-body">${escapeHtml(ownComment)}</div></div>`
+    : '';
+
+  card.innerHTML = head + body + actions + replyBlock;
 
   // Event-Wiring
   const twShield = card.querySelector('[data-tw]');
@@ -1239,15 +1343,15 @@ function renderPost(post) {
   return card;
 }
 
-function renderOwnPost(op) {
+function renderOwnPost(op, opts = {}) {
   const card = document.createElement('article');
-  card.className = 'post-card';
+  card.className = 'post-card own-post' + (opts.pinned ? ' pinned' : '');
   card.innerHTML = `
     <div class="post-head">
       <div class="avatar" aria-hidden="true">${avatarSvg(Store.data.character.avatar || 0)}</div>
       <div class="name-block">
         <div class="name">${escapeHtml(Store.data.character.name)} <span class="verified">· du</span></div>
-        <div class="meta">Woche ${op.week}</div>
+        <div class="meta">Woche ${op.week}${opts.pinned ? ' · oben angepinnt' : ''}</div>
       </div>
     </div>
     <div class="post-body">${escapeHtml(op.text)}</div>
@@ -1261,10 +1365,14 @@ function buildComposeBox() {
   wrap.className = 'compose-box';
   const topics = ['lifestyle','humor','gaming','musik','sport','wissenschaft','klima','politik-links','politik-mitte','politik-rechts','feminismus','verschwoerung'];
   const chosen = new Set();
+  const MAX = 280;
 
   wrap.innerHTML = `
-    <textarea id="compose-text" maxlength="280" placeholder="Was ist los?"></textarea>
-    <div class="muted small">Wähle 1–3 Themen:</div>
+    <textarea id="compose-text" maxlength="${MAX}" placeholder="Was ist los?" aria-label="Beitragstext"></textarea>
+    <div class="compose-meta">
+      <span class="muted small">Wähle 1–3 Themen:</span>
+      <span class="compose-counter" id="compose-counter" aria-live="polite">0 / ${MAX}</span>
+    </div>
     <div class="compose-topic-grid" id="compose-topics"></div>
     <div class="compose-row">
       <span class="muted small" id="compose-status"></span>
@@ -1274,6 +1382,7 @@ function buildComposeBox() {
   const grid = wrap.querySelector('#compose-topics');
   for (const t of topics) {
     const b = document.createElement('button');
+    b.type = 'button';
     b.textContent = t;
     b.onclick = () => {
       if (chosen.has(t)) { chosen.delete(t); b.classList.remove('selected'); }
@@ -1281,15 +1390,27 @@ function buildComposeBox() {
     };
     grid.appendChild(b);
   }
+  const txt = wrap.querySelector('#compose-text');
+  const counter = wrap.querySelector('#compose-counter');
+  txt.addEventListener('input', () => {
+    const n = txt.value.length;
+    counter.textContent = `${n} / ${MAX}`;
+    counter.classList.toggle('warn', n > MAX - 30);
+    counter.classList.toggle('over', n >= MAX);
+  });
+  // iPad: bei Fokus in den sichtbaren Bereich scrollen.
+  txt.addEventListener('focus', () => {
+    setTimeout(() => txt.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200);
+  });
+
   wrap.querySelector('#btn-publish').onclick = () => {
-    const text = wrap.querySelector('#compose-text').value.trim();
+    const text = txt.value.trim();
     const status = wrap.querySelector('#compose-status');
     if (!text) { status.textContent = 'Du hast noch nichts geschrieben.'; return; }
     if (chosen.size === 0) { status.textContent = 'Wähle mindestens ein Thema.'; return; }
     const tags = [...chosen];
     const outrage = tags.some(t => ['politik-rechts','politik-links','verschwoerung','hass','feminismus','anti-feminismus'].includes(t)) ? 0.3 : 0.1;
     Store.addOwnPost({ text, tags, outrage });
-    // Eigenes Posten verstärkt die gewählten Themen
     for (const t of tags) {
       Store.data.userProfile.interests[t] = Math.min(1, (Store.data.userProfile.interests[t] || 0) + 0.1);
     }
@@ -1336,20 +1457,40 @@ function renderNotifications() {
 async function handleAction(act, post, btn, card) {
   const char = getCharacter(post.author);
   if (act === 'like') {
-    Store.recordAction(post.id, 'like', post);
-    btn.classList.toggle('active');
-    btn.querySelector('span').textContent = btn.classList.contains('active') ? 'Geliked' : 'Like';
+    const isLiked = !!Store.data.likedPosts?.[post.id];
+    if (isLiked) {
+      delete Store.data.likedPosts[post.id];
+      Store.save();
+      btn.classList.remove('active');
+      btn.setAttribute('aria-pressed', 'false');
+      const lbl = btn.querySelector('.action-label'); if (lbl) lbl.textContent = 'Like';
+    } else {
+      if (!Store.data.likedPosts) Store.data.likedPosts = {};
+      Store.data.likedPosts[post.id] = { week: Store.data.currentWeek, ts: Date.now() };
+      Store.recordAction(post.id, 'like', post);
+      btn.classList.add('active');
+      btn.setAttribute('aria-pressed', 'true');
+      const lbl = btn.querySelector('.action-label'); if (lbl) lbl.textContent = 'Geliked';
+      spawnHeartFloater(btn);
+      maybeShowAlgoNudge(post);
+    }
   } else if (act === 'share') {
+    if (Store.data.sharedPosts?.[post.id]) return;
+    if (!Store.data.sharedPosts) Store.data.sharedPosts = {};
+    Store.data.sharedPosts[post.id] = { week: Store.data.currentWeek, ts: Date.now() };
     Store.recordAction(post.id, 'share', post);
     toast('Geteilt.');
     btn.classList.add('active');
+    const lbl = btn.querySelector('.action-label'); if (lbl) lbl.textContent = 'Geteilt';
   } else if (act === 'follow') {
     if (Store.data.userProfile.followed.includes(char.id)) {
       Store.unfollow(char.id);
+      btn.classList.remove('active');
       btn.innerHTML = '+ Folgen';
     } else {
       Store.follow(char.id);
       Store.recordAction(post.id, 'follow', post);
+      btn.classList.add('active');
       btn.innerHTML = '✓ Folgst du';
       toast(`Du folgst jetzt ${char.name}.`);
     }
@@ -1359,27 +1500,85 @@ async function handleAction(act, post, btn, card) {
     card.style.opacity = '0.3';
     toast(`${char.name} stummgeschaltet.`);
   } else if (act === 'comment') {
-    showCommentOptions(post);
+    showCommentOptions(post, card);
   }
 }
 
-function showCommentOptions(post) {
+function spawnHeartFloater(btn) {
+  const rect = btn.getBoundingClientRect();
+  const float = document.createElement('span');
+  float.className = 'heart-floater';
+  float.textContent = '❤';
+  float.style.left = (rect.left + rect.width / 2) + 'px';
+  float.style.top = (rect.top + rect.height / 2) + 'px';
+  document.body.appendChild(float);
+  setTimeout(() => float.remove(), 1100);
+}
+
+let lastAlgoNudgeWeek = -1;
+function maybeShowAlgoNudge(post) {
+  // Nicht jeden Like kommentieren — nur bei polarisierendem Content,
+  // und höchstens 1× pro Woche, damit es nicht nervt.
+  if (Store.data.currentWeek === lastAlgoNudgeWeek) return;
+  const tags = post.tags || [];
+  const isHot = tags.includes('politik-rechts') || tags.includes('politik-links')
+    || tags.includes('verschwoerung') || tags.includes('anti-feminismus') || tags.includes('feminismus')
+    || (post.outrage_score || 0) > 0.5;
+  if (!isHot) return;
+  if (!Store.isUnlocked('algorithm_panel')) return;
+  lastAlgoNudgeWeek = Store.data.currentWeek;
+  toast('Notiert. Streem zeigt dir bald mehr in diese Richtung.', { long: true });
+}
+
+function showCommentOptions(post, card) {
   const overlay = document.getElementById('comment-overlay');
   const list = document.getElementById('comment-options');
   list.innerHTML = '';
   const opts = generateCommentOptions(post);
   for (const o of opts) {
     const b = document.createElement('button');
+    b.type = 'button';
     b.textContent = o.text;
     b.onclick = () => {
+      // Anführungszeichen entfernen für die Reply-Anzeige.
+      const clean = o.text.replace(/^[„"”]/, '').replace(/[“"”]$/, '');
+      if (!Store.data.commentSelections) Store.data.commentSelections = {};
+      Store.data.commentSelections[post.id] = clean;
       Store.recordAction(post.id, o.type, post);
+      injectReplyIntoCard(card, clean);
       overlay.hidden = true;
       toast('Kommentar abgeschickt.');
     };
     list.appendChild(b);
   }
-  document.getElementById('comment-cancel').onclick = () => overlay.hidden = true;
+  const close = () => {
+    overlay.hidden = true;
+    document.removeEventListener('keydown', onKey);
+    overlay.removeEventListener('click', onClick);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  const onClick = (e) => { if (e.target === overlay) close(); };
+  document.getElementById('comment-cancel').onclick = close;
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', onClick);
   overlay.hidden = false;
+}
+
+function pickStoredComment(postId) {
+  return Store.data.commentSelections?.[postId] || null;
+}
+
+function injectReplyIntoCard(card, text) {
+  if (!card) return;
+  let block = card.querySelector('.post-reply');
+  if (!block) {
+    block = document.createElement('div');
+    block.className = 'post-reply';
+    block.innerHTML = `<div class="reply-author">${escapeHtml(Store.data.character.name)} <span class="muted small">· du</span></div><div class="reply-body"></div>`;
+    card.appendChild(block);
+  }
+  block.querySelector('.reply-body').textContent = text;
+  block.classList.remove('reply-in'); void block.offsetWidth; block.classList.add('reply-in');
 }
 
 function generateCommentOptions(post) {
@@ -1392,101 +1591,101 @@ function generateCommentOptions(post) {
 
 function contextualCommentOptions(post) {
   // Vier Tonlagen, aber inhaltlich an den Post angepasst: zustimmend, skeptisch, empört, humorvoll.
+  // Wortgrenzen via \b, damit "Auswahl" nicht für "wahl" matcht und "Bildgilde" nicht für "gilde".
   const tags = post.tags || [];
   const t = (post.text || '').toLowerCase();
 
-  // Keyword-basierte Spezialfälle
-  if (/kaffee|café|tee /.test(t)) return [
+  if (/\b(kaffee|filterkaffee|café|cafe|latte|kakao|tee)\b/.test(t)) return [
     { text: '„Welches Café? Brauche ich."',                  type: 'comment' },
     { text: '„Stimmt. Kaffee hier ist eine Enttäuschung."',  type: 'comment' },
     { text: '„Du und dein Kaffee, jede Woche."',             type: 'angry_comment' },
     { text: '„Morgens ohne geht eh nicht."',                 type: 'comment' }
   ];
-  if (/roboter|projekt/.test(t) && tags.includes('wissenschaft')) return [
+  if (/\b(roboter|projektroboter|robotik|sensor|mikrocontroller)\b/.test(t) && tags.includes('wissenschaft')) return [
     { text: '„Sick! Gibt’s Video?"',                         type: 'comment' },
     { text: '„Welcher Mikrocontroller?"',                    type: 'comment' },
     { text: '„Meiner rollt nur im Kreis, hilf mir."',        type: 'comment' },
     { text: '„Bis er dich verrät, ist das ok."',             type: 'comment' }
   ];
-  if (/gilde|patch|queue|emote|skin|ranked|platin|turnier/.test(t)) return [
+  if (/\b(gilde|patch|queue|emote|skin|ranked|platin|turnier|nerf|meta)\b/.test(t)) return [
     { text: '„Bin dabei, ping mich."',                       type: 'comment' },
     { text: '„Das Patch ist broken, komm schon."',           type: 'angry_comment' },
     { text: '„Gilde heute Abend?"',                          type: 'comment' },
     { text: '„Meine Mutter sagt das auch."',                 type: 'comment' }
   ];
-  if (/playlist|album|track|song |dj |karaoke|studio|set im |gig/.test(t)) return [
+  if (/\b(playlist|album|track|song|dj|karaoke|studio|gig|konzert|live-set)\b/.test(t)) return [
     { text: '„Link? Jetzt? Bitte?"',                         type: 'comment' },
     { text: '„Klang gestern im ZEK wirklich gut."',          type: 'comment' },
     { text: '„Nicht wieder 90er-Nostalgie."',                type: 'angry_comment' },
     { text: '„Auf Repeat. Danke."',                          type: 'comment' }
   ];
-  if (/buch|autor|rezension|buchhandlung|roman|dystopie/.test(t)) return [
+  if (/\b(buch|bücher|autor(?:in)?|rezension|buchhandlung|roman|dystopie|lesekreis|hörbuch)\b/.test(t)) return [
     { text: '„Auf die Liste. Danke."',                       type: 'comment' },
     { text: '„Hab ich angefangen, konnte nicht weiter."',    type: 'comment' },
     { text: '„Nele, dein Geschmack, immer."',                type: 'comment' },
     { text: '„Lieber Hörbuch — gibt’s das?"',                type: 'comment' }
   ];
-  if (/deepfake|manipuliert|faktencheck|bildersuche/.test(t)) return [
+  if (/\b(deepfake|manipuliert|faktencheck|bildersuche|desinformation)\b/.test(t)) return [
     { text: '„Wichtig. Teile ich weiter."',                  type: 'comment' },
     { text: '„Faktenchecker sind selbst befangen."',         type: 'angry_comment' },
     { text: '„Gute Checkliste, speichere ich."',             type: 'comment' },
     { text: '„Bin trotzdem reingefallen. Peinlich."',        type: 'comment' }
   ];
-  if (/wahl|wahlergebnis|kandidat|stimme|ankreuzen/.test(t)) return [
+  if (/\b(wahl|wahlergebnis|wahllokal|wahlkampf|kandidat(?:in|en)?|stimme|stimmzettel|ankreuzen)\b/.test(t)) return [
     { text: '„Danke für die Erinnerung."',                   type: 'comment' },
     { text: '„Ergebnis ist doch Show, Wahlen ändern nichts."', type: 'angry_comment' },
     { text: '„Bin schon im Wahllokal, gleich."',             type: 'comment' },
     { text: '„Gibt es eine Wahl-Hilfe für die Stadt?"',      type: 'comment' }
   ];
-  if (/klima|kohle|klimakrise|klimaziele/.test(t)) return [
+  if (/\b(klima|kohle|klimakrise|klimaziele|klimaschutz|emissionen)\b/.test(t)) return [
     { text: '„Fakten > Bauchgefühl."',                       type: 'comment' },
     { text: '„Strukturell ja, individuell auch."',           type: 'comment' },
     { text: '„Hört auf, uns Angst zu machen."',              type: 'angry_comment' },
     { text: '„Kann man das nachlesen?"',                     type: 'comment' }
   ];
-  if (/equal pay|gehalt|statistik/.test(t)) return [
+  if (/\b(equal pay|gehalt|gehälter|statistik|lohnlücke|gender pay gap)\b/.test(t)) return [
     { text: '„Danke, dass du dranbleibst."',                 type: 'comment' },
     { text: '„Zahlen sind bekannt, bitte handeln."',         type: 'comment' },
     { text: '„Die Methodik ist doch fragwürdig."',           type: 'angry_comment' },
     { text: '„Habe letztes Jahr endlich verhandelt."',       type: 'comment' }
   ];
-  if (/mainstream|zensur|verschwör|akten|gelder verschoben/.test(t)) return [
+  if (/\b(mainstream|zensur|verschwör|akten|umverteilung|kartell)\b/.test(t)) return [
     { text: '„Endlich sagt’s jemand."',                      type: 'comment' },
     { text: '„Quelle? Ernsthaft, bitte."',                   type: 'comment' },
     { text: '„Das ist Stimmungsmache."',                     type: 'angry_comment' },
     { text: '„Ich warte auf die Doku."',                     type: 'comment' }
   ];
-  if (/studie|universität|korrelation|kausalität|forschung/.test(t)) return [
+  if (/\b(studie|universität|uni|korrelation|kausalität|forschung|peer-review|methodik)\b/.test(t)) return [
     { text: '„Endlich mal sauber differenziert."',           type: 'comment' },
     { text: '„Link zur Primärquelle?"',                      type: 'comment' },
     { text: '„Wissenschaft ist nicht Demokratie."',          type: 'angry_comment' },
     { text: '„Screenshot für die Lerngruppe."',              type: 'comment' }
   ];
-  if (/radweg|fahrrad|kreisverkehr/.test(t)) return [
+  if (/\b(radweg|fahrrad|kreisverkehr|innenstadt|verkehrswende)\b/.test(t)) return [
     { text: '„Gute Nachricht für die Stadt."',               type: 'comment' },
     { text: '„Mal sehen, ob sie’s wirklich bauen."',         type: 'comment' },
     { text: '„Und die Autofahrer?"',                         type: 'angry_comment' },
     { text: '„Endlich, nach Jahren."',                       type: 'comment' }
   ];
-  if (/regen|sturm|wolken|mond|wetter/.test(t)) return [
+  if (/\b(regen|sturm|wolken|mond|wetter|nebel|fähren)\b/.test(t)) return [
     { text: '„Greifshafen-Stimmung."',                       type: 'comment' },
     { text: '„Hab ich auch gesehen — krass."',               type: 'comment' },
     { text: '„Ich liebe das Wetter hier nicht."',            type: 'angry_comment' },
     { text: '„Jacke an, Kamera raus."',                      type: 'comment' }
   ];
-  if (/demo|protest|kundgebung|bürgerversammlung|fleetplatz/.test(t)) return [
+  if (/\b(demo|protest|kundgebung|bürgerversammlung|fleetplatz|marktplatz)\b/.test(t)) return [
     { text: '„Bin dabei."',                                  type: 'comment' },
     { text: '„Weniger Symbolik, mehr Plan."',                type: 'comment' },
     { text: '„Das bringt gar nichts."',                      type: 'angry_comment' },
     { text: '„Danke für die Info, teile ich."',              type: 'comment' }
   ];
-  if (/hass|angepöbelt|hasskommentare|chatgruppe/.test(t)) return [
+  if (/\b(hass|angepöbelt|hasskommentare|chatgruppe|beleidigt|diskriminier)/.test(t)) return [
     { text: '„Tut mir leid, das zu lesen."',                 type: 'comment' },
     { text: '„Meldet das. Jedes Mal."',                      type: 'comment' },
     { text: '„Übertreibt ihr nicht ein bisschen?"',          type: 'angry_comment' },
     { text: '„Ihr seid nicht allein."',                      type: 'comment' }
   ];
-  if (/testosteron|männer|männlich|dating/.test(t) && tags.includes('anti-feminismus')) return [
+  if (/\b(testosteron|männer|männlich|dating|alpha|mindset)\b/.test(t) && tags.includes('anti-feminismus')) return [
     { text: '„Stark formuliert. Keep going."',               type: 'comment' },
     { text: '„Das ist kein Mindset, das ist Angst."',        type: 'angry_comment' },
     { text: '„Hast du Quellen oder nur Parolen?"',           type: 'comment' },
@@ -1548,7 +1747,16 @@ function showWhy(post) {
   html += '</ul>';
   if (post.isAd) html += '<p class="muted small">Anzeigen sind nach deinen Interessen-Schätzwerten gezielt.</p>';
   body.innerHTML = html;
-  document.getElementById('why-close').onclick = () => overlay.hidden = true;
+  const close = () => {
+    overlay.hidden = true;
+    document.removeEventListener('keydown', onKey);
+    overlay.removeEventListener('click', onClickBackdrop);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  const onClickBackdrop = (e) => { if (e.target === overlay) close(); };
+  document.getElementById('why-close').onclick = close;
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', onClickBackdrop);
   overlay.hidden = false;
 }
 
@@ -1847,6 +2055,13 @@ function renderSandbox(onClose) {
 
   document.getElementById('btn-sim').onclick = () => simulate(rules);
   document.getElementById('btn-sandbox-close').onclick = () => onClose && onClose();
+  // Reset-Toggle: simulieren wir auf dem Start-Profil oder dem aktuellen Profil?
+  const simModeRow = document.querySelector('#sandbox-sim-mode');
+  if (simModeRow) {
+    simModeRow.querySelectorAll('input[name=sim-mode]').forEach(r => {
+      r.onchange = () => previewFeed(rules);
+    });
+  }
 }
 
 function applyPreset(name, rules, container) {
@@ -1898,39 +2113,66 @@ function previewFeed(rules) {
 }
 
 function simulate(rules) {
-  // Einfache Simulation: 10 Wochen-Iterationen, in jeder Woche Feed bauen, Top-3 „liken", Profil updaten.
-  const simProfile = structuredClone(Store.data.userProfile);
-  const statsBefore = scoreProfile(Store.data.userProfile);
+  // Welches Profil als Ausgangspunkt? "current" = aktuelles Spielprofil, "fresh" = Start-Profil.
+  const mode = document.querySelector('input[name=sim-mode]:checked')?.value || 'current';
+  const baseSource = (mode === 'fresh' && Store.data.initialProfileSnapshot)
+    ? Store.data.initialProfileSnapshot
+    : Store.data.userProfile;
+  const baseProfile = structuredClone(baseSource);
+  const statsBefore = scoreProfile(baseProfile);
+
+  // Parallel-Simulation: Original-Gewichte vs. eigene Regeln, damit der Vergleich sichtbar wird.
+  const baselineWeights = Store.data.weights;
+  const simOwn = structuredClone(baseProfile);
+  const simOrig = structuredClone(baseProfile);
   for (let i = 0; i < 10; i++) {
-    const feed = buildFeed(POSTS, ADS, simProfile, rules, { limit: 10, unlocked: ['ads'], muted: [] });
-    for (let j = 0; j < Math.min(3, feed.length); j++) {
-      const p = feed[j];
-      for (const t of p.tags || []) {
-        simProfile.interests[t] = Math.min(1, (simProfile.interests[t] || 0) + 0.05);
-      }
-      if (p.political_lean !== undefined) {
-        simProfile.political_lean_estimated = clamp(
-          simProfile.political_lean_estimated + p.political_lean * 0.03, -1, 1
-        );
-      }
-    }
+    advanceSimWeek(simOwn, rules);
+    advanceSimWeek(simOrig, baselineWeights);
   }
-  const statsAfter = scoreProfile(simProfile);
+  const statsOwn = scoreProfile(simOwn);
+  const statsOrig = scoreProfile(simOrig);
 
   const result = document.getElementById('sim-result');
   result.classList.add('visible');
   result.innerHTML = `
-    <h4>Nach 10 Wochen mit deinen Regeln:</h4>
-    <div class="wrapped-bars">
-      ${renderProfileRow('Wissenschaft', statsBefore.wissenschaft, statsAfter.wissenschaft)}
-      ${renderProfileRow('Politik-rechts', statsBefore.politikRechts, statsAfter.politikRechts)}
-      ${renderProfileRow('Politik-links', statsBefore.politikLinks, statsAfter.politikLinks)}
-      ${renderProfileRow('Verschwörung', statsBefore.verschwoerung, statsAfter.verschwoerung)}
-      ${renderProfileRow('Vielfalt', statsBefore.diversity, statsAfter.diversity)}
+    <h4>Nach 10 simulierten Wochen — links Original-Algorithmus, rechts deine Regeln:</h4>
+    <div class="sim-compare">
+      ${renderCompareRow('Wissenschaft', statsBefore.wissenschaft, statsOrig.wissenschaft, statsOwn.wissenschaft)}
+      ${renderCompareRow('Politik (rechts)', statsBefore.politikRechts, statsOrig.politikRechts, statsOwn.politikRechts)}
+      ${renderCompareRow('Politik (links)', statsBefore.politikLinks, statsOrig.politikLinks, statsOwn.politikLinks)}
+      ${renderCompareRow('Verschwörung', statsBefore.verschwoerung, statsOrig.verschwoerung, statsOwn.verschwoerung)}
+      ${renderCompareRow('Vielfalt', statsBefore.diversity, statsOrig.diversity, statsOwn.diversity)}
     </div>
-    <p class="muted small">Politische Neigung: ${statsBefore.lean.toFixed(2)} → <strong>${statsAfter.lean.toFixed(2)}</strong>.</p>
-    <p class="muted small">Vergleich mit dem Original-Algorithmus: Schiebe die Slider → sieh, wie sich alles ändert.</p>
+    <p class="muted small">Politische Neigung: Start ${statsBefore.lean.toFixed(2)} · Original ${statsOrig.lean.toFixed(2)} · deine Regeln <strong>${statsOwn.lean.toFixed(2)}</strong></p>
+    <p class="muted small">Ausgangsbasis: ${mode === 'fresh' ? 'Start-Profil (vor dem Spiel)' : 'aktuelles Profil (nach den gespielten Wochen)'}.</p>
   `;
+}
+
+function advanceSimWeek(profile, weights) {
+  const feed = buildFeed(POSTS, ADS, profile, weights, { limit: 10, unlocked: ['ads'], muted: [] });
+  for (let j = 0; j < Math.min(3, feed.length); j++) {
+    const p = feed[j];
+    for (const t of p.tags || []) {
+      profile.interests[t] = Math.min(1, (profile.interests[t] || 0) + 0.05);
+    }
+    if (p.political_lean !== undefined) {
+      profile.political_lean_estimated = clamp(
+        profile.political_lean_estimated + p.political_lean * 0.03, -1, 1
+      );
+    }
+  }
+}
+
+function renderCompareRow(label, start, orig, own) {
+  return `
+    <div class="sim-row">
+      <span class="lbl">${label}</span>
+      <div class="sim-bars">
+        <div class="sim-bar"><span class="sim-bar-label">Start</span><div class="bar small"><div class="fill base" style="width:${Math.round(start*100)}%"></div></div><span>${Math.round(start*100)}%</span></div>
+        <div class="sim-bar"><span class="sim-bar-label">Original</span><div class="bar small"><div class="fill orig" style="width:${Math.round(orig*100)}%"></div></div><span>${Math.round(orig*100)}%</span></div>
+        <div class="sim-bar"><span class="sim-bar-label">Du</span><div class="bar small"><div class="fill own" style="width:${Math.round(own*100)}%"></div></div><span>${Math.round(own*100)}%</span></div>
+      </div>
+    </div>`;
 }
 
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
@@ -1950,18 +2192,6 @@ function stddev(arr) {
   const m = arr.reduce((a, b) => a + b, 0) / arr.length;
   const v = arr.reduce((a, b) => a + (b - m) ** 2, 0) / arr.length;
   return Math.sqrt(v);
-}
-
-function renderProfileRow(label, before, after) {
-  const delta = after - before;
-  const arrow = delta > 0.02 ? '↑' : delta < -0.02 ? '↓' : '→';
-  return `
-    <div class="row">
-      <span class="lbl">${label}</span>
-      <div class="bar"><div class="fill" style="width:${Math.round(after*100)}%"></div></div>
-      <span>${Math.round(after*100)}% ${arrow}</span>
-    </div>
-  `;
 }
 
 function truncate(s, n) {
@@ -2093,12 +2323,15 @@ function buildWrapped() {
       id: 's4',
       html: `
         <h2>Dein Echokammer-Score</h2>
-        <div class="big-num">${Math.round(dominantShare * 100)}%</div>
-        <p>${dominantShare > 0.7
-          ? 'deiner politischen Likes gingen in eine einzige Richtung.'
-          : dominantShare > 0.5
-          ? 'deiner politischen Likes gingen in eine dominante Richtung.'
-          : 'deiner politischen Likes waren über Richtungen verteilt.'}</p>
+        ${totalPolitical === 0
+          ? `<div class="big-word">—</div>
+             <p>Du hast politisch kaum interagiert. Sehr bewusst beobachtet — oder bewusst gemieden?</p>`
+          : `<div class="big-num">${Math.round(dominantShare * 100)}%</div>
+             <p>${dominantShare > 0.7
+               ? 'deiner politischen Likes gingen in eine einzige Richtung.'
+               : dominantShare > 0.5
+               ? 'deiner politischen Likes gingen in eine dominante Richtung.'
+               : 'deiner politischen Likes waren über Richtungen verteilt.'}</p>`}
         <div class="wrapped-lean">
           <div class="lean-track"><div class="lean-dot" style="left:${Math.round((lean+1)*50)}%"></div></div>
           <div class="labels"><span>links</span><span>Mitte</span><span>rechts</span></div>
@@ -2211,22 +2444,55 @@ function generateAdProfile(topInterests, profile) {
 }
 
 function generateMissedList(profile, feedSeen) {
-  const items = [];
-  if (profile.political_lean_estimated > 0.25) {
-    items.push({ title: 'Linke Argumente zur Klimapolitik', desc: 'Dein Feed hat sie kaum gezeigt.' });
-    items.push({ title: 'Wissenschaftliche Einordnungen', desc: 'Oft zugunsten lauter Meinungen ausgeblendet.' });
-  } else if (profile.political_lean_estimated < -0.25) {
-    items.push({ title: 'Konservative Wirtschaftsargumente', desc: 'Wurden selten oben sortiert.' });
-    items.push({ title: 'Ländlich-konservative Stimmen', desc: 'Kaum Reichweite in deinem Feed.' });
+  // Echte Posts, die NICHT gesehen wurden — mit der politisch gegenteiligen
+  // Richtung des Spielers und/oder hoher Qualität.
+  const seenSet = new Set(feedSeen);
+  const lean = profile.political_lean_estimated;
+  const unseen = [];
+  for (const p of POSTS_LOOKUP?.values() || []) {
+    if (seenSet.has(p.id)) continue;
+    unseen.push(p);
   }
-  if ((profile.interests['wissenschaft'] || 0) < 0.2) {
-    items.push({ title: 'Faktenchecks', desc: 'Wurden von Empörungsposts verdrängt.' });
+
+  function score(p) {
+    const pLean = p.political_lean ?? 0;
+    let s = 0;
+    // Gegen-Perspektive belohnen.
+    s += Math.abs(pLean - lean);
+    // Wissenschaftliche / qualitative Posts belohnen.
+    s += (p.quality_score ?? 0.5) * 0.7;
+    // Politik-Mitte belohnen, falls Profil sie kaum kennt.
+    if (p.tags?.includes('politik-mitte') && (profile.interests['politik-mitte'] || 0) < 0.2) s += 0.5;
+    if (p.tags?.includes('wissenschaft') && (profile.interests['wissenschaft'] || 0) < 0.2) s += 0.5;
+    // Empörung leicht abwerten, weil das didaktisch nicht "fehlt".
+    s -= 0.6 * (p.outrage_score ?? 0);
+    return s;
   }
-  if ((profile.interests['politik-mitte'] || 0) < 0.2) {
-    items.push({ title: 'Stimmen der politischen Mitte', desc: 'Sie bekommen selten Reichweite.' });
+
+  const ranked = unseen
+    .filter(p => (p.text || '').length > 0)
+    .sort((a, b) => score(b) - score(a))
+    .slice(0, 4);
+
+  if (!ranked.length) {
+    return [{ title: 'Dein Feed hat fast alles abgedeckt.', desc: 'Bemerkenswert breit für ein automatisches System.' }];
   }
-  items.push({ title: 'Lokale, konstruktive Lösungen', desc: 'Greifshafen hat mehr als nur Empörung.' });
-  return items.slice(0, 4);
+  return ranked.map(p => ({
+    title: shortenTitle(p.text),
+    desc: `von ${authorLabel(p.author)} · ${(p.tags || []).slice(0,2).map(labelFor).join(', ') || 'allgemein'}`
+  }));
+}
+
+function shortenTitle(text) {
+  if (!text) return '—';
+  const t = text.replace(/\s+/g, ' ').trim();
+  return t.length > 110 ? t.slice(0, 108) + '…' : t;
+}
+
+function authorLabel(authorId) {
+  // Schlanker Fallback, ohne Charaktere-Modul zu importieren.
+  if (!authorId) return 'jemand';
+  return authorId.replace(/^char_/, '').replace(/_/g, ' ');
 }
 
 function escapeHtml(s) {
@@ -2454,10 +2720,14 @@ function bindGlobal() {
     const blob = new Blob([Store.exportJson()], { type: 'application/json' });
     downloadBlob(blob, 'streem-save.json');
   };
+  const reportBtn = document.getElementById('btn-export-report');
+  if (reportBtn) reportBtn.onclick = exportReport;
   document.getElementById('btn-show-wrapped-now').onclick = () => {
     showScreen('screen-wrapped');
-    renderWrapped(() => showScreen('screen-sandbox') | renderSandbox(() => showScreen('screen-main')),
-                  () => showScreen('screen-manifest') | renderManifestForm());
+    renderWrapped(
+      () => { showScreen('screen-sandbox'); renderSandbox(() => showScreen('screen-main')); },
+      () => { showScreen('screen-manifest'); renderManifestForm(); }
+    );
   };
   document.getElementById('btn-show-sandbox-now').onclick = () => {
     showScreen('screen-sandbox');
@@ -2504,10 +2774,13 @@ function buildIntroForm() {
     const b = document.createElement('button');
     b.type = 'button';
     b.innerHTML = avatarSvg(i);
+    b.setAttribute('aria-label', `Avatar ${i + 1} von 12`);
+    b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
     if (i === 0) b.classList.add('selected');
     b.onclick = () => {
-      ap.querySelectorAll('button').forEach(x => x.classList.remove('selected'));
+      ap.querySelectorAll('button').forEach(x => { x.classList.remove('selected'); x.setAttribute('aria-pressed','false'); });
       b.classList.add('selected');
+      b.setAttribute('aria-pressed', 'true');
       chosenAvatar = i;
     };
     b.dataset.idx = i;
@@ -2598,7 +2871,7 @@ function showWeekendCard(weekNum, eventResults, badges) {
   stats.innerHTML = `
     <div class="stat"><div class="num">${d.userProfile.followed.length}</div><div class="lbl">du folgst</div><div class="delta ${followedDelta>=0?'up':'down'}">${followedDelta>=0?'+':''}${followedDelta}</div></div>
     <div class="stat"><div class="num">${(d.history[d.history.length-1]?.actions||[]).length}</div><div class="lbl">Interaktionen</div></div>
-    <div class="stat"><div class="num">${topInterest ? topInterest[0] : '—'}</div><div class="lbl">Top-Thema</div></div>
+    <div class="stat"><div class="num">${topInterest ? tagLabel(topInterest[0]) : '—'}</div><div class="lbl">Top-Thema</div></div>
     <div class="stat"><div class="num">${(d.userProfile.political_lean_estimated).toFixed(2)}</div><div class="lbl">Lean</div><div class="delta">${leanDelta>=0?'+':''}${leanDelta.toFixed(2)}</div></div>
   `;
 
@@ -2682,8 +2955,18 @@ function queueReflection(which) {
 }
 
 function advanceWeek() {
+  // Wahl unerledigt? Erzwingen, sonst geht das didaktische Highlight verloren.
+  if (Store.data.electionData && !Store.data.electionVote) {
+    openElection();
+    return;
+  }
   // Wrapped?
   if (Store.data.currentWeek >= DATA.weeks.weeks.length) {
+    // Letzte Reflexion vor Wrapped, falls noch nicht gemacht.
+    if (!Store.data.reflections.final) {
+      openReflection('final');
+      return;
+    }
     showScreen('screen-wrapped');
     renderWrapped(
       () => { showScreen('screen-sandbox'); renderSandbox(() => { showScreen('screen-main'); renderFeed('feed'); }); },
@@ -2718,6 +3001,11 @@ function openReflection(which) {
       'Welche Inhalte sind dir im zweiten Drittel aufgefallen?',
       'Hast du bemerkt, dass dein Feed anders geworden ist?',
       'Was denkst du gerade über Algorithmen?'
+    ],
+    final: [
+      'Welcher Moment im Spiel ist dir am stärksten geblieben?',
+      'Worüber hat dich der Algorithmus am meisten überrascht?',
+      'Was nimmst du für deinen echten Social-Media-Alltag mit?'
     ]
   };
   const container = document.getElementById('reflection-questions');
@@ -2739,6 +3027,11 @@ function finishReflection() {
   Store.data.reflections[which] = answers;
   Store.save();
   pendingReflection = null;
+  // Wenn das die Schluss-Reflexion war, geht's direkt ins Wrapped.
+  if (which === 'final') {
+    advanceWeek();
+    return;
+  }
   enterMain();
 }
 
@@ -2797,6 +3090,18 @@ function openAlgoPanel() {
   `;
   body.innerHTML = html;
   showScreen('screen-algo');
+}
+
+function tagLabel(tag) {
+  const m = {
+    gaming: 'Gaming', musik: 'Musik', lifestyle: 'Lifestyle', sport: 'Sport',
+    wissenschaft: 'Wissenschaft', klima: 'Klima', humor: 'Humor',
+    'politik-mitte': 'Politik (Mitte)', 'politik-links': 'Politik (links)',
+    'politik-rechts': 'Politik (rechts)', feminismus: 'Feminismus',
+    'anti-feminismus': 'Anti-Fem.', verschwoerung: 'Verschwörung',
+    hass: 'Hass', 'true-crime': 'True Crime'
+  };
+  return m[tag] || tag;
 }
 
 function describeAudience(profile) {
@@ -2892,18 +3197,26 @@ function openHateIncident() {
 }
 
 // ===== Wahl =====
+const PARTY_COLORS = {
+  p_zukunft: '#4ade80',   // grün
+  p_buerger: '#60a5fa',   // blau
+  p_alt:     '#f97316',   // orange
+  p_heimat:  '#a16207',   // braun
+  sonst:     '#94a3b8'
+};
+
 function openElection() {
-  const parties = getParties();
-  const res = Store.data.electionData;
+  const parties = [...getParties()].sort((a, b) => (a.lean ?? 0) - (b.lean ?? 0));
   const body = document.getElementById('election-body');
   body.innerHTML = `
-    <p class="muted">Wen willst du wählen? Die Parteien, wie dein Feed sie dir gezeigt hat:</p>
+    <p class="muted">Wen willst du wählen? Die Parteien — sortiert von links nach rechts, wie sie dir im Feed begegnet sind:</p>
     <div class="party-grid">
       ${parties.map(p => {
         const cov = estimateCoverageFor(p);
+        const col = PARTY_COLORS[p.id] || '#888';
         return `
-        <div class="party-card">
-          <div class="name">${escapeHtml(p.name)}</div>
+        <div class="party-card" style="border-left:4px solid ${col}">
+          <div class="name" style="color:${col}">${escapeHtml(p.name)}</div>
           <div class="slogan">„${escapeHtml(p.slogan)}"</div>
           <div class="coverage">In deinem Feed: ${cov}</div>
           <div class="party-vote-bar">
@@ -2921,6 +3234,7 @@ function openElection() {
       showElectionResult();
     };
   });
+  if (Store.data.electionVote) showElectionResult();
   showScreen('screen-election');
 }
 
@@ -2949,26 +3263,31 @@ function showElectionResult() {
   const voted = Store.data.electionVote;
   const parties = getParties();
   const votedName = parties.find(p => p.id === voted)?.name || 'keine';
+  // Nach Lean sortieren (links → rechts), Sonstige ans Ende.
+  const order = [...data.objective].sort((a, b) => {
+    const la = parties.find(x => x.id === a.id)?.lean ?? 99;
+    const lb = parties.find(x => x.id === b.id)?.lean ?? 99;
+    return la - lb;
+  });
   slot.innerHTML = `
-    <h3>Du hast für: ${escapeHtml(votedName)}</h3>
-    <p class="muted small">Das fiktive Ergebnis in Greifshafen — links das objektive Ergebnis, rechts das, was dein Feed dir vermittelt hat:</p>
-    <div class="wrapped-bars">
-      ${data.objective.map((p, i) => {
-        const pc = data.perceived[i];
-        const obj = Math.round(p.share*100);
-        const per = Math.round(pc.perceived*100);
+    <h3>Du hast für: <span style="color:${PARTY_COLORS[voted] || 'var(--accent)'}">${escapeHtml(votedName)}</span></h3>
+    <p class="muted small">Links das objektive Ergebnis. Daneben das, was dein Feed dir vermittelt hat — die Differenz ist die Filterblase.</p>
+    <div class="election-compare">
+      <div class="col-head"><span>Partei</span><span class="muted small">objektiv</span><span class="muted small">in deinem Feed</span></div>
+      ${order.map(p => {
+        const pc = data.perceived.find(x => x.id === p.id);
+        const col = PARTY_COLORS[p.id] || '#888';
+        const obj = Math.round(p.share * 100);
+        const per = Math.round((pc?.perceived || 0) * 100);
+        const diff = per - obj;
         return `
-          <div class="row">
-            <span class="lbl">${escapeHtml(p.name)}</span>
-            <div class="bar"><div class="fill" style="width:${obj}%"></div></div>
-            <span>${obj}%</span>
-          </div>
-          <div class="row">
-            <span class="lbl muted">in deinem Feed</span>
-            <div class="bar"><div class="fill" style="width:${per}%;background:linear-gradient(90deg,var(--warn),var(--accent))"></div></div>
-            <span>${per}%</span>
-          </div>
-        `;
+          <div class="election-row">
+            <div class="party-label" style="color:${col}">${escapeHtml(p.name)}</div>
+            <div class="bar-pair">
+              <div class="bar"><div class="fill" style="width:${obj}%;background:${col};opacity:0.55"></div><span class="bar-val">${obj}%</span></div>
+              <div class="bar"><div class="fill" style="width:${per}%;background:${col}"></div><span class="bar-val">${per}% <em class="diff ${diff>=0?'pos':'neg'}">${diff>=0?'+':''}${diff}</em></span></div>
+            </div>
+          </div>`;
       }).join('')}
     </div>
     <button class="btn btn-primary" id="btn-elec-close" style="margin-top:14px">Zurück</button>
@@ -2982,10 +3301,11 @@ function openProfileModal() {
   const profile = Store.data.userProfile;
   const body = document.createElement('div');
   body.className = 'profile-box';
+  const pronounLine = c.pronoun && c.pronoun !== 'keine' ? `${escapeHtml(c.pronoun)} · ` : '';
   body.innerHTML = `
     <div class="big-avatar">${avatarSvg(c.avatar || 0)}</div>
     <h2 style="text-align:center;margin:0">${escapeHtml(c.name)}</h2>
-    <p class="muted small" style="text-align:center">${escapeHtml(c.pronoun || '')} · ${escapeHtml(c.city)}</p>
+    <p class="muted small" style="text-align:center">${pronounLine}${escapeHtml(c.city)}</p>
     <p class="muted small" style="text-align:center">Woche ${Store.data.currentWeek} · Tag ${Store.getDay()}</p>
     <div class="stat-row" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0">
       <div class="stat"><div class="num">${profile.followed.length}</div><div class="lbl">folgst du</div></div>
@@ -2996,9 +3316,18 @@ function openProfileModal() {
   `;
   const overlay = document.createElement('div');
   overlay.className = 'tw-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
   overlay.appendChild(body);
   document.body.appendChild(overlay);
-  body.querySelector('#profile-close').onclick = () => overlay.remove();
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', onKey);
+  body.querySelector('#profile-close').onclick = close;
 }
 
 // ===== Manifest =====
@@ -3047,6 +3376,96 @@ function exportManifest() {
   const blob = new Blob([html], { type: 'text/html' });
   downloadBlob(blob, 'medien-manifest.html');
   toast('Manifest exportiert.', { long: true });
+}
+
+function exportReport() {
+  const d = Store.data;
+  if (!d || !d.character) { alert('Noch kein Spielstand.'); return; }
+  const c = d.character;
+  const refs = d.reflections || {};
+  const profile = d.userProfile || {};
+  const topInterests = Object.entries(profile.interests || {})
+    .filter(([,v]) => v > 0.05).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const actions = (d.history || []).flatMap(h => h.actions || []);
+  const likes = actions.filter(a => a.type === 'like').length;
+  const angry = actions.filter(a => a.type === 'angry_comment').length;
+  const comments = actions.filter(a => a.type === 'comment').length;
+  const shares = actions.filter(a => a.type === 'share').length;
+  const followed = profile.followed?.length || 0;
+  const muted = profile.muted?.length || 0;
+  const guilds = d.guildMemberships || [];
+  const parties = getParties();
+  const votedName = d.electionVote ? (parties.find(p => p.id === d.electionVote)?.name || d.electionVote) : '—';
+
+  const refBlock = (title, key) => {
+    const obj = refs[key];
+    if (!obj || !Object.keys(obj).length) return `<section><h2>${title}</h2><p class="empty">— nicht ausgefüllt —</p></section>`;
+    return `<section><h2>${title}</h2>${Object.entries(obj).map(([q,a]) =>
+      `<div class="qa"><div class="q">${escapeHtml(q)}</div><div class="a">${a ? escapeHtml(String(a)) : '<em>— leer —</em>'}</div></div>`
+    ).join('')}</section>`;
+  };
+
+  const manifest = refs.manifest || {};
+  const manifestList = [1,2,3,4,5].map(i =>
+    `<li>${manifest[i] ? escapeHtml(manifest[i]) : '<em>— leer —</em>'}</li>`
+  ).join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="de">
+<head><meta charset="UTF-8"><title>Streem-Bericht: ${escapeHtml(c.name)}</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; max-width: 760px; margin: 2rem auto; padding: 1rem; color: #1f2230; line-height: 1.5; }
+  h1 { color: #c026d3; border-bottom: 2px solid #eee; padding-bottom: .5rem; }
+  h2 { color: #4338ca; margin-top: 2rem; }
+  .meta { color: #555; font-size: 14px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 1rem 0; }
+  .stat { background: #f4f5fa; padding: 10px; border-radius: 8px; border-left: 3px solid #c026d3; }
+  .stat b { display: block; font-size: 22px; color: #1f2230; }
+  .stat small { color: #666; }
+  .qa { margin: .8rem 0; padding: .6rem .8rem; background: #f8f9fc; border-left: 3px solid #4338ca; border-radius: 4px; }
+  .qa .q { font-weight: 600; color: #4338ca; margin-bottom: 4px; font-size: 14px; }
+  .qa .a { white-space: pre-wrap; }
+  .empty { color: #999; font-style: italic; }
+  ol li { margin: .6rem 0; }
+  .foot { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #ddd; color: #777; font-size: 13px; }
+  ul.interests { list-style: none; padding: 0; }
+  ul.interests li { display: inline-block; background: #eef; padding: 2px 8px; border-radius: 10px; margin: 2px; font-size: 13px; }
+</style></head>
+<body>
+  <h1>Streem-Bericht</h1>
+  <p class="meta"><strong>${escapeHtml(c.name)}</strong>${c.pronoun && c.pronoun !== 'keine' ? ' · ' + escapeHtml(c.pronoun) : ''} · ${escapeHtml(c.city || '')}<br/>Stand: Woche ${d.currentWeek} · erstellt ${new Date().toLocaleString('de-DE')}</p>
+
+  <h2>Übersicht</h2>
+  <div class="stats">
+    <div class="stat"><b>${likes}</b><small>Likes</small></div>
+    <div class="stat"><b>${comments + angry}</b><small>Kommentare (${angry} wütend)</small></div>
+    <div class="stat"><b>${shares}</b><small>geteilt</small></div>
+    <div class="stat"><b>${followed}</b><small>folgst du</small></div>
+    <div class="stat"><b>${muted}</b><small>stummgeschaltet</small></div>
+    <div class="stat"><b>${(profile.political_lean_estimated ?? 0).toFixed(2)}</b><small>politische Neigung (−1 links · +1 rechts)</small></div>
+    <div class="stat"><b>${guilds.length}</b><small>Gilden beigetreten</small></div>
+    <div class="stat"><b>${escapeHtml(votedName)}</b><small>gewählt</small></div>
+  </div>
+
+  <h2>Top-Interessen laut Algorithmus</h2>
+  <ul class="interests">${topInterests.map(([k,v]) => `<li>${escapeHtml(tagLabel(k))} · ${Math.round(v*100)}%</li>`).join('') || '<li><em>noch keine Daten</em></li>'}</ul>
+
+  ${refBlock('Reflexion · 1. Drittel', 'halftime')}
+  ${refBlock('Reflexion · 2. Drittel', 'mid')}
+  ${refBlock('Schluss-Reflexion', 'final')}
+
+  <h2>Medien-Manifest</h2>
+  <ol>${manifestList}</ol>
+
+  <div class="foot">
+    Erstellt mit dem Lernspiel „Der Algorithmus". Dokument zur Vorlage in der Projektwoche.<br/>
+    Anlaufstellen: bpb.de · klicksafe.de · hateaid.org · Telefonseelsorge 0800 111 0 111.
+  </div>
+</body>
+</html>`;
+  const blob = new Blob([html], { type: 'text/html' });
+  downloadBlob(blob, `streem-bericht-${(c.name||'spieler').toLowerCase().replace(/[^a-z0-9]/g,'_')}.html`);
+  toast('Bericht exportiert.', { long: true });
 }
 
 function downloadBlob(blob, filename) {

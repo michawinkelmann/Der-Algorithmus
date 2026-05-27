@@ -29,28 +29,25 @@ export function askWarning(twKey) {
 
     txt.textContent = `Im folgenden Beitrag werden Inhalte gezeigt: ${describeTW(twKey)}.`;
     overlay.hidden = false;
+    // Fokus auf "Überspringen" (sichere Default-Aktion).
+    setTimeout(() => skip.focus(), 30);
 
-    const cleanup = () => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') finish(false);
+    };
+    const finish = (showIt) => {
+      Store.data.contentWarningsAccepted[twKey] =
+        (Store.data.contentWarningsAccepted[twKey] || { shown: 0, skipped: 0 });
+      Store.data.contentWarningsAccepted[twKey][showIt ? 'shown' : 'skipped']++;
+      Store.save();
       overlay.hidden = true;
       skip.onclick = null;
       show.onclick = null;
+      document.removeEventListener('keydown', onKey);
+      resolve({ show: showIt });
     };
-
-    skip.onclick = () => {
-      Store.data.contentWarningsAccepted[twKey] =
-        (Store.data.contentWarningsAccepted[twKey] || { shown: 0, skipped: 0 });
-      Store.data.contentWarningsAccepted[twKey].skipped++;
-      Store.save();
-      cleanup();
-      resolve({ show: false });
-    };
-    show.onclick = () => {
-      Store.data.contentWarningsAccepted[twKey] =
-        (Store.data.contentWarningsAccepted[twKey] || { shown: 0, skipped: 0 });
-      Store.data.contentWarningsAccepted[twKey].shown++;
-      Store.save();
-      cleanup();
-      resolve({ show: true });
-    };
+    document.addEventListener('keydown', onKey);
+    skip.onclick = () => finish(false);
+    show.onclick = () => finish(true);
   });
 }

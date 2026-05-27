@@ -5,14 +5,19 @@ import { clamp } from './state.js';
 
 /**
  * Affinity: Übereinstimmung Post-Tags vs. User-Interessen.
+ * Mischung aus Summe (mehr Treffer = besser) und Max (ein Top-Tag schlägt durch).
  * @returns {number} 0..1
  */
 function affinity(post, profile) {
   const tags = post.tags || [];
   if (!tags.length) return 0.1;
-  let sum = 0;
-  for (const t of tags) sum += profile.interests[t] || 0;
-  return clamp(sum / tags.length, 0, 1);
+  let sum = 0, max = 0;
+  for (const t of tags) {
+    const v = profile.interests[t] || 0;
+    sum += v;
+    if (v > max) max = v;
+  }
+  return clamp(0.5 * max + 0.5 * Math.min(1, sum), 0, 1);
 }
 
 /**
@@ -26,12 +31,13 @@ function engagementBoost(post) {
 }
 
 /**
- * Recency: jüngere Posts höher gewichten (simuliert, Post-Index).
- * post.weekOffset = wie viele Wochen alt (0 = aktuell).
+ * Recency: jüngere Posts höher gewichten.
+ * weekOffset = wie viele Wochen alt (0 = aktuell). Fehlt der Wert,
+ * wird der Post als "frisch" behandelt (≈ 1).
  */
 function recency(post) {
-  const age = post.weekOffset || 0;
-  return Math.exp(-age * 0.5);
+  const age = Math.max(0, post.weekOffset || 0);
+  return Math.exp(-age * 0.45);
 }
 
 /**
@@ -65,9 +71,17 @@ function diversityPenalty(post, recentTags) {
 
 /**
  * Qualitäts-Bonus (in Sandbox aktivierbar).
+ * Spreizt den im Datensatz oft flachen quality_score, damit der Slider
+ * "Qualitäts-Bonus" sichtbar differenziert. Empörung + Engagement-Bait
+ * drücken die wahrgenommene Qualität, ein Artikel-Anhang hebt sie.
  */
 function qualityBonus(post) {
-  return post.quality_score || 0.5;
+  let q = post.quality_score;
+  if (q === undefined || q === null) q = 0.5;
+  q -= 0.45 * (post.outrage_score || 0);
+  q -= 0.2 * (post.engagement_bait_score || 0);
+  if (post.article) q += 0.15;
+  return clamp(q, 0, 1);
 }
 
 /**
