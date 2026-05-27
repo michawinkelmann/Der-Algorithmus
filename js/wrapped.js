@@ -173,6 +173,7 @@ export function buildWrapped() {
         <p>Ungefähr auf der App verbracht. ${ownCount} eigene Posts. ${twShown} Inhaltswarnungen angeschaut, ${twSkipped} übersprungen.</p>
       `
     },
+    buildEndingSlide(d),
     {
       id: 's9',
       html: `
@@ -186,6 +187,107 @@ export function buildWrapped() {
       `
     }
   ];
+}
+
+// Multiple Endings — datengetrieben aus dem finalen Profil und der Spielhistorie.
+function buildEndingSlide(d) {
+  const e = computeEnding(d);
+  d.ending = e.key;
+  return {
+    id: 's8b',
+    html: `
+      <h2>Dein Streem-Bogen</h2>
+      <div class="ending-card ending-${e.key}">
+        <div class="ending-emoji">${e.emoji}</div>
+        <div class="ending-title">${escapeHtml(e.title)}</div>
+        <p>${escapeHtml(e.text)}</p>
+        <div class="ending-stats muted small">
+          ${e.facts.map(f => `<div>${escapeHtml(f)}</div>`).join('')}
+        </div>
+      </div>
+      <p class="muted small">Dieses Ergebnis hängt von deinen Entscheidungen ab — andere Spielzüge führen zu anderen Bögen.</p>
+    `
+  };
+}
+
+function computeEnding(d) {
+  const p = d.userProfile || {};
+  const actions = (d.history || []).flatMap(h => h.actions || []);
+  const angry = actions.filter(a => a.type === 'angry_comment').length;
+  const likes = actions.filter(a => a.type === 'like').length;
+  const ownPosts = (d.ownPosts || []).length;
+  const inRabbit = (d.guildMemberships || []).includes('echte_werte');
+  const inReading = (d.guildMemberships || []).includes('lese_runde');
+  const followers = (p.followed || []).length;
+  const muted = (p.muted || []).length;
+  const lean = p.political_lean_estimated || 0;
+  const verschw = p.interests?.verschwoerung || 0;
+  const tw = d.contentWarningsAccepted || {};
+  const twSkip = Object.values(tw).reduce((a, b) => a + (b.skipped || 0), 0);
+  const arcs = d.npcArcs || {};
+
+  // Prioritäten-Logik: das eindeutigste Profil gewinnt.
+  if (inRabbit && (verschw > 0.4 || lean > 0.55)) {
+    return {
+      key: 'rabbithole',
+      emoji: '🕳️',
+      title: 'Tief im Loch',
+      text: 'Du bist in einer Gilde gelandet, die dich nicht mehr loslässt. Dein Feed zeigt dir, dass du recht hast — immer. Das ist die Mechanik, die Radikalisierung im Echten ausmacht. Du hast es im Spiel erlebt; und auch wieder verlassen.',
+      facts: [`politische Neigung: ${lean.toFixed(2)}`, `Verschwörungs-Affinität: ${Math.round(verschw*100)}%`, `Gilden-Mitgliedschaft: Echte Werte`]
+    };
+  }
+  if (ownPosts >= 6 && followers >= 8) {
+    return {
+      key: 'influencer',
+      emoji: '📣',
+      title: 'Mikro-Influencer:in',
+      text: 'Du hast viel selbst gepostet. Reichweite kostet aber etwas — du hast gemerkt, wie schnell ein Post entgleist, wie schnell sich Erwartungen aufbauen. Wer Plattform mit-baut, mit-baut sie auch in seinem Kopf.',
+      facts: [`${ownPosts} eigene Posts`, `${followers} gefolgte Accounts`, `${likes} verteilte Likes`]
+    };
+  }
+  if (angry >= 8 && Math.abs(lean) > 0.4) {
+    return {
+      key: 'crusader',
+      emoji: '⚔️',
+      title: 'Empörte:r Engagierte:r',
+      text: 'Du hast eine klare Haltung — und sie laut gemacht. Wütende Kommentare bringen Reichweite, sie verändern aber selten Meinungen. Frag dich, ob dein Algorithmus dich klüger gemacht hat oder lauter.',
+      facts: [`${angry} wütende Kommentare`, `Lean: ${lean.toFixed(2)}`, `${muted} stummgeschaltete Accounts`]
+    };
+  }
+  if (twSkip >= 4 && muted >= 3 && Math.abs(lean) < 0.3) {
+    return {
+      key: 'guarded',
+      emoji: '🛡️',
+      title: 'Achtsame:r Beobachter:in',
+      text: 'Du hast Inhalte übersprungen, Accounts stummgeschaltet, dich politisch nicht in eine Ecke drängen lassen. Diese Selbst-Moderation ist eine Fähigkeit, die in keinem Schulplan steht — du hast sie jetzt geübt.',
+      facts: [`${twSkip} Inhaltswarnungen übersprungen`, `${muted} Accounts stumm`, `Lean stabil bei ${lean.toFixed(2)}`]
+    };
+  }
+  if (inReading && p.interests?.wissenschaft > 0.4) {
+    return {
+      key: 'nerd',
+      emoji: '📚',
+      title: 'Quelle vor Meinung',
+      text: 'Du hast Zeit in der Leserunde verbracht, lange Texte konsumiert, Studien geteilt. Dein Feed wurde dadurch ruhiger — und auch enger. Wissenschaftliches Lesen ist Filterblase, nur eine angenehmere.',
+      facts: [`Wissenschafts-Affinität: ${Math.round((p.interests?.wissenschaft||0)*100)}%`, `Gilde: Leserunde 2028`]
+    };
+  }
+  if (arcs.self_aware >= 1 && twSkip < 3) {
+    return {
+      key: 'aware',
+      emoji: '🪞',
+      title: 'Selbstbewusst durch den Feed',
+      text: 'Du hast dir selbst zugehört. Lea zu sagen, dass dieser Feed etwas mit dir macht — das ist die schwierigste Bewegung des Spiels. Reflexion *während* des Scrollens, nicht erst danach.',
+      facts: [`du hast eingestanden, was Algorithmen mit dir machen — das ist die seltenste Reaktion in diesem Spiel.`]
+    };
+  }
+  return {
+    key: 'driven',
+    emoji: '🌊',
+    title: 'Mitgetrieben',
+    text: 'Dein Account ist mit dem Feed mitgegangen — wie die meisten echten Accounts. Keine extremen Ausschläge, keine bewussten Brüche. Genau diese ruhige Drift ist das, was Algorithmen so effektiv macht: niemand merkt, wie sich etwas verschoben hat.',
+    facts: [`${likes} Likes verteilt`, `Lean: ${lean.toFixed(2)}`, `${followers} gefolgte Accounts`]
+  };
 }
 
 function labelFor(tag) {

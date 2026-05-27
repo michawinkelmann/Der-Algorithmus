@@ -17,10 +17,15 @@ ORDER = [
     "algorithm.js",
     "warnings.js",
     "characters.js",
+    "sound.js",
     "feed.js",
     "events.js",
     "sandbox.js",
     "wrapped.js",
+    "dms.js",
+    "places.js",
+    "minigame.js",
+    "classcompare.js",
     "main.js",
 ]
 

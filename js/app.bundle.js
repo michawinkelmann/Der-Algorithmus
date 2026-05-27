@@ -39,8 +39,8 @@ const INITIAL_WEIGHTS = {
 function freshSave() {
   const now = Date.now();
   return {
-    meta: { version: 1, createdAt: now, lastSavedAt: now, day: 1 },
-    character: { name: 'Alex', pronoun: 'sie/ihr', avatar: 0, interests_initial: [], city: 'Greifshafen' },
+    meta: { version: 2, createdAt: now, lastSavedAt: now, day: 1 },
+    character: { name: 'Alex', pronoun: 'sie/ihr', avatar: 0, interests_initial: [], city: 'Greifshafen', bio: '', protagonist: 'alex' },
     currentWeek: 0,
     weekFeedIndex: 0,
     history: [],
@@ -65,6 +65,16 @@ function freshSave() {
     likedPosts: {},
     sharedPosts: {},
     initialProfileSnapshot: null,
+    dmThreads: {},
+    dmReplies: {},
+    dmUnread: 0,
+    npcArcs: { lea_close: 0, finn_path: 0, mira_close: 0, self_aware: 0 },
+    storiesViewed: {},
+    placesVisited: {},
+    soundEnabled: true,
+    challengeMode: null,
+    minigameResults: {},
+    ending: null,
     random_seed: Math.floor(Math.random() * 1e9)
   };
 }
@@ -1068,6 +1078,68 @@ function renderMotif(m, bg, fg, tone, seed) {
   __M.memeSvg = memeSvg;
 })();
 
+// ===== sound.js =====
+(function(){
+  var Store = __M.Store;
+// sound.js — Mini-Synth über WebAudio. Keine externen Audio-Files,
+// damit die file://-Auslieferung funktioniert.
+
+let ctx = null;
+function ensureCtx() {
+  if (ctx) return ctx;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    ctx = new AC();
+  } catch (e) { return null; }
+  return ctx;
+}
+
+function enabled() {
+  if (!Store.data) return false;
+  return Store.data.soundEnabled !== false;
+}
+
+function beep({ freq = 440, duration = 0.08, type = 'sine', volume = 0.15, attack = 0.005, release = 0.05 } = {}) {
+  if (!enabled()) return;
+  const c = ensureCtx();
+  if (!c) return;
+  const t = c.currentTime;
+  const osc = c.createOscillator();
+  const gain = c.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t);
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(volume, t + attack);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + duration + release);
+  osc.connect(gain).connect(c.destination);
+  osc.start(t);
+  osc.stop(t + duration + release + 0.01);
+}
+
+const SFX = {
+  like()    { beep({ freq: 880, duration: 0.06, type: 'sine', volume: 0.18 });
+              setTimeout(() => beep({ freq: 1320, duration: 0.05, type: 'sine', volume: 0.14 }), 50); },
+  share()   { beep({ freq: 660, duration: 0.05, type: 'triangle', volume: 0.14 }); },
+  swipe()   { beep({ freq: 220, duration: 0.04, type: 'sine', volume: 0.08 }); },
+  dm()      { beep({ freq: 520, duration: 0.07, type: 'triangle', volume: 0.18 });
+              setTimeout(() => beep({ freq: 392, duration: 0.07, type: 'triangle', volume: 0.14 }), 70); },
+  badge()   { [523, 659, 784].forEach((f, i) => setTimeout(() => beep({ freq: f, duration: 0.12, type: 'triangle', volume: 0.18 }), i * 90)); },
+  toast()   { beep({ freq: 330, duration: 0.04, type: 'sine', volume: 0.08 }); },
+  error()   { beep({ freq: 180, duration: 0.18, type: 'sawtooth', volume: 0.12 }); },
+  weekend() { [392, 523, 659].forEach((f, i) => setTimeout(() => beep({ freq: f, duration: 0.16, type: 'sine', volume: 0.16 }), i * 110)); }
+};
+
+function setSoundEnabled(enabled) {
+  if (!Store.data) return;
+  Store.data.soundEnabled = !!enabled;
+  Store.save();
+}
+
+  __M.SFX = SFX;
+  __M.setSoundEnabled = setSoundEnabled;
+})();
+
 // ===== feed.js =====
 (function(){
   var Store = __M.Store;
@@ -1078,7 +1150,9 @@ function renderMotif(m, bg, fg, tone, seed) {
   var avatarSvg = __M.avatarSvg;
   var memeSvg = __M.memeSvg;
   var askWarning = __M.askWarning;
+  var SFX = __M.SFX;
 // feed.js — Feed-Rendering und Interaktionen.
+
 
 
 
@@ -1086,19 +1160,30 @@ function renderMotif(m, bg, fg, tone, seed) {
 let POSTS = [];
 let ADS = [];
 let WEEKS = [];
+let STORIES = [];
 let onWeekEnd = null;      // Callback wenn Woche zuende
 let onOpenCompose = null;
+let onOpenStory = null;
 let currentFeed = [];      // Für Woche sichtbarer Feed
 
 function initFeed(data) {
   POSTS = data.posts;
   ADS = data.ads;
   WEEKS = data.weeks;
+  STORIES = data.stories || [];
 }
 
-function setCallbacks({ onWeekEnd: wEnd, onOpenCompose: oc }) {
+// Stories-Bar: Stories aus den letzten 1-2 Wochen, deren Autor:in der User folgt
+// oder die durch Wochenfortschritt freigeschaltet sind.
+function getActiveStories() {
+  const w = Store.data.currentWeek;
+  return STORIES.filter(s => s.week <= w && s.week >= w - 1);
+}
+
+function setCallbacks({ onWeekEnd: wEnd, onOpenCompose: oc, onOpenStory: os }) {
   onWeekEnd = wEnd;
   onOpenCompose = oc;
+  onOpenStory = os;
 }
 
 // Regex für Wahl-Kontext: ganze Wortgrenzen, mehrere Trigger.
@@ -1184,6 +1269,38 @@ async function renderFeed(view = 'feed') {
   const w = WEEKS[d.currentWeek] || WEEKS[WEEKS.length - 1];
 
   if (view === 'feed') {
+    // Stories-Bar (oben, scrollbar).
+    const stories = getActiveStories();
+    if (stories.length) {
+      const bar = document.createElement('div');
+      bar.className = 'stories-bar';
+      bar.setAttribute('role', 'list');
+      for (const s of stories) {
+        const c = getCharacter(s.author);
+        const viewed = !!Store.data.storiesViewed?.[s.id];
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'story-item' + (viewed ? ' viewed' : '');
+        item.setAttribute('aria-label', `Story von ${c?.name || s.author}`);
+        item.innerHTML = `
+          <div class="story-ring">
+            <div class="avatar">${avatarSvg(c?.avatar || 0)}</div>
+            <span class="story-emoji">${s.emoji || '·'}</span>
+          </div>
+          <div class="story-name">${escapeHtml((c?.name || '').split(' ')[0])}</div>
+        `;
+        item.onclick = () => {
+          if (!Store.data.storiesViewed) Store.data.storiesViewed = {};
+          Store.data.storiesViewed[s.id] = true;
+          Store.save();
+          item.classList.add('viewed');
+          if (onOpenStory) onOpenStory(s);
+        };
+        bar.appendChild(item);
+      }
+      root.appendChild(bar);
+    }
+
     const header = document.createElement('div');
     header.className = 'feed-header';
     header.innerHTML = `
@@ -1472,6 +1589,7 @@ async function handleAction(act, post, btn, card) {
       btn.setAttribute('aria-pressed', 'true');
       const lbl = btn.querySelector('.action-label'); if (lbl) lbl.textContent = 'Geliked';
       spawnHeartFloater(btn);
+      SFX.like();
       maybeShowAlgoNudge(post);
     }
   } else if (act === 'share') {
@@ -1480,6 +1598,7 @@ async function handleAction(act, post, btn, card) {
     Store.data.sharedPosts[post.id] = { week: Store.data.currentWeek, ts: Date.now() };
     Store.recordAction(post.id, 'share', post);
     toast('Geteilt.');
+    SFX.share();
     btn.classList.add('active');
     const lbl = btn.querySelector('.action-label'); if (lbl) lbl.textContent = 'Geteilt';
   } else if (act === 'follow') {
@@ -2025,17 +2144,20 @@ function renderSandbox(onClose) {
   }
 
   const presetRow = document.createElement('div');
-  presetRow.style.display = 'flex';
-  presetRow.style.gap = '6px';
-  presetRow.style.flexWrap = 'wrap';
-  presetRow.style.marginTop = '10px';
+  presetRow.className = 'sandbox-presets';
   presetRow.innerHTML = `
     <button class="btn btn-ghost" data-preset="current">Wie bisher</button>
     <button class="btn btn-ghost" data-preset="quality">Qualität</button>
     <button class="btn btn-ghost" data-preset="chrono">Chronologisch</button>
     <button class="btn btn-ghost" data-preset="balance">Ausgleich</button>
+    <button class="btn btn-ghost preset-challenge" data-preset="empoerung">Empörungs-Booster ⚠</button>
+    <button class="btn btn-ghost preset-challenge" data-preset="calm">Ruhe-Modus 🧘</button>
   `;
   sliders.appendChild(presetRow);
+  const desc = document.createElement('p');
+  desc.className = 'muted small sandbox-preset-desc';
+  desc.textContent = 'Probier die Challenge-Presets: „Empörungs-Booster" zeigt, was eine reine Outrage-Maschine produziert. „Ruhe-Modus" ist das Gegenteil — wie würde dein Feed aussehen, wenn du gar nicht mehr gehookt werden sollst?';
+  sliders.appendChild(desc);
 
   const rules = { ...current };
   sliders.querySelectorAll('[data-slider]').forEach(el => {
@@ -2067,9 +2189,11 @@ function renderSandbox(onClose) {
 function applyPreset(name, rules, container) {
   const presets = {
     current: { ...Store.data.weights },
-    quality: { affinity: 0.3, engagement: 0.2, recency: 0.5, social: 0.3, ads: 0.2, diversity: 0.7, quality: 1.5, outragePenalty: 1.0, balance: 0.5 },
-    chrono:  { affinity: 0.0, engagement: 0.0, recency: 1.8, social: 1.0, ads: 0.2, diversity: 0.0, quality: 0.2, outragePenalty: 0.0, balance: 0.0 },
-    balance: { affinity: 0.3, engagement: 0.2, recency: 0.5, social: 0.5, ads: 0.2, diversity: 0.8, quality: 0.8, outragePenalty: 0.8, balance: 1.5 }
+    quality:    { affinity: 0.3, engagement: 0.2, recency: 0.5, social: 0.3, ads: 0.2, diversity: 0.7, quality: 1.5, outragePenalty: 1.0, balance: 0.5 },
+    chrono:     { affinity: 0.0, engagement: 0.0, recency: 1.8, social: 1.0, ads: 0.2, diversity: 0.0, quality: 0.2, outragePenalty: 0.0, balance: 0.0 },
+    balance:    { affinity: 0.3, engagement: 0.2, recency: 0.5, social: 0.5, ads: 0.2, diversity: 0.8, quality: 0.8, outragePenalty: 0.8, balance: 1.5 },
+    empoerung:  { affinity: 0.4, engagement: 2.0, recency: 0.3, social: 0.4, ads: 0.6, diversity: 0.0, quality: 0.0, outragePenalty: 0.0, balance: 0.0 },
+    calm:       { affinity: 0.6, engagement: 0.1, recency: 0.4, social: 0.7, ads: 0.1, diversity: 1.0, quality: 1.2, outragePenalty: 1.8, balance: 0.8 }
   };
   const p = presets[name];
   if (!p) return;
@@ -2385,6 +2509,7 @@ function buildWrapped() {
         <p>Ungefähr auf der App verbracht. ${ownCount} eigene Posts. ${twShown} Inhaltswarnungen angeschaut, ${twSkipped} übersprungen.</p>
       `
     },
+    buildEndingSlide(d),
     {
       id: 's9',
       html: `
@@ -2398,6 +2523,107 @@ function buildWrapped() {
       `
     }
   ];
+}
+
+// Multiple Endings — datengetrieben aus dem finalen Profil und der Spielhistorie.
+function buildEndingSlide(d) {
+  const e = computeEnding(d);
+  d.ending = e.key;
+  return {
+    id: 's8b',
+    html: `
+      <h2>Dein Streem-Bogen</h2>
+      <div class="ending-card ending-${e.key}">
+        <div class="ending-emoji">${e.emoji}</div>
+        <div class="ending-title">${escapeHtml(e.title)}</div>
+        <p>${escapeHtml(e.text)}</p>
+        <div class="ending-stats muted small">
+          ${e.facts.map(f => `<div>${escapeHtml(f)}</div>`).join('')}
+        </div>
+      </div>
+      <p class="muted small">Dieses Ergebnis hängt von deinen Entscheidungen ab — andere Spielzüge führen zu anderen Bögen.</p>
+    `
+  };
+}
+
+function computeEnding(d) {
+  const p = d.userProfile || {};
+  const actions = (d.history || []).flatMap(h => h.actions || []);
+  const angry = actions.filter(a => a.type === 'angry_comment').length;
+  const likes = actions.filter(a => a.type === 'like').length;
+  const ownPosts = (d.ownPosts || []).length;
+  const inRabbit = (d.guildMemberships || []).includes('echte_werte');
+  const inReading = (d.guildMemberships || []).includes('lese_runde');
+  const followers = (p.followed || []).length;
+  const muted = (p.muted || []).length;
+  const lean = p.political_lean_estimated || 0;
+  const verschw = p.interests?.verschwoerung || 0;
+  const tw = d.contentWarningsAccepted || {};
+  const twSkip = Object.values(tw).reduce((a, b) => a + (b.skipped || 0), 0);
+  const arcs = d.npcArcs || {};
+
+  // Prioritäten-Logik: das eindeutigste Profil gewinnt.
+  if (inRabbit && (verschw > 0.4 || lean > 0.55)) {
+    return {
+      key: 'rabbithole',
+      emoji: '🕳️',
+      title: 'Tief im Loch',
+      text: 'Du bist in einer Gilde gelandet, die dich nicht mehr loslässt. Dein Feed zeigt dir, dass du recht hast — immer. Das ist die Mechanik, die Radikalisierung im Echten ausmacht. Du hast es im Spiel erlebt; und auch wieder verlassen.',
+      facts: [`politische Neigung: ${lean.toFixed(2)}`, `Verschwörungs-Affinität: ${Math.round(verschw*100)}%`, `Gilden-Mitgliedschaft: Echte Werte`]
+    };
+  }
+  if (ownPosts >= 6 && followers >= 8) {
+    return {
+      key: 'influencer',
+      emoji: '📣',
+      title: 'Mikro-Influencer:in',
+      text: 'Du hast viel selbst gepostet. Reichweite kostet aber etwas — du hast gemerkt, wie schnell ein Post entgleist, wie schnell sich Erwartungen aufbauen. Wer Plattform mit-baut, mit-baut sie auch in seinem Kopf.',
+      facts: [`${ownPosts} eigene Posts`, `${followers} gefolgte Accounts`, `${likes} verteilte Likes`]
+    };
+  }
+  if (angry >= 8 && Math.abs(lean) > 0.4) {
+    return {
+      key: 'crusader',
+      emoji: '⚔️',
+      title: 'Empörte:r Engagierte:r',
+      text: 'Du hast eine klare Haltung — und sie laut gemacht. Wütende Kommentare bringen Reichweite, sie verändern aber selten Meinungen. Frag dich, ob dein Algorithmus dich klüger gemacht hat oder lauter.',
+      facts: [`${angry} wütende Kommentare`, `Lean: ${lean.toFixed(2)}`, `${muted} stummgeschaltete Accounts`]
+    };
+  }
+  if (twSkip >= 4 && muted >= 3 && Math.abs(lean) < 0.3) {
+    return {
+      key: 'guarded',
+      emoji: '🛡️',
+      title: 'Achtsame:r Beobachter:in',
+      text: 'Du hast Inhalte übersprungen, Accounts stummgeschaltet, dich politisch nicht in eine Ecke drängen lassen. Diese Selbst-Moderation ist eine Fähigkeit, die in keinem Schulplan steht — du hast sie jetzt geübt.',
+      facts: [`${twSkip} Inhaltswarnungen übersprungen`, `${muted} Accounts stumm`, `Lean stabil bei ${lean.toFixed(2)}`]
+    };
+  }
+  if (inReading && p.interests?.wissenschaft > 0.4) {
+    return {
+      key: 'nerd',
+      emoji: '📚',
+      title: 'Quelle vor Meinung',
+      text: 'Du hast Zeit in der Leserunde verbracht, lange Texte konsumiert, Studien geteilt. Dein Feed wurde dadurch ruhiger — und auch enger. Wissenschaftliches Lesen ist Filterblase, nur eine angenehmere.',
+      facts: [`Wissenschafts-Affinität: ${Math.round((p.interests?.wissenschaft||0)*100)}%`, `Gilde: Leserunde 2028`]
+    };
+  }
+  if (arcs.self_aware >= 1 && twSkip < 3) {
+    return {
+      key: 'aware',
+      emoji: '🪞',
+      title: 'Selbstbewusst durch den Feed',
+      text: 'Du hast dir selbst zugehört. Lea zu sagen, dass dieser Feed etwas mit dir macht — das ist die schwierigste Bewegung des Spiels. Reflexion *während* des Scrollens, nicht erst danach.',
+      facts: [`du hast eingestanden, was Algorithmen mit dir machen — das ist die seltenste Reaktion in diesem Spiel.`]
+    };
+  }
+  return {
+    key: 'driven',
+    emoji: '🌊',
+    title: 'Mitgetrieben',
+    text: 'Dein Account ist mit dem Feed mitgegangen — wie die meisten echten Accounts. Keine extremen Ausschläge, keine bewussten Brüche. Genau diese ruhige Drift ist das, was Algorithmen so effektiv macht: niemand merkt, wie sich etwas verschoben hat.',
+    facts: [`${likes} Likes verteilt`, `Lean: ${lean.toFixed(2)}`, `${followers} gefolgte Accounts`]
+  };
 }
 
 function labelFor(tag) {
@@ -2569,6 +2795,639 @@ function renderWrapped(onSandbox, onManifest) {
   __M.renderWrapped = renderWrapped;
 })();
 
+// ===== dms.js =====
+(function(){
+  var Store = __M.Store;
+  var clamp = __M.clamp;
+  var getCharacter = __M.getCharacter;
+  var avatarSvg = __M.avatarSvg;
+  var SFX = __M.SFX;
+// dms.js — Direkt-Nachrichten mit wiederkehrenden NPC-Arcs.
+// Threads sind datengetrieben (data/dms.json), Antworten beeinflussen
+// das Profil und auch interne NPC-Bindungs-Werte (npcArcs).
+
+
+
+let THREADS = [];
+
+function initDms(data) {
+  THREADS = data.threads || [];
+}
+
+function getAllThreads() { return THREADS; }
+
+// Welche Nachrichten in diesem Thread bis zur aktuellen Woche freigeschaltet sind.
+function getVisibleMessages(thread) {
+  return (thread.messages || []).filter(m => m.week <= Store.data.currentWeek);
+}
+
+// Welche Antworten-Auswahl noch offen ist (nach welcher Woche, noch nichts gewählt)?
+function getPendingChoice(thread) {
+  const replies = thread.replies || [];
+  const taken = Store.data.dmReplies?.[thread.id] || {};
+  for (const r of replies) {
+    if (r.after_week > Store.data.currentWeek) continue;
+    if (taken[r.after_week]) continue;
+    return r;
+  }
+  return null;
+}
+
+// Anzahl unbeantworteter Threads (Badge in Bottom-Nav).
+function unreadCount() {
+  let n = 0;
+  for (const t of THREADS) {
+    const visible = getVisibleMessages(t);
+    if (!visible.length) continue;
+    const seen = Store.data.dmThreads?.[t.id]?.lastSeenCount || 0;
+    if (visible.length > seen) n++;
+  }
+  return n;
+}
+
+// Mark thread as seen.
+function markThreadSeen(threadId) {
+  if (!Store.data.dmThreads) Store.data.dmThreads = {};
+  const t = THREADS.find(x => x.id === threadId);
+  if (!t) return;
+  const visible = getVisibleMessages(t);
+  Store.data.dmThreads[threadId] = { lastSeenCount: visible.length, lastSeenAt: Date.now() };
+  Store.save();
+}
+
+// Antwort verbuchen + Effekte anwenden.
+function applyReply(threadId, afterWeek, choice) {
+  const eff = choice.effect || {};
+  const p = Store.data.userProfile;
+  if (eff.tags) {
+    for (const [k, v] of Object.entries(eff.tags)) {
+      p.interests[k] = clamp((p.interests[k] || 0) + v, 0, 1);
+    }
+  }
+  if (eff.mute) {
+    if (!p.muted.includes(eff.mute)) p.muted.push(eff.mute);
+  }
+  // NPC-Arc-Werte.
+  for (const k of ['lea_close', 'finn_path', 'mira_close', 'self_aware']) {
+    if (typeof eff[k] === 'number') {
+      Store.data.npcArcs[k] = (Store.data.npcArcs[k] || 0) + eff[k];
+    }
+  }
+  if (!Store.data.dmReplies[threadId]) Store.data.dmReplies[threadId] = {};
+  Store.data.dmReplies[threadId][afterWeek] = { id: choice.id, text: choice.text, ts: Date.now() };
+  Store.save();
+}
+
+// Rendert die DM-Inbox-Liste.
+function renderDmList(root, onOpenThread) {
+  root.innerHTML = '';
+  const items = THREADS.map(t => {
+    const visible = getVisibleMessages(t);
+    if (!visible.length) return null;
+    const last = visible[visible.length - 1];
+    const seen = Store.data.dmThreads?.[t.id]?.lastSeenCount || 0;
+    const unread = visible.length > seen;
+    return { thread: t, last, unread };
+  }).filter(Boolean);
+
+  if (!items.length) {
+    root.innerHTML = '<div class="dm-empty"><p class="muted">Noch keine Nachrichten. Spiele weiter.</p></div>';
+    return;
+  }
+
+  for (const it of items) {
+    const c = getCharacter(it.thread.with);
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'dm-row' + (it.unread ? ' unread' : '');
+    row.innerHTML = `
+      <div class="dm-avatar">${avatarSvg(c?.avatar || 0)}${isOnline(it.thread.with) ? '<span class="dm-online" aria-label="online"></span>' : ''}</div>
+      <div class="dm-meta">
+        <div class="dm-name">${escapeHtml(it.thread.title)}${it.unread ? '<span class="dm-badge">neu</span>' : ''}</div>
+        <div class="dm-preview">${escapeHtml(truncate(it.last.text, 80))}</div>
+      </div>
+      <div class="dm-week muted small">W${it.last.week}</div>
+    `;
+    row.onclick = () => onOpenThread(it.thread);
+    root.appendChild(row);
+  }
+}
+
+// Rendert einen Thread.
+function renderDmThread(root, thread, onBack) {
+  const c = getCharacter(thread.with);
+  const visible = getVisibleMessages(thread);
+  const pending = getPendingChoice(thread);
+  const taken = Store.data.dmReplies?.[thread.id] || {};
+
+  root.innerHTML = `
+    <header class="dm-thread-head">
+      <button class="dm-back" aria-label="Zurück">←</button>
+      <div class="dm-avatar small">${avatarSvg(c?.avatar || 0)}${isOnline(thread.with) ? '<span class="dm-online"></span>' : ''}</div>
+      <div>
+        <div class="dm-thread-name">${escapeHtml(thread.title)}</div>
+        <div class="muted small">${isOnline(thread.with) ? 'online' : 'zuletzt diese Woche'}</div>
+      </div>
+    </header>
+    <div class="dm-thread-body" id="dm-thread-body"></div>
+    <div class="dm-thread-input" id="dm-thread-input"></div>
+  `;
+  root.querySelector('.dm-back').onclick = onBack;
+
+  const body = root.querySelector('#dm-thread-body');
+  // Nachrichten in chronologischer Reihenfolge interleavt mit den eigenen Antworten.
+  for (const m of visible) {
+    const bubble = document.createElement('div');
+    bubble.className = 'dm-bubble from-them';
+    bubble.innerHTML = `<div class="dm-text">${escapeHtml(m.text)}</div><div class="dm-time muted small">W${m.week}</div>`;
+    body.appendChild(bubble);
+    // Antwort, die nach dieser Woche fällig war?
+    if (taken[m.week]) {
+      const myReply = taken[m.week];
+      const mine = document.createElement('div');
+      mine.className = 'dm-bubble from-me';
+      mine.innerHTML = `<div class="dm-text">${escapeHtml(stripQuotes(myReply.text))}</div><div class="dm-time muted small">deine Antwort</div>`;
+      body.appendChild(mine);
+    }
+  }
+
+  const input = root.querySelector('#dm-thread-input');
+  if (pending) {
+    if (thread.trigger_warning) {
+      input.innerHTML = `<div class="dm-warn">Inhaltswarnung — die Antwortoptionen enthalten Sprache aus dem Umfeld dieses Accounts.</div>`;
+    }
+    const choicesWrap = document.createElement('div');
+    choicesWrap.className = 'dm-choices';
+    for (const ch of pending.choices) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'dm-choice';
+      b.textContent = ch.text;
+      b.onclick = () => {
+        applyReply(thread.id, pending.after_week, ch);
+        SFX.dm();
+        renderDmThread(root, thread, onBack);
+      };
+      choicesWrap.appendChild(b);
+    }
+    input.appendChild(choicesWrap);
+  } else {
+    input.innerHTML = `<div class="muted small dm-noreply">— Im Moment keine Antwort möglich. Spiele weiter, neue Nachrichten kommen.</div>`;
+  }
+
+  body.scrollTop = body.scrollHeight;
+  markThreadSeen(thread.id);
+}
+
+// Welche Charaktere sind "online"? Deterministisch pro Woche aus dem Seed.
+function isOnline(charId) {
+  const w = Store.data.currentWeek;
+  const seed = Store.data.random_seed || 1;
+  // Hash für deterministisches On/Off.
+  let h = 0;
+  for (const ch of charId + ':' + w + ':' + seed) h = ((h << 5) - h + ch.charCodeAt(0)) | 0;
+  return (h >>> 0) % 5 < 2; // ~40% online
+}
+
+function stripQuotes(s) {
+  return String(s || '').replace(/^[„"”]/, '').replace(/[“"”]$/, '');
+}
+function truncate(s, n) { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+  __M.initDms = initDms;
+  __M.getAllThreads = getAllThreads;
+  __M.getVisibleMessages = getVisibleMessages;
+  __M.getPendingChoice = getPendingChoice;
+  __M.unreadCount = unreadCount;
+  __M.markThreadSeen = markThreadSeen;
+  __M.applyReply = applyReply;
+  __M.renderDmList = renderDmList;
+  __M.renderDmThread = renderDmThread;
+})();
+
+// ===== places.js =====
+(function(){
+  var Store = __M.Store;
+  var getCharacter = __M.getCharacter;
+  var avatarSvg = __M.avatarSvg;
+// places.js — Greifshafen-Karte als entdeckbares Modal.
+
+
+let PLACES = [];
+
+function initPlaces(data) {
+  PLACES = data.places || [];
+}
+
+function getPlaces() { return PLACES; }
+
+function renderMap(root, onClose) {
+  root.innerHTML = `
+    <header class="map-head">
+      <h2>Greifshafen</h2>
+      <button class="btn btn-ghost" id="map-close">Schließen</button>
+    </header>
+    <p class="muted small">Die Stadt deines Accounts. Wer ist wo unterwegs?</p>
+    <div class="map-grid" id="map-grid"></div>
+    <div id="place-detail" class="place-detail" hidden></div>
+  `;
+  root.querySelector('#map-close').onclick = onClose;
+  const grid = root.querySelector('#map-grid');
+  for (const p of PLACES) {
+    const tile = document.createElement('button');
+    tile.type = 'button';
+    tile.className = 'map-tile';
+    const visited = !!Store.data.placesVisited?.[p.id];
+    if (visited) tile.classList.add('visited');
+    tile.innerHTML = `<div class="map-emoji">${p.emoji}</div><div class="map-name">${escapeHtml(p.name)}</div>`;
+    tile.onclick = () => {
+      if (!Store.data.placesVisited) Store.data.placesVisited = {};
+      Store.data.placesVisited[p.id] = (Store.data.placesVisited[p.id] || 0) + 1;
+      Store.save();
+      tile.classList.add('visited');
+      showPlaceDetail(root, p);
+    };
+    grid.appendChild(tile);
+  }
+}
+
+function showPlaceDetail(root, place) {
+  const detail = root.querySelector('#place-detail');
+  detail.hidden = false;
+  const chars = (place.regulars || []).map(getCharacter).filter(Boolean);
+  detail.innerHTML = `
+    <div class="place-head"><span class="map-emoji">${place.emoji}</span><h3>${escapeHtml(place.name)}</h3></div>
+    <p>${escapeHtml(place.desc)}</p>
+    <div class="place-regulars">
+      <div class="muted small">Stammgäste:</div>
+      <div class="place-avatars">
+        ${chars.map(c => `<div class="place-avatar"><div class="avatar">${avatarSvg(c.avatar || 0)}</div><div class="muted small">${escapeHtml(c.name)}</div></div>`).join('')}
+      </div>
+    </div>
+  `;
+  detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+  __M.initPlaces = initPlaces;
+  __M.getPlaces = getPlaces;
+  __M.renderMap = renderMap;
+})();
+
+// ===== minigame.js =====
+(function(){
+  var Store = __M.Store;
+  var getCharacter = __M.getCharacter;
+  var avatarSvg = __M.avatarSvg;
+  var SFX = __M.SFX;
+// minigame.js — Bot-or-Human-Quiz. Wird in W12 als optionales Event freigeschaltet.
+
+
+
+const ROUNDS = [
+  {
+    profiles: [
+      { handle: '@truth_warrior_88', name: 'truth_warrior_88', avatar: 10, bio: 'wacht nicht schläft',
+        post: 'WAS DIE MEDIEN VERSCHWEIGEN — Heute 18 Uhr Live! Teilen für die Wahrheit! 🔥🔥🔥',
+        joined: 'vor 3 Wochen', posts_per_day: '47', followers: '212',
+        bot: true, tell: 'Account-Alter sehr jung, hohe Posting-Frequenz, Generisches "Truth"-Naming-Schema mit Zahl.' },
+      { handle: '@nele.lit', name: 'Nele', avatar: 6, bio: 'Buch-Rezensionen',
+        post: 'Hab heute „Die Quelle" beendet. Erste Hälfte stark, zweite konstruiert. 6/10.',
+        joined: 'vor 4 Jahren', posts_per_day: '0,4', followers: '380',
+        bot: false, tell: 'Persönliches Urteil, normale Posting-Frequenz, alter Account.' }
+    ]
+  },
+  {
+    profiles: [
+      { handle: '@klara_k', name: 'KlaraKomm', avatar: 11, bio: 'folge für Free Stuff',
+        post: '💎💎 GEWINNSPIEL! Folgen + Liken + 5 Freunde taggen = iPhone! Verlosung Sonntag! Link in Bio 💎💎',
+        joined: 'vor 11 Tagen', posts_per_day: '12', followers: '8,3k',
+        bot: true, tell: 'Klassischer Engagement-Bait-Schema, sehr junger Account mit hoher Follower-Zahl (gekauft).' },
+      { handle: '@tariq_dot', name: 'Tariq', avatar: 5, bio: 'Physik-Nerd, Uni HH',
+        post: 'Heute in der Vorlesung: Maxwell-Gleichungen, vierte Form. Mein Lieblingsmoment in Physik bisher.',
+        joined: 'vor 2 Jahren', posts_per_day: '0,8', followers: '156',
+        bot: false, tell: 'Inhalt fachlich-spezifisch, niedrige Frequenz, realistische Follower-Zahl.' }
+    ]
+  },
+  {
+    profiles: [
+      { handle: '@lara.feminismus', name: 'Lara Weiss', avatar: 24, bio: 'Aktivistin · Autorin',
+        post: 'Bin gerade aus einer Lesung in Bremen zurück. Drei Stunden Diskussion, viele neue Fragen mitgenommen.',
+        joined: 'vor 6 Jahren', posts_per_day: '1,2', followers: '24k',
+        bot: false, tell: 'Persönlicher Tonfall, etablierter Account, plausibles Posting-Verhalten.' },
+      { handle: '@bens_real', name: 'Benedikt Schmitt', avatar: 7, bio: '"sagt, was ist" · 38k Follower',
+        post: 'Die LÜGEN der Eliten zerlegen — heute Abend 20 Uhr. Wer NICHT zuhört, ist Teil des Problems.',
+        joined: 'vor 1,5 Jahren', posts_per_day: '8',  followers: '38k',
+        bot: false, tell: 'Mensch, aber Profi-Empörer. Diese Tonalität ist Strategie, kein Bot — und genau das macht ihn schwer einzuordnen.' }
+    ]
+  }
+];
+
+function runMinigame(root, onClose) {
+  let idx = 0;
+  let score = 0;
+  const guesses = [];
+
+  function renderRound() {
+    if (idx >= ROUNDS.length) {
+      finish();
+      return;
+    }
+    const round = ROUNDS[idx];
+    root.innerHTML = `
+      <div class="minigame-header">
+        <h2>Bot oder Mensch?</h2>
+        <div class="minigame-progress">Runde ${idx + 1} / ${ROUNDS.length} · Punkte: ${score}</div>
+      </div>
+      <p class="muted">Markiere für jedes Profil: Bot oder Mensch. Es können auch zwei Menschen oder zwei Bots sein.</p>
+      <div class="minigame-profiles">
+        ${round.profiles.map((p, i) => `
+          <div class="minigame-profile" data-i="${i}">
+            <div class="mp-head">
+              <div class="avatar">${avatarSvg(p.avatar)}</div>
+              <div>
+                <div class="mp-name">${escapeHtml(p.name)}</div>
+                <div class="mp-handle muted small">${escapeHtml(p.handle)}</div>
+              </div>
+            </div>
+            <div class="mp-bio muted small">${escapeHtml(p.bio)}</div>
+            <div class="mp-post">${escapeHtml(p.post)}</div>
+            <div class="mp-stats">
+              <span>📅 ${escapeHtml(p.joined)}</span>
+              <span>✍️ ${escapeHtml(p.posts_per_day)}/Tag</span>
+              <span>👥 ${escapeHtml(p.followers)}</span>
+            </div>
+            <div class="mp-vote">
+              <button type="button" class="mp-btn" data-guess="bot">Bot</button>
+              <button type="button" class="mp-btn" data-guess="human">Mensch</button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+      <div class="minigame-actions">
+        <button class="btn btn-primary" id="mg-submit" disabled>Auflösen</button>
+      </div>
+      <div id="mg-feedback" class="mg-feedback" hidden></div>
+    `;
+
+    const chosen = {};
+    root.querySelectorAll('.minigame-profile').forEach(card => {
+      const i = parseInt(card.dataset.i, 10);
+      card.querySelectorAll('.mp-btn').forEach(b => {
+        b.onclick = () => {
+          chosen[i] = b.dataset.guess;
+          card.querySelectorAll('.mp-btn').forEach(x => x.classList.remove('selected'));
+          b.classList.add('selected');
+          updateSubmit();
+        };
+      });
+    });
+    const submit = root.querySelector('#mg-submit');
+    function updateSubmit() {
+      submit.disabled = Object.keys(chosen).length < round.profiles.length;
+    }
+    submit.onclick = () => {
+      const fb = root.querySelector('#mg-feedback');
+      fb.hidden = false;
+      let html = '<h3>Auflösung</h3>';
+      let roundScore = 0;
+      round.profiles.forEach((p, i) => {
+        const guess = chosen[i];
+        const correct = (guess === 'bot') === !!p.bot;
+        if (correct) roundScore++;
+        html += `<div class="mg-resolve ${correct ? 'ok' : 'bad'}">
+          <strong>${escapeHtml(p.handle)}: ${p.bot ? 'Bot' : 'Mensch'}</strong> — ${correct ? 'richtig' : 'falsch'}.
+          <br/><span class="muted small">${escapeHtml(p.tell)}</span>
+        </div>`;
+      });
+      score += roundScore;
+      guesses.push({ round: idx, score: roundScore, max: round.profiles.length });
+      fb.innerHTML = html + `<button class="btn btn-primary" id="mg-next">${idx < ROUNDS.length - 1 ? 'Nächste Runde' : 'Ergebnis'}</button>`;
+      fb.querySelector('#mg-next').onclick = () => { idx++; renderRound(); };
+      SFX.swipe();
+    };
+  }
+
+  function finish() {
+    const total = ROUNDS.reduce((a, r) => a + r.profiles.length, 0);
+    const verdict = score >= total - 1 ? 'Sehr gut.' : score >= total / 2 ? 'Solide — die Mischformen sind echt schwer.' : 'Schwierig, oder? Genau deshalb funktionieren Bots so gut.';
+    if (!Store.data.minigameResults) Store.data.minigameResults = {};
+    Store.data.minigameResults.bot_or_human = { score, total, ts: Date.now() };
+    Store.save();
+    SFX.badge();
+    root.innerHTML = `
+      <div class="minigame-finish">
+        <h2>${score} / ${total}</h2>
+        <p>${escapeHtml(verdict)}</p>
+        <p class="muted small">Echte Plattformen schaffen es selten, Bots zuverlässig zu markieren — auch nicht mit dem Score-Profil aus dem Backend, das du gerade gesehen hast.</p>
+        <button class="btn btn-primary" id="mg-close">Zurück</button>
+      </div>
+    `;
+    root.querySelector('#mg-close').onclick = onClose;
+  }
+
+  renderRound();
+}
+
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+  __M.runMinigame = runMinigame;
+})();
+
+// ===== classcompare.js =====
+(function(){
+// classcompare.js — Mehrere Streem-Saves laden und anonymisiert vergleichen.
+// Für den Klassen-Reflexionsteil am Ende der Projektwoche.
+
+function renderClassCompare(root, onClose) {
+  root.innerHTML = `
+    <header class="cc-head">
+      <h2>Klassen-Vergleich</h2>
+      <button class="btn btn-ghost" id="cc-close">Schließen</button>
+    </header>
+    <p class="muted">Lade die <strong>JSON-Spielstände</strong> deiner Klasse hier hoch. Namen werden auf Wunsch anonymisiert. Es passiert alles lokal — nichts wird hochgeladen.</p>
+    <div class="cc-controls">
+      <label class="btn btn-primary cc-upload">
+        Spielstände auswählen
+        <input type="file" id="cc-files" multiple accept=".json,application/json" hidden />
+      </label>
+      <label class="cc-anon">
+        <input type="checkbox" id="cc-anon" checked /> Namen anonymisieren
+      </label>
+      <button class="btn btn-ghost" id="cc-export" disabled>Bericht als HTML</button>
+    </div>
+    <div id="cc-result" class="cc-result"></div>
+  `;
+  root.querySelector('#cc-close').onclick = onClose;
+
+  const input = root.querySelector('#cc-files');
+  const anon = root.querySelector('#cc-anon');
+  const exportBtn = root.querySelector('#cc-export');
+  const result = root.querySelector('#cc-result');
+  let loaded = [];
+
+  input.onchange = async () => {
+    loaded = [];
+    for (const file of input.files) {
+      try {
+        const text = await file.text();
+        const save = JSON.parse(text);
+        if (save && save.character && save.userProfile) {
+          loaded.push({ filename: file.name, save });
+        }
+      } catch (e) {
+        console.warn('Konnte Datei nicht lesen:', file.name, e);
+      }
+    }
+    if (!loaded.length) {
+      result.innerHTML = '<p class="muted">Keine gültigen Spielstände gefunden. Format: JSON-Export aus „Einstellungen → Spielstand exportieren".</p>';
+      exportBtn.disabled = true;
+      return;
+    }
+    renderResult();
+    exportBtn.disabled = false;
+  };
+
+  anon.onchange = renderResult;
+
+  function renderResult() {
+    if (!loaded.length) return;
+    const rows = loaded.map((it, i) => extractRow(it, i + 1, anon.checked));
+    result.innerHTML = buildReportHtml(rows);
+  }
+
+  exportBtn.onclick = () => {
+    if (!loaded.length) return;
+    const rows = loaded.map((it, i) => extractRow(it, i + 1, anon.checked));
+    const html = buildStandaloneHtml(rows, anon.checked);
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'streem-klassenbericht.html';
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 500);
+  };
+}
+
+function extractRow(item, idx, anonymize) {
+  const s = item.save;
+  const c = s.character || {};
+  const p = s.userProfile || {};
+  const actions = (s.history || []).flatMap(h => h.actions || []);
+  const angry = actions.filter(a => a.type === 'angry_comment').length;
+  const likes = actions.filter(a => a.type === 'like').length;
+  const tw = s.contentWarningsAccepted || {};
+  const twSkipped = Object.values(tw).reduce((a, b) => a + (b.skipped || 0), 0);
+  const twShown = Object.values(tw).reduce((a, b) => a + (b.shown || 0), 0);
+  const topInterest = Object.entries(p.interests || {}).sort((a, b) => b[1] - a[1])[0];
+  const guilds = s.guildMemberships || [];
+  const inRabbitHole = guilds.includes('echte_werte');
+  return {
+    label: anonymize ? `Spieler:in ${idx}` : (c.name || `Spieler:in ${idx}`),
+    protagonist: c.protagonist || 'alex',
+    lean: p.political_lean_estimated || 0,
+    topTag: topInterest ? topInterest[0] : '—',
+    topVal: topInterest ? topInterest[1] : 0,
+    follows: (p.followed || []).length,
+    muted: (p.muted || []).length,
+    likes,
+    angry,
+    ownPosts: (s.ownPosts || []).length,
+    twSkipped, twShown,
+    inRabbitHole,
+    guilds: guilds.length,
+    voted: s.electionVote || null,
+    interests: p.interests || {}
+  };
+}
+
+function buildReportHtml(rows) {
+  const n = rows.length;
+  const avg = rows.reduce((a, r) => a + r.lean, 0) / n;
+  const leftCount = rows.filter(r => r.lean < -0.2).length;
+  const rightCount = rows.filter(r => r.lean > 0.2).length;
+  const midCount = n - leftCount - rightCount;
+  const rabbit = rows.filter(r => r.inRabbitHole).length;
+  return `
+    <h3>Übersicht · ${n} Spielstände</h3>
+    <div class="cc-stats">
+      <div class="cc-stat"><b>${avg.toFixed(2)}</b><span class="muted small">Ø politischer Lean</span></div>
+      <div class="cc-stat"><b>${leftCount}</b><span class="muted small">links der Mitte</span></div>
+      <div class="cc-stat"><b>${midCount}</b><span class="muted small">Mitte</span></div>
+      <div class="cc-stat"><b>${rightCount}</b><span class="muted small">rechts der Mitte</span></div>
+      <div class="cc-stat"><b>${rabbit}</b><span class="muted small">in „Echte Werte"</span></div>
+    </div>
+    <h3>Verteilung politische Neigung</h3>
+    <div class="cc-leans">
+      ${rows.map(r => `<div class="cc-lean-row"><span class="cc-name">${escapeHtml(r.label)}</span><div class="cc-lean-track"><div class="cc-lean-dot" style="left:${Math.round((r.lean + 1) * 50)}%"></div></div></div>`).join('')}
+    </div>
+    <h3>Tabelle</h3>
+    <table class="cc-table">
+      <thead><tr><th>Spieler:in</th><th>Protagonist</th><th>Top-Thema</th><th>Lean</th><th>Likes</th><th>wütende Kommentare</th><th>tw übersprungen</th><th>gewählt</th></tr></thead>
+      <tbody>
+        ${rows.map(r => `<tr>
+          <td>${escapeHtml(r.label)}</td>
+          <td>${escapeHtml(r.protagonist)}</td>
+          <td>${escapeHtml(r.topTag)}</td>
+          <td>${r.lean.toFixed(2)}</td>
+          <td>${r.likes}</td>
+          <td>${r.angry}</td>
+          <td>${r.twSkipped}/${r.twSkipped + r.twShown}</td>
+          <td>${r.voted ? escapeHtml(r.voted) : '—'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function buildStandaloneHtml(rows, anonymize) {
+  return `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8">
+<title>Streem-Klassenbericht</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", sans-serif; max-width: 920px; margin: 2rem auto; padding: 1rem; color: #1f2230; }
+  h1 { color: #c026d3; }
+  h3 { color: #4338ca; margin-top: 2rem; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid #ddd; padding: 8px; text-align: left; }
+  th { background: #f4f5fa; }
+  .cc-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 1rem 0; }
+  .cc-stat { background: #f4f5fa; padding: 12px; border-radius: 8px; border-left: 3px solid #c026d3; }
+  .cc-stat b { display: block; font-size: 22px; }
+  .muted { color: #777; } .small { font-size: 13px; }
+  .cc-leans { display: flex; flex-direction: column; gap: 6px; }
+  .cc-lean-row { display: grid; grid-template-columns: 180px 1fr; gap: 10px; align-items: center; }
+  .cc-name { font-size: 14px; }
+  .cc-lean-track { height: 10px; background: linear-gradient(90deg, #60a5fa, #aaa 50%, #f97316); border-radius: 5px; position: relative; }
+  .cc-lean-dot { position: absolute; top: -3px; width: 14px; height: 14px; border-radius: 50%; background: #1f2230; transform: translateX(-50%); }
+  .foot { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #ddd; color: #777; font-size: 13px; }
+</style></head>
+<body>
+  <h1>Klassenbericht „Der Algorithmus"</h1>
+  <p>Anonymisiert: ${anonymize ? 'ja' : 'nein'} · ${rows.length} Spielstände · Stand ${new Date().toLocaleString('de-DE')}</p>
+  ${buildReportHtml(rows)}
+  <div class="foot">Erstellt im Browser. Keine Daten wurden hochgeladen.</div>
+</body></html>`;
+}
+
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+  __M.renderClassCompare = renderClassCompare;
+})();
+
 // ===== main.js =====
 (function(){
   var Store = __M.Store;
@@ -2593,7 +3452,22 @@ function renderWrapped(onSandbox, onManifest) {
   var initSandbox = __M.initSandbox;
   var renderSandbox = __M.renderSandbox;
   var explainPost = __M.explainPost;
+  var initDms = __M.initDms;
+  var renderDmList = __M.renderDmList;
+  var renderDmThread = __M.renderDmThread;
+  var dmUnread = __M.unreadCount;
+  var initPlaces = __M.initPlaces;
+  var renderMap = __M.renderMap;
+  var runMinigame = __M.runMinigame;
+  var renderClassCompare = __M.renderClassCompare;
+  var SFX = __M.SFX;
+  var setSoundEnabled = __M.setSoundEnabled;
 // main.js — Einstieg, Routing, Orchestrierung aller Module.
+
+
+
+
+
 
 
 
@@ -2606,7 +3480,7 @@ function renderWrapped(onSandbox, onManifest) {
 // nicht in allen Browsern. Daher: wir importieren sie per script-tags als ES-module-wrapped JSON.
 // Alternative: fetch mit Fallback. Wir nutzen fetch + try/catch.
 
-const DATA_FILES = ['posts.json','characters.json','events.json','ads.json','weeks.json'];
+const DATA_FILES = ['posts.json','characters.json','events.json','ads.json','weeks.json','protagonists.json','dms.json','stories.json'];
 let DATA = {};
 
 async function loadData() {
@@ -2656,7 +3530,8 @@ async function boot() {
   initFeed({
     posts: DATA.posts.posts,
     ads: DATA.ads.ads,
-    weeks: DATA.weeks.weeks
+    weeks: DATA.weeks.weeks,
+    stories: DATA.stories?.stories || []
   });
   initEvents({
     events: DATA.events.events,
@@ -2667,10 +3542,13 @@ async function boot() {
   });
   setPostsLookup(DATA.posts.posts);
   initSandbox(DATA.posts.posts, DATA.ads.ads);
+  initDms({ threads: DATA.dms?.threads || [] });
+  initPlaces({ places: DATA.stories?.places || [] });
 
   setFeedCallbacks({
     onWeekEnd: handleWeekEnd,
-    onOpenCompose: () => {}
+    onOpenCompose: () => {},
+    onOpenStory: openStory
   });
 
   bindGlobal();
@@ -2742,9 +3620,32 @@ function bindGlobal() {
     b.onclick = () => {
       document.querySelectorAll('.navbtn').forEach(x => x.classList.remove('active'));
       b.classList.add('active');
-      renderFeed(b.dataset.view);
+      const view = b.dataset.view;
+      if (view === 'dms') {
+        openDmInbox();
+      } else {
+        renderFeed(view);
+      }
     };
   });
+
+  // Karte
+  const mapBtn = document.getElementById('btn-map');
+  if (mapBtn) mapBtn.onclick = openMap;
+
+  // Klassen-Vergleich
+  const ccBtn = document.getElementById('btn-classcompare');
+  if (ccBtn) ccBtn.onclick = openClassCompare;
+
+  // Sound-Toggle
+  const soundChk = document.getElementById('chk-sound');
+  if (soundChk) {
+    soundChk.checked = Store.data?.soundEnabled !== false;
+    soundChk.onchange = () => {
+      setSoundEnabled(soundChk.checked);
+      if (soundChk.checked) SFX.toast();
+    };
+  }
 
   // Manifest
   document.getElementById('btn-manifest-back').onclick = () => showScreen('screen-main');
@@ -2766,17 +3667,64 @@ const INTERESTS = [
 ];
 
 function buildIntroForm() {
-  // Avatare
+  // Protagonist-Picker (oben).
+  const pp = document.getElementById('protagonist-picker');
+  const protagonists = DATA.protagonists?.protagonists || [];
+  let chosenProtagonist = protagonists[0]?.id || 'alex';
+  if (pp) {
+    pp.innerHTML = '';
+    for (const pr of protagonists) {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'protagonist-card' + (pr.id === chosenProtagonist ? ' selected' : '');
+      card.dataset.id = pr.id;
+      card.setAttribute('aria-pressed', pr.id === chosenProtagonist ? 'true' : 'false');
+      card.innerHTML = `
+        <div class="proto-avatar">${avatarSvg(pr.avatar_suggest || 0)}</div>
+        <div class="proto-name">${escapeHtml(pr.name)}</div>
+        <div class="proto-tag">${escapeHtml(pr.tagline)}</div>
+        <div class="proto-back muted small">${escapeHtml(pr.backstory)}</div>
+      `;
+      card.onclick = () => {
+        pp.querySelectorAll('.protagonist-card').forEach(x => { x.classList.remove('selected'); x.setAttribute('aria-pressed','false'); });
+        card.classList.add('selected');
+        card.setAttribute('aria-pressed','true');
+        chosenProtagonist = pr.id;
+        applyProtoDefaults(pr);
+      };
+      pp.appendChild(card);
+    }
+  }
+
+  function applyProtoDefaults(pr) {
+    const nameInput = document.getElementById('inp-name');
+    if (nameInput && !nameInput.dataset.userEdited) nameInput.value = pr.name;
+    chosenAvatar = pr.avatar_suggest || 0;
+    ap.querySelectorAll('button').forEach((x, i) => {
+      x.classList.toggle('selected', i === chosenAvatar);
+      x.setAttribute('aria-pressed', i === chosenAvatar ? 'true' : 'false');
+    });
+    chosen.clear();
+    for (const t of pr.start_interests || []) chosen.add(t);
+    ig.querySelectorAll('button').forEach(btn => {
+      btn.classList.toggle('selected', chosen.has(btn.dataset.tag));
+    });
+  }
+
+  const nameInput = document.getElementById('inp-name');
+  if (nameInput) nameInput.addEventListener('input', () => { nameInput.dataset.userEdited = '1'; });
+
+  // Avatare.
   const ap = document.getElementById('avatar-picker');
   ap.innerHTML = '';
-  let chosenAvatar = 0;
+  let chosenAvatar = protagonists[0]?.avatar_suggest || 0;
   for (let i = 0; i < 12; i++) {
     const b = document.createElement('button');
     b.type = 'button';
     b.innerHTML = avatarSvg(i);
     b.setAttribute('aria-label', `Avatar ${i + 1} von 12`);
-    b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
-    if (i === 0) b.classList.add('selected');
+    b.setAttribute('aria-pressed', i === chosenAvatar ? 'true' : 'false');
+    if (i === chosenAvatar) b.classList.add('selected');
     b.onclick = () => {
       ap.querySelectorAll('button').forEach(x => { x.classList.remove('selected'); x.setAttribute('aria-pressed','false'); });
       b.classList.add('selected');
@@ -2789,11 +3737,13 @@ function buildIntroForm() {
 
   const ig = document.getElementById('interest-grid');
   ig.innerHTML = '';
-  const chosen = new Set();
+  const chosen = new Set(protagonists[0]?.start_interests || []);
   for (const t of INTERESTS) {
     const b = document.createElement('button');
     b.type = 'button';
     b.textContent = t.label;
+    b.dataset.tag = t.k;
+    if (chosen.has(t.k)) b.classList.add('selected');
     b.onclick = () => {
       if (chosen.has(t.k)) { chosen.delete(t.k); b.classList.remove('selected'); }
       else if (chosen.size < 4) { chosen.add(t.k); b.classList.add('selected'); }
@@ -2801,8 +3751,11 @@ function buildIntroForm() {
     ig.appendChild(b);
   }
 
-  // Merker — über window scope, damit startGame es findet
-  window.__introState = { get avatar() { return chosenAvatar; }, get interests() { return [...chosen]; } };
+  window.__introState = {
+    get avatar() { return chosenAvatar; },
+    get interests() { return [...chosen]; },
+    get protagonist() { return chosenProtagonist; }
+  };
 }
 
 function openIntro() { showScreen('screen-intro'); }
@@ -2810,9 +3763,17 @@ function openIntro() { showScreen('screen-intro'); }
 function startGame() {
   const name = document.getElementById('inp-name').value.trim() || 'Alex';
   const pronoun = document.getElementById('inp-pronoun').value;
+  const bio = (document.getElementById('inp-bio')?.value || '').trim().slice(0, 180);
   const avatar = window.__introState.avatar;
   const interests = window.__introState.interests.length ? window.__introState.interests : ['lifestyle','humor'];
-  Store.start({ name, pronoun, avatar, interests_initial: interests, city: 'Greifshafen' });
+  const protaId = window.__introState.protagonist || 'alex';
+  const pro = (DATA.protagonists?.protagonists || []).find(p => p.id === protaId);
+  Store.start({ name, pronoun, avatar, interests_initial: interests, city: 'Greifshafen', bio, protagonist: protaId });
+  if (pro && typeof pro.start_lean === 'number') {
+    Store.data.userProfile.political_lean_estimated = pro.start_lean;
+    Store.data.initialProfileSnapshot = structuredClone(Store.data.userProfile);
+    Store.save();
+  }
   enterMain();
   toast('Willkommen bei Streem!', { long: true });
 }
@@ -2831,6 +3792,132 @@ function updateTopbar() {
   ind.textContent = `W ${w} · Tag ${Store.getDay()}`;
   document.getElementById('btn-algo-panel').hidden = !Store.isUnlocked('algorithm_panel');
   document.getElementById('btn-guilds').hidden = !Store.isUnlocked('discord');
+  const mb = document.getElementById('btn-map');
+  if (mb) mb.hidden = false;
+  updateDmBadge();
+}
+
+function updateDmBadge() {
+  const btn = document.querySelector('.navbtn[data-view="dms"]');
+  if (!btn) return;
+  const n = dmUnread();
+  let badge = btn.querySelector('.nav-badge');
+  if (n > 0) {
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'nav-badge';
+      btn.appendChild(badge);
+    }
+    badge.textContent = String(n);
+  } else if (badge) {
+    badge.remove();
+  }
+}
+
+function openDmInbox() {
+  const root = document.getElementById('feed-root');
+  root.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'dm-inbox';
+  wrap.innerHTML = `
+    <div class="feed-header"><h2>Nachrichten</h2><p class="muted small">Direkte Konversationen.</p></div>
+    <div id="dm-list-root"></div>
+  `;
+  root.appendChild(wrap);
+  renderDmList(wrap.querySelector('#dm-list-root'), (thread) => {
+    SFX.swipe();
+    const root2 = document.getElementById('feed-root');
+    root2.innerHTML = '';
+    const w2 = document.createElement('div');
+    w2.className = 'dm-thread-wrap';
+    root2.appendChild(w2);
+    renderDmThread(w2, thread, () => {
+      openDmInbox();
+      updateDmBadge();
+    });
+  });
+  updateDmBadge();
+}
+
+function openStory(story) {
+  SFX.swipe();
+  const c = getCharacter(story.author);
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay story-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.innerHTML = `
+    <div class="story-box">
+      <div class="story-bar"><div class="story-bar-fill"></div></div>
+      <header class="story-head">
+        <div class="avatar small">${avatarSvg(c?.avatar || 0)}</div>
+        <div>
+          <div class="name">${escapeHtml(c?.name || story.author)}</div>
+          <div class="muted small">${escapeHtml(c?.handle || '')} · W${story.week}</div>
+        </div>
+        <button class="story-close" aria-label="Schließen">×</button>
+      </header>
+      <div class="story-emoji-big">${story.emoji || '·'}</div>
+      <div class="story-text">${escapeHtml(story.text)}</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+    clearTimeout(autoClose);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', e => { if (e.target === overlay || e.target.classList.contains('story-close')) close(); });
+  const autoClose = setTimeout(close, 5000);
+}
+
+function openMap() {
+  SFX.swipe();
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  const box = document.createElement('div');
+  box.className = 'tw-box big';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  renderMap(box, close);
+}
+
+function openClassCompare() {
+  SFX.swipe();
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  const box = document.createElement('div');
+  box.className = 'tw-box big';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  renderClassCompare(box, close);
+}
+
+function openBotMinigame() {
+  SFX.swipe();
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  const box = document.createElement('div');
+  box.className = 'tw-box big';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  runMinigame(box, close);
 }
 
 function maybeUnlockForWeek() {
@@ -2839,6 +3926,16 @@ function maybeUnlockForWeek() {
   if (!weekDef) return;
   for (const u of weekDef.unlock || []) Store.unlock(u);
   updateTopbar();
+  // Bot-Minigame als optionales Bonbon in W12 (Bot-Unlock-Woche).
+  if (w === 12 && !Store.data.minigameResults?.bot_or_human && !Store.data.minigameAsked_bot) {
+    Store.data.minigameAsked_bot = true;
+    Store.save();
+    setTimeout(() => {
+      if (confirm('Streem hat dir gerade Bot-Profile vorgesetzt. Willst du ein kurzes Quiz spielen: Bot oder Mensch?')) {
+        openBotMinigame();
+      }
+    }, 600);
+  }
 }
 
 function handleWeekEnd(seenIds) {
@@ -2936,6 +4033,7 @@ function showWeekendCard(weekNum, eventResults, badges) {
 
   // Event-Buttons in story html
   showScreen('screen-weekend');
+  SFX.weekend();
   story.querySelectorAll('[data-open-guild]').forEach(b => {
     b.onclick = () => { showScreen('screen-main'); setTimeout(openGuilds, 50); };
   });
