@@ -105,7 +105,7 @@ export function renderDmList(root, onOpenThread) {
     const last = visible[visible.length - 1];
     const seen = Store.data.dmThreads?.[t.id]?.lastSeenCount || 0;
     const unread = visible.length > seen;
-    return { thread: t, last, unread };
+    return { thread: t, last, unread, allText: visible.map(m => m.text).join(' ') };
   }).filter(Boolean);
 
   if (!items.length) {
@@ -113,11 +113,28 @@ export function renderDmList(root, onOpenThread) {
     return;
   }
 
+  // Suchfeld erscheint ab 4 sichtbaren Threads — vorher überflüssig.
+  if (items.length >= 4) {
+    const search = document.createElement('div');
+    search.className = 'dm-search';
+    search.innerHTML = `<input type="search" id="dm-search-input" placeholder="DMs durchsuchen …" aria-label="DMs durchsuchen" />`;
+    root.appendChild(search);
+    search.querySelector('#dm-search-input').addEventListener('input', e => {
+      const q = e.target.value.trim().toLowerCase();
+      root.querySelectorAll('.dm-row').forEach(row => {
+        if (!q) { row.style.display = ''; return; }
+        const matches = row.dataset.search?.toLowerCase().includes(q);
+        row.style.display = matches ? '' : 'none';
+      });
+    });
+  }
+
   for (const it of items) {
     const c = getCharacter(it.thread.with);
     const row = document.createElement('button');
     row.type = 'button';
     row.className = 'dm-row' + (it.unread ? ' unread' : '');
+    row.dataset.search = `${it.thread.title} ${c?.name || ''} ${c?.handle || ''} ${it.allText}`;
     row.innerHTML = `
       <div class="dm-avatar">${avatarSvg(c?.avatar || 0)}${isOnline(it.thread.with) ? '<span class="dm-online" aria-label="online"></span>' : ''}</div>
       <div class="dm-meta">

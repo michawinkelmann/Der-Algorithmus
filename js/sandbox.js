@@ -153,6 +153,8 @@ export function renderSandbox(onClose) {
   document.getElementById('btn-sandbox-close').onclick = () => onClose && onClose();
   const battleBtn = document.getElementById('btn-battle');
   if (battleBtn) battleBtn.onclick = () => openAlgorithmBattle(rules);
+  const exportBtn = document.getElementById('btn-export-rules');
+  if (exportBtn) exportBtn.onclick = () => showPseudoCode(rules);
   // Reset-Toggle: simulieren wir auf dem Start-Profil oder dem aktuellen Profil?
   const simModeRow = document.querySelector('#sandbox-sim-mode');
   if (simModeRow) {
@@ -253,6 +255,59 @@ function battlePresets(current) {
     empoerung: { affinity: 0.4, engagement: 2.0, recency: 0.3, social: 0.4, ads: 0.6, diversity: 0.0, quality: 0.0, outragePenalty: 0.0, balance: 0.0 },
     calm:      { affinity: 0.6, engagement: 0.1, recency: 0.4, social: 0.7, ads: 0.1, diversity: 1.0, quality: 1.2, outragePenalty: 1.8, balance: 0.8 },
     custom:    current
+  };
+}
+
+// Zeigt die aktuellen Slider als lesbaren Pseudo-Code-Algorithmus. Didaktisch:
+// macht klar, dass „Algorithmus" letztlich eine gewichtete Summe ist.
+function showPseudoCode(rules) {
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  const fmt = v => Number(v ?? 0).toFixed(2);
+  const code = `// Streem-Algorithmus: dein aktuelles Setup.
+// Für jeden Post wird ein Score berechnet — der höchste kommt oben.
+
+function score(post, profile) {
+  return (
+    ${fmt(rules.affinity)}        * affinity(post, profile)        // wie sehr passt der Post zu deinen Interessen
+  + ${fmt(rules.engagement)}      * engagementBoost(post)          // Likes/Empörung — wird belohnt
+  + ${fmt(rules.recency)}         * recency(post)                  // wie neu ist der Post
+  + ${fmt(rules.social)}          * followedBoost(post, profile)   // kommt von jemand, dem du folgst
+  + ${fmt(rules.ads)}             * paidBoost(post, profile)       // bezahlte Anzeige?
+  - ${fmt(rules.diversity)}       * diversityPenalty(post, recent) // doppelt vom gleichen Thema → Abzug
+  + ${fmt(rules.quality)}         * qualityBonus(post)             // journalistische Qualität
+  - ${fmt(rules.outragePenalty)}  * outrageScore(post)             // Empörungs-Strafe
+  + ${fmt(rules.balance)}         * balanceBonus(post, profile)    // Gegen-Perspektive zur eigenen Neigung
+  );
+}
+
+// Pro Woche: nimm die Top-N nach Score, mit kleiner Vielfalts-Korrektur.
+const feed = sortByScoreDescending(allPosts).slice(0, 10);`;
+  overlay.innerHTML = `
+    <div class="tw-box pseudo-box">
+      <header class="pseudo-head">
+        <h3>Dein Algorithmus als Pseudo-Code</h3>
+        <button class="btn btn-ghost btn-small" id="pseudo-close">Schließen</button>
+      </header>
+      <p class="muted small">Verschiebe die Slider in der Sandbox → die Zahlen hier oben ändern sich entsprechend.</p>
+      <pre class="pseudo-code"><code>${escapeHtml(code)}</code></pre>
+      <div class="tw-actions">
+        <button class="btn btn-ghost" id="pseudo-copy">In Zwischenablage</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('#pseudo-close').onclick = close;
+  overlay.querySelector('#pseudo-copy').onclick = () => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(code).then(() => {
+        overlay.querySelector('#pseudo-copy').textContent = '✓ Kopiert';
+      }).catch(() => {});
+    }
   };
 }
 

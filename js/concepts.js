@@ -103,6 +103,10 @@ export function maybeShowQueuedConcept() {
   return true;
 }
 
+export function listConcepts() {
+  return Object.entries(CONCEPTS).map(([key, c]) => ({ key, ...c }));
+}
+
 export function showConcept(key) {
   const c = CONCEPTS[key];
   if (!c) return;
