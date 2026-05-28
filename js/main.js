@@ -3,7 +3,7 @@
 import { Store } from './state.js';
 import { initFeed, renderFeed, setCallbacks as setFeedCallbacks, computeCurrentFeed, toast } from './feed.js';
 import { initEvents, triggerWeekEvents, getGuildList, getGuildById, getParties, applyGuildReaction, checkBadges, getHateIncidentData } from './events.js';
-import { setCharacters, avatarSvg, getCharacter } from './characters.js';
+import { setCharacters, avatarSvg, getCharacter, setDynamicHook } from './characters.js';
 import { setPostsLookup, renderWrapped } from './wrapped.js';
 import { initSandbox, renderSandbox } from './sandbox.js';
 import { explainPost } from './algorithm.js';
@@ -13,6 +13,10 @@ import { runMinigame } from './minigame.js';
 import { renderClassCompare } from './classcompare.js';
 import { SFX, setSoundEnabled } from './sound.js';
 import { maybeQueueMicroReflection } from './microreflect.js';
+import { generateRepliesForJustEndedWeek } from './postreplies.js';
+import { maybeShowPush } from './push.js';
+import { maybeRunTutorial } from './tutorial.js';
+import { showConcept } from './concepts.js';
 
 // ===== Daten-Bundle (statt fetch, damit file:// funktioniert) =====
 // Die JSONs werden zur Laufzeit geladen — funktioniert per fetch() auch bei file://
@@ -66,6 +70,7 @@ async function boot() {
   }
 
   setCharacters(DATA.characters.characters);
+  setDynamicHook(dynamicCharacterOverlay);
   initFeed({
     posts: DATA.posts.posts,
     ads: DATA.ads.ads,
@@ -372,6 +377,10 @@ function enterMain() {
   updateTopbar();
   renderFeed('feed');
   maybeUnlockForWeek();
+  // Tutorial nur beim allerersten Reinkommen.
+  maybeRunTutorial();
+  // Fake-Push verzögert, sodass es mid-scroll wirkt — nicht direkt beim Reinkommen.
+  setTimeout(() => maybeShowPush(), 4500);
 }
 
 function updateTopbar() {
@@ -542,15 +551,29 @@ function maybeUnlockForWeek() {
   if (!weekDef) return;
   for (const u of weekDef.unlock || []) Store.unlock(u);
   updateTopbar();
+
+  // Konzept-Karten passend zum Wochen-Unlock.
+  const unlocks = weekDef.unlock || [];
+  if (unlocks.includes('ads') && !Store.data.conceptsSeen?.ads_intro) {
+    setTimeout(() => showConcept('ads_intro'), 800);
+  }
+  if (unlocks.includes('algorithm_panel') && !Store.data.conceptsSeen?.algorithm_panel_intro) {
+    setTimeout(() => showConcept('algorithm_panel_intro'), 1600);
+  }
+  if (unlocks.includes('bots') && !Store.data.conceptsSeen?.bots_intro) {
+    setTimeout(() => showConcept('bots_intro'), 800);
+  }
+
   // Bot-Minigame als optionales Bonbon in W12 (Bot-Unlock-Woche).
   if (w === 12 && !Store.data.minigameResults?.bot_or_human && !Store.data.minigameAsked_bot) {
     Store.data.minigameAsked_bot = true;
     Store.save();
     setTimeout(() => {
-      if (confirm('Streem hat dir gerade Bot-Profile vorgesetzt. Willst du ein kurzes Quiz spielen: Bot oder Mensch?')) {
-        openBotMinigame();
-      }
-    }, 600);
+      showConcept('bot_minigame_intro');
+      setTimeout(() => {
+        if (confirm('Bereit für „Bot oder Mensch?"?')) openBotMinigame();
+      }, 400);
+    }, 2400);
   }
 }
 
@@ -559,6 +582,7 @@ function handleWeekEnd(seenIds) {
   const week = Store.data.currentWeek;
   const eventResults = triggerWeekEvents(week);
   const badges = checkBadges();
+  generateRepliesForJustEndedWeek(week);
   Store.endWeek(seenIds);
   maybeUnlockForWeek();
   showWeekendCard(week, eventResults, badges);
@@ -806,6 +830,25 @@ function openAlgoPanel() {
   showScreen('screen-algo');
 }
 
+// NPCs verändern Bio je nach Spielverlauf — wird in getCharacter überlagert.
+// Nur ein dünner Datenüberzug, kein Mutieren der Original-Charakter-Records.
+function dynamicCharacterOverlay(id, base) {
+  if (!Store.data) return null;
+  const arcs = Store.data.npcArcs || {};
+  if (id === 'char_finn') {
+    if ((arcs.finn_path || 0) >= 2) return { bio: 'Mindset > Excuses.' };
+    if ((arcs.finn_path || 0) <= -2) return { bio: 'Zocker aus Greifshafen. Lerngruppe Mittwoch.' };
+  }
+  if (id === 'char_lea') {
+    if ((arcs.lea_close || 0) >= 0.5) return { bio: 'Café Hafen, jeden Mittwoch. Bring jemand mit.' };
+  }
+  if (id === 'char_mira') {
+    if ((arcs.mira_close || 0) >= 0.4) return { bio: 'Klima-Aktivistin · danke an alle, die zuhören.' };
+    if ((arcs.mira_close || 0) <= -0.2) return { bio: 'Klima-Aktivistin. DMs vorerst zu.' };
+  }
+  return null;
+}
+
 function tagLabel(tag) {
   const m = {
     gaming: 'Gaming', musik: 'Musik', lifestyle: 'Lifestyle', sport: 'Sport',
@@ -1019,10 +1062,12 @@ function openProfileModal() {
   const body = document.createElement('div');
   body.className = 'profile-box';
   const pronounLine = c.pronoun && c.pronoun !== 'keine' ? `${escapeHtml(c.pronoun)} · ` : '';
+  const bioBlock = c.bio ? `<p class="profile-bio">${escapeHtml(c.bio)}</p>` : '';
   body.innerHTML = `
     <div class="big-avatar">${avatarSvg(c.avatar || 0)}</div>
     <h2 style="text-align:center;margin:0">${escapeHtml(c.name)}</h2>
     <p class="muted small" style="text-align:center">${pronounLine}${escapeHtml(c.city)}</p>
+    ${bioBlock}
     <p class="muted small" style="text-align:center">Woche ${Store.data.currentWeek} · Tag ${Store.getDay()}</p>
     <div class="stat-row" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0">
       <div class="stat"><div class="num">${profile.followed.length}</div><div class="lbl">folgst du</div></div>
@@ -1147,10 +1192,12 @@ function exportReport() {
   .foot { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #ddd; color: #777; font-size: 13px; }
   ul.interests { list-style: none; padding: 0; }
   ul.interests li { display: inline-block; background: #eef; padding: 2px 8px; border-radius: 10px; margin: 2px; font-size: 13px; }
+  .profile-bio { font-style: italic; color: #555; border-left: 3px solid #c026d3; padding: 6px 12px; margin: 1rem 0; background: #faf7fb; }
 </style></head>
 <body>
   <h1>Streem-Bericht</h1>
-  <p class="meta"><strong>${escapeHtml(c.name)}</strong>${c.pronoun && c.pronoun !== 'keine' ? ' · ' + escapeHtml(c.pronoun) : ''} · ${escapeHtml(c.city || '')}<br/>Stand: Woche ${d.currentWeek} · erstellt ${new Date().toLocaleString('de-DE')}</p>
+  <p class="meta"><strong>${escapeHtml(c.name)}</strong>${c.pronoun && c.pronoun !== 'keine' ? ' · ' + escapeHtml(c.pronoun) : ''} · ${escapeHtml(c.city || '')} · Protagonist:in: ${escapeHtml(c.protagonist || 'alex')}<br/>Stand: Woche ${d.currentWeek} · erstellt ${new Date().toLocaleString('de-DE')}</p>
+  ${c.bio ? `<blockquote class="profile-bio">${escapeHtml(c.bio)}</blockquote>` : ''}
 
   <h2>Übersicht</h2>
   <div class="stats">

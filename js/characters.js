@@ -2,15 +2,27 @@
 // Keine externen Bilder — Avatare werden aus Index + Farbe generiert.
 
 let CHAR_MAP = null;
+let DYNAMIC_HOOK = null;
 
 export function setCharacters(list) {
   CHAR_MAP = new Map();
   for (const c of list) CHAR_MAP.set(c.id, c);
 }
 
+// Anderer Modul (typischerweise main.js) kann eine Funktion registrieren, die
+// den dynamischen Charakter-Zustand (Bio nach NPC-Arc) nachschiebt.
+// Ohne Hook bleibt das Verhalten unverändert.
+export function setDynamicHook(fn) {
+  DYNAMIC_HOOK = typeof fn === 'function' ? fn : null;
+}
+
 export function getCharacter(id) {
   if (!CHAR_MAP) return null;
-  return CHAR_MAP.get(id) || { id, name: id, handle: '@' + id, avatar: 0, bio: '' };
+  const base = CHAR_MAP.get(id) || { id, name: id, handle: '@' + id, avatar: 0, bio: '' };
+  if (!DYNAMIC_HOOK) return base;
+  const overlay = DYNAMIC_HOOK(id, base);
+  if (!overlay) return base;
+  return { ...base, ...overlay };
 }
 
 /**

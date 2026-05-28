@@ -225,7 +225,48 @@ function computeEnding(d) {
   const tw = d.contentWarningsAccepted || {};
   const twSkip = Object.values(tw).reduce((a, b) => a + (b.skipped || 0), 0);
   const arcs = d.npcArcs || {};
+  const leaClose  = arcs.lea_close || 0;
+  const finnPath  = arcs.finn_path || 0;
+  const miraClose = arcs.mira_close || 0;
+  const selfAware = arcs.self_aware || 0;
 
+  // NPC-Arc-Endings haben Priorität, wenn sie eindeutig sind.
+  if (finnPath >= 3) {
+    return {
+      key: 'finn_lost',
+      emoji: '🕳️',
+      title: 'Finn ist abgerutscht',
+      text: 'Du hast Finn auf seinem Weg in die radikale Gilde nicht aufgehalten — vielleicht warst du auch dort. In W24 hat er nicht widersprochen, als jemand Lara Weiss beleidigt wurde. Du hast es gesehen. Du warst nicht der Grund, aber du warst ein Teil der Stimmung.',
+      facts: [`Finn-Bahn: +${finnPath} (in Richtung radikal)`, inRabbit ? 'eigene Mitgliedschaft: Echte Werte' : 'Finn radikalisiert, du nicht', `Hass-Affinität: ${Math.round((p.interests?.hass||0)*100)}%`]
+    };
+  }
+  if (finnPath <= -3) {
+    return {
+      key: 'finn_saved',
+      emoji: '🪢',
+      title: 'Du hast Finn gehalten',
+      text: 'In Woche 8 hast du widersprochen, als Finn anfing, von Clout-Chaser-Mädels zu reden. In Woche 17 hast du ihn vor der Gilde gewarnt. Es klingt klein, ist aber genau das, was im Echten Radikalisierung verhindert: jemand, der „hey, nein" sagt — bevor es Routine wird.',
+      facts: [`Finn-Bahn: ${finnPath} (in Richtung zurückgeholt)`, `selbst nicht in „Echte Werte"`, `${ownPosts} eigene Posts geschrieben`]
+    };
+  }
+  if (leaClose >= 0.6 && selfAware >= 1) {
+    return {
+      key: 'aware',
+      emoji: '🪞',
+      title: 'Selbstbewusst durch den Feed',
+      text: 'Du hast Lea zugehört, ihr im richtigen Moment ehrlich geantwortet, dass dieser Feed etwas mit dir macht. Diese Bewegung — Reflexion *während* des Scrollens, nicht erst danach — ist die schwierigste und seltenste in diesem Spiel.',
+      facts: [`Lea-Nähe: ${leaClose.toFixed(2)}`, `du hast eingestanden, was Algorithmen mit dir machen`, `Lean stabil bei ${lean.toFixed(2)}`]
+    };
+  }
+  if (miraClose >= 0.4 && (p.interests?.feminismus || 0) > 0.3) {
+    return {
+      key: 'allyship',
+      emoji: '🤝',
+      title: 'Verbündete:r',
+      text: 'Mira hat dich nach Hass-Kommentaren um einen Reality-Check gebeten. Du warst da. Allyship ist nicht groß, sie ist diese kurze DM, die ankommt, wenn es nötig ist.',
+      facts: [`Mira-Nähe: ${miraClose.toFixed(2)}`, `Feminismus-Affinität: ${Math.round((p.interests?.feminismus||0)*100)}%`, `${angry} wütende Kommentare`]
+    };
+  }
   // Prioritäten-Logik: das eindeutigste Profil gewinnt.
   if (inRabbit && (verschw > 0.4 || lean > 0.55)) {
     return {
@@ -272,7 +313,9 @@ function computeEnding(d) {
       facts: [`Wissenschafts-Affinität: ${Math.round((p.interests?.wissenschaft||0)*100)}%`, `Gilde: Leserunde 2028`]
     };
   }
-  if (arcs.self_aware >= 1 && twSkip < 3) {
+  // Fallback-Aware: self_aware ohne hohe Lea-Nähe (das stärkere Aware-Ending
+  // oben verlangt beides — Reflexionsgespräch + Beziehungspflege).
+  if (selfAware >= 1 && twSkip < 3) {
     return {
       key: 'aware',
       emoji: '🪞',

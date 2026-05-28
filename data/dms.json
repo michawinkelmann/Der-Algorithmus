@@ -104,6 +104,25 @@
       ]
     },
     {
+      "id": "dm_lara",
+      "with": "char_fem",
+      "title": "Lara Weiss",
+      "messages": [
+        { "week": 24, "from": "char_fem", "text": "du, ich weiß nicht warum ich dir das schreibe. eine der gilden, die online über mich herzieht, hat heute richtig nachgelegt. ich bin nicht zerbrochen, aber ich bin müde." },
+        { "week": 25, "from": "char_fem", "text": "danke an alle, die diese woche kurz hi gesagt haben. das war wenig spektakulär und genau das richtige." }
+      ],
+      "replies": [
+        {
+          "after_week": 24,
+          "choices": [
+            { "id": "lara_24_solidarity", "text": "Ich melde, was ich finde. Und ich glaube dir.",                                    "effect": { "tags": { "feminismus": 0.1 }, "mira_close": 0.1 } },
+            { "id": "lara_24_advice",     "text": "Mach Screenshots. Vielleicht hilft eine Anzeige.",                                  "effect": { "tags": { "feminismus": 0.05 } } },
+            { "id": "lara_24_silence",    "text": "(nicht antworten)",                                                                  "effect": {} }
+          ]
+        }
+      ]
+    },
+    {
       "id": "dm_tariq",
       "with": "char_tariq",
       "title": "Tariq",
