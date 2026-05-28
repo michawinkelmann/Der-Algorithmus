@@ -601,6 +601,11 @@
   line-height: 1;
 }
 .tutorial-close:hover { background: var(--bg-elev-2); color: var(--text); }
+.tutorial-tip-center {
+  left: 50% !important; top: 50% !important;
+  transform: translate(-50%, -50%);
+  max-width: calc(100vw - 32px);
+}
 
 /* ===== Konzept-Karte ===== */
 .concept-box {
