@@ -16,7 +16,7 @@ import { maybeQueueMicroReflection } from './microreflect.js';
 import { generateRepliesForJustEndedWeek } from './postreplies.js';
 import { maybeShowPush } from './push.js';
 import { maybeRunTutorial, forceRunTutorial } from './tutorial.js';
-import { showConcept } from './concepts.js';
+import { showConcept, listConcepts } from './concepts.js';
 import { attachModal } from './modals.js';
 import { openGlossary } from './glossary.js';
 import { maybeShowPreQuiz, showPostQuiz, buildSelfcheckCompareHtml } from './selfcheck.js';
@@ -277,6 +277,8 @@ function bindGlobal() {
   // Glossar
   const gloBtn = document.getElementById('btn-glossary');
   if (gloBtn) gloBtn.onclick = () => { showScreen('screen-main'); openGlossary(); };
+  const conceptsBtn = document.getElementById('btn-concepts');
+  if (conceptsBtn) conceptsBtn.onclick = () => { showScreen('screen-main'); openConceptsList(); };
 
   // Wochen-Sprung für Lehrkraft
   const jumpBtn = document.getElementById('btn-jump-week');
@@ -1287,26 +1289,54 @@ function showElectionResult() {
 // Vollständige Liste aller Achievements aus events.js. Wird hier
 // gespiegelt, damit die Profil-Anzeige auch noch nicht freigeschaltete
 // Abzeichen mit Beschreibung zeigen kann.
+// Vollständige Achievement-Liste. progress(d) → { current, target } macht
+// die "noch X für Y"-Nudges möglich. null bedeutet: kein Fortschritt sinnvoll
+// quantifizierbar (z.B. Pfad-Entscheidungen).
 const ACHIEVEMENTS_CATALOG = [
-  { title: 'Early Adopter',         desc: '20 Likes in der ersten Phase' },
-  { title: 'Flammenwerfer',         desc: 'Du hast wütend kommentiert' },
-  { title: 'Stiller Beobachter',    desc: 'Lesen statt Schreiben' },
-  { title: 'Netzwerker',            desc: 'Du folgst 10+ Accounts' },
-  { title: 'Tief im Loch',          desc: 'Rabbit-Hole betreten' },
-  { title: 'Bücherwurm',            desc: 'Der Leserunde beigetreten' },
-  { title: 'Türsteher:in',          desc: '5+ Accounts stummgeschaltet — bewusst kuratiert' },
-  { title: 'Reichweiten-Bauer:in',  desc: '10+ Beiträge geteilt' },
-  { title: 'Selbstschutz',          desc: 'Mehrfach Inhalte bewusst übersprungen' },
-  { title: 'Hinschauen',            desc: 'Mehrfach durch die Warnung gegangen — bewusst informiert' },
-  { title: 'Stimme',                desc: '5+ eigene Posts geschrieben' },
-  { title: 'Sticker-Bro',           desc: 'Drei eigene Posts mit Sticker' },
-  { title: 'Sammler:in',            desc: '3+ Posts für die Reflexion gemerkt' },
-  { title: 'Antworter:in',          desc: 'Vier DMs persönlich beantwortet' },
-  { title: 'Spurensucher:in',       desc: 'Greifshafen durchgeklickt' },
-  { title: 'Beste Freundin',        desc: 'Lea sieht dich an guten Tagen.' },
-  { title: 'Wachposten',            desc: 'Finn vor der Gilde gewarnt.' },
-  { title: 'Verbündete:r',          desc: 'Mira hat dir vertraut.' }
+  { title: 'Early Adopter',         desc: '20 Likes in der ersten Phase',
+    progress: d => ({ current: countAction(d, 'like'), target: 20 }) },
+  { title: 'Flammenwerfer',         desc: 'Du hast wütend kommentiert',
+    progress: d => ({ current: countAction(d, 'angry_comment'), target: 5 }) },
+  { title: 'Stiller Beobachter',    desc: 'Lesen statt Schreiben (ab W5)',
+    progress: null },
+  { title: 'Netzwerker',            desc: 'Du folgst 10+ Accounts',
+    progress: d => ({ current: countAction(d, 'follow'), target: 10 }) },
+  { title: 'Tief im Loch',          desc: 'Rabbit-Hole betreten',
+    progress: null },
+  { title: 'Bücherwurm',            desc: 'Der Leserunde beigetreten',
+    progress: null },
+  { title: 'Türsteher:in',          desc: '5+ Accounts stummgeschaltet — bewusst kuratiert',
+    progress: d => ({ current: countAction(d, 'mute'), target: 5 }) },
+  { title: 'Reichweiten-Bauer:in',  desc: '10+ Beiträge geteilt',
+    progress: d => ({ current: countAction(d, 'share'), target: 10 }) },
+  { title: 'Selbstschutz',          desc: 'Mehrfach Inhalte bewusst übersprungen',
+    progress: d => ({ current: twCount(d, 'skipped'), target: 4 }) },
+  { title: 'Hinschauen',            desc: 'Mehrfach durch die Warnung gegangen — bewusst informiert',
+    progress: d => ({ current: twCount(d, 'shown'), target: 3 }) },
+  { title: 'Stimme',                desc: '5+ eigene Posts geschrieben',
+    progress: d => ({ current: (d.ownPosts || []).length, target: 5 }) },
+  { title: 'Sticker-Bro',           desc: 'Drei eigene Posts mit Sticker',
+    progress: d => ({ current: (d.ownPosts || []).filter(p => p.sticker).length, target: 3 }) },
+  { title: 'Sammler:in',            desc: '3+ Posts für die Reflexion gemerkt',
+    progress: d => ({ current: Object.keys(d.bookmarks || {}).length, target: 3 }) },
+  { title: 'Antworter:in',          desc: 'Vier DMs persönlich beantwortet',
+    progress: d => ({ current: Object.keys(d.dmReplies || {}).length, target: 4 }) },
+  { title: 'Spurensucher:in',       desc: 'Greifshafen durchgeklickt',
+    progress: d => ({ current: Object.values(d.placesVisited || {}).reduce((a, b) => a + b, 0), target: 6 }) },
+  { title: 'Beste Freundin',        desc: 'Lea sieht dich an guten Tagen.',
+    progress: null },
+  { title: 'Wachposten',            desc: 'Finn vor der Gilde gewarnt.',
+    progress: null },
+  { title: 'Verbündete:r',          desc: 'Mira hat dir vertraut.',
+    progress: null }
 ];
+
+function countAction(d, type) {
+  return (d.history || []).flatMap(h => h.actions || []).filter(a => a.type === type).length;
+}
+function twCount(d, kind) {
+  return Object.values(d.contentWarningsAccepted || {}).reduce((a, b) => a + (b[kind] || 0), 0);
+}
 
 function openChecklist() {
   const body = document.getElementById('checklist-body');
@@ -1361,6 +1391,39 @@ function openChecklist() {
   showScreen('screen-checklist');
 }
 
+function openConceptsList() {
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  overlay.innerHTML = `
+    <div class="tw-box glossary-box">
+      <header class="glossary-head">
+        <h3>Konzept-Karten</h3>
+        <button class="btn btn-ghost btn-small" id="concepts-list-close">Schließen</button>
+      </header>
+      <p class="muted small">Alle erklärenden Karten, die im Spiel an passender Stelle erscheinen. Klick öffnet die volle Karte.</p>
+      <ul class="glossary-list">
+        ${listConcepts().map(c => `
+          <li>
+            <button class="glossary-term" data-key="${c.key}" aria-expanded="false">
+              <strong>${escapeHtml(c.title)}</strong>
+              <span class="glossary-chev" aria-hidden="true">→</span>
+            </button>
+          </li>
+        `).join('')}
+      </ul>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const handle = attachModal(overlay);
+  overlay.querySelector('#concepts-list-close').onclick = () => handle.close();
+  overlay.querySelectorAll('.glossary-term').forEach(b => {
+    b.onclick = () => {
+      handle.close();
+      showConcept(b.dataset.key);
+    };
+  });
+}
+
 function openProfileModal() {
   const c = Store.data.character;
   const profile = Store.data.userProfile;
@@ -1384,10 +1447,22 @@ function openProfileModal() {
       <div class="badges-grid">
         ${ACHIEVEMENTS_CATALOG.map(a => {
           const earned = Store.data.badges.find(b => b.title === a.title);
+          let progressBlock = '';
+          if (!earned && a.progress) {
+            const p = a.progress(Store.data);
+            const left = Math.max(0, p.target - p.current);
+            const pct = Math.min(100, Math.round((p.current / p.target) * 100));
+            progressBlock = `
+              <div class="badge-progress">
+                <div class="badge-progress-bar"><div class="badge-progress-fill" style="width:${pct}%"></div></div>
+                <div class="badge-progress-text muted small">${p.current} / ${p.target}${left > 0 ? ` · noch ${left}` : ''}</div>
+              </div>`;
+          }
           return `<div class="badge-item ${earned ? 'earned' : 'locked'}" title="${escapeHtml(a.desc)}">
             <div class="badge-emoji" aria-hidden="true">${earned ? '🏅' : '🔒'}</div>
             <div class="badge-name">${escapeHtml(a.title)}</div>
             <div class="badge-desc muted small">${escapeHtml(a.desc)}</div>
+            ${progressBlock}
           </div>`;
         }).join('')}
       </div>
@@ -1560,6 +1635,31 @@ function exportReport() {
 
   <h2>Top-Interessen laut Algorithmus</h2>
   <ul class="interests">${topInterests.map(([k,v]) => `<li>${escapeHtml(tagLabel(k))} · ${Math.round(v*100)}%</li>`).join('') || '<li><em>noch keine Daten</em></li>'}</ul>
+
+  ${(() => {
+    const w = d.wahlomat?.answers;
+    if (!w || !Object.keys(w).length) return '';
+    const label = { agree: 'Zustimmung', neutral: 'Neutral', disagree: 'Ablehnung' };
+    const stmts = [
+      ['s_klima', 'CO₂-neutraler ÖPNV bis 2030'],
+      ['s_wohnen', '50 % mehr Sozialwohnungen am Westhafen'],
+      ['s_polizei', 'Mehr Polizeipräsenz in der Altstadt'],
+      ['s_haushalt', 'Kommunaler Haushalt komplett öffentlich'],
+      ['s_migration', 'Schnellere Abschiebungen'],
+      ['s_buergerrat', 'Bürger:innen-Räte als festes Format'],
+      ['s_stadtfest', 'Stadtfeste traditionell ausrichten'],
+      ['s_schulen', 'Mehr Klimabildung und Demokratie in Schulen']
+    ];
+    return `<section><h2>Wahlomat-Antworten</h2>
+      <p class="muted">Eigene Positionierung zu acht fiktiven Politikfragen der Stadt.</p>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr><th style="text-align:left">Aussage</th><th style="text-align:left">Antwort</th></tr></thead>
+        <tbody>
+          ${stmts.map(([id, text]) => `<tr><td style="padding:6px 4px;border-bottom:1px solid #eee">${escapeHtml(text)}</td><td style="padding:6px 4px;border-bottom:1px solid #eee">${escapeHtml(label[w[id]] || '—')}</td></tr>`).join('')}
+        </tbody>
+      </table>
+    </section>`;
+  })()}
 
   ${refBlock('Reflexion · 1. Drittel', 'halftime')}
   ${refBlock('Reflexion · 2. Drittel', 'mid')}
@@ -1765,6 +1865,14 @@ function exportCsv() {
     ['Gilden', guilds.join('; ')],
     ['In Rabbit Hole', guilds.includes('echte_werte') ? 'ja' : 'nein'],
     ['Wahl', d.electionVote || ''],
+    ['Wahlomat klima', d.wahlomat?.answers?.s_klima || ''],
+    ['Wahlomat wohnen', d.wahlomat?.answers?.s_wohnen || ''],
+    ['Wahlomat polizei', d.wahlomat?.answers?.s_polizei || ''],
+    ['Wahlomat haushalt', d.wahlomat?.answers?.s_haushalt || ''],
+    ['Wahlomat migration', d.wahlomat?.answers?.s_migration || ''],
+    ['Wahlomat buergerrat', d.wahlomat?.answers?.s_buergerrat || ''],
+    ['Wahlomat stadtfest', d.wahlomat?.answers?.s_stadtfest || ''],
+    ['Wahlomat schulen', d.wahlomat?.answers?.s_schulen || ''],
     ['Ending', d.ending || ''],
     ['Marc-DM', dm.dm_marc?.[11]?.id || ''],
     ['Finn-W8', dm.dm_finn?.[8]?.id || ''],

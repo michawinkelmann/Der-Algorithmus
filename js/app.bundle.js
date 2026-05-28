@@ -2148,6 +2148,10 @@ function maybeShowQueuedConcept() {
   return true;
 }
 
+function listConcepts() {
+  return Object.entries(CONCEPTS).map(([key, c]) => ({ key, ...c }));
+}
+
 function showConcept(key) {
   const c = CONCEPTS[key];
   if (!c) return;
@@ -2187,6 +2191,7 @@ function escapeHtml(s) {
 
   __M.queueConcept = queueConcept;
   __M.maybeShowQueuedConcept = maybeShowQueuedConcept;
+  __M.listConcepts = listConcepts;
   __M.showConcept = showConcept;
 })();
 
@@ -2893,6 +2898,24 @@ function renderOwnPost(op, opts = {}) {
   return card;
 }
 
+// Wochen-Vorschläge fürs Compose. Sollen Anstöße liefern, ohne den
+// User zu zwingen — bewusst offen, nicht fertige Sätze.
+const COMPOSE_TEMPLATES = {
+  early:    ['Erster Eindruck von Greifshafen: …', 'Was ich heute zum ersten Mal gemacht habe: …', 'Frage in die Runde — wer macht Sonntag mit?', 'Mein neuer Lieblings-Spot in der Stadt:', 'Heute morgen im Café Hafen …'],
+  early_pol:['Demo am Samstag — wer kommt mit?', 'Ich versteh nicht, warum man darüber überhaupt streitet:', 'Kurze Erinnerung an die letzte Studie zum Thema:', 'Ich war erst skeptisch, aber …'],
+  mid:      ['Das Beste an dieser Woche:', 'Ich brauche eine Empfehlung für …', 'Heißer Take, sorry nicht sorry:', 'Wenn ich Bürgermeister:in wäre …', 'Drei Sachen, die mich diese Woche genervt haben:'],
+  late:     ['Vor der Wahl noch das hier loswerden:', 'An die Unentschlossenen:', 'Was ich nach dem Wahlkampf gelernt habe:', 'Mein Manifest in einem Tweet:', 'Letzte Woche kommt mir vor wie ein halbes Jahr.'],
+  final:    ['Was ich aus den letzten 26 Wochen mitnehme:', 'An mein Ich von Woche 1:', 'Ich war zu still / zu laut bei …', 'Ein Account, dem ich nicht mehr folge — und warum:']
+};
+
+function composeTemplatesFor(week) {
+  if (week >= 22) return COMPOSE_TEMPLATES.final;
+  if (week >= 17) return COMPOSE_TEMPLATES.late;
+  if (week >= 9)  return COMPOSE_TEMPLATES.mid;
+  if (week >= 5)  return COMPOSE_TEMPLATES.early_pol;
+  return COMPOSE_TEMPLATES.early;
+}
+
 function buildComposeBox() {
   const wrap = document.createElement('div');
   wrap.className = 'compose-box';
@@ -2907,6 +2930,15 @@ function buildComposeBox() {
         ${trending.slice(0, 4).map(t => `<button type="button" class="compose-trend" data-tag="${escapeHtml(t.tag)}">${escapeHtml(t.tag)}</button>`).join('')}
       </div>`
     : '';
+  const templates = composeTemplatesFor(Store.data.currentWeek);
+  const templatesRow = templates.length
+    ? `<details class="compose-templates">
+        <summary>Worüber könntest du diese Woche posten?</summary>
+        <div class="compose-templates-list">
+          ${templates.map((t, i) => `<button type="button" class="compose-template" data-i="${i}">${escapeHtml(t)}</button>`).join('')}
+        </div>
+      </details>`
+    : '';
   // Simulierte Bild-Anhänge — keine echten Dateien, nur große Emoji-Bilder.
   // Gewählter Sticker wird mit dem Post gespeichert und im Feed als Vorschau gezeigt.
   const STICKERS = ['☕', '🎮', '📚', '🌱', '📢', '🎧', '🤖', '🗳️'];
@@ -2919,6 +2951,7 @@ function buildComposeBox() {
     </div>
     <div class="compose-topic-grid" id="compose-topics"></div>
     ${trendingRow}
+    ${templatesRow}
     <div class="compose-stickers" role="group" aria-label="Sticker anhängen">
       <span class="muted small">Sticker (optional):</span>
       ${STICKERS.map(s => `<button type="button" class="compose-sticker" data-s="${s}" aria-label="Sticker ${s}">${s}</button>`).join('')}
@@ -2966,6 +2999,16 @@ function buildComposeBox() {
       const sep = cur && !cur.endsWith(' ') ? ' ' : '';
       const next = (cur + sep + b.dataset.tag + ' ').slice(0, MAX);
       txt.value = next;
+      txt.dispatchEvent(new Event('input'));
+      txt.focus();
+    };
+  });
+  wrap.querySelectorAll('.compose-template').forEach(b => {
+    b.onclick = () => {
+      const i = parseInt(b.dataset.i, 10);
+      const tmpl = templates[i];
+      if (!tmpl) return;
+      txt.value = tmpl;
       txt.dispatchEvent(new Event('input'));
       txt.focus();
     };
@@ -3800,6 +3843,8 @@ function renderSandbox(onClose) {
   document.getElementById('btn-sandbox-close').onclick = () => onClose && onClose();
   const battleBtn = document.getElementById('btn-battle');
   if (battleBtn) battleBtn.onclick = () => openAlgorithmBattle(rules);
+  const exportBtn = document.getElementById('btn-export-rules');
+  if (exportBtn) exportBtn.onclick = () => showPseudoCode(rules);
   // Reset-Toggle: simulieren wir auf dem Start-Profil oder dem aktuellen Profil?
   const simModeRow = document.querySelector('#sandbox-sim-mode');
   if (simModeRow) {
@@ -3900,6 +3945,59 @@ function battlePresets(current) {
     empoerung: { affinity: 0.4, engagement: 2.0, recency: 0.3, social: 0.4, ads: 0.6, diversity: 0.0, quality: 0.0, outragePenalty: 0.0, balance: 0.0 },
     calm:      { affinity: 0.6, engagement: 0.1, recency: 0.4, social: 0.7, ads: 0.1, diversity: 1.0, quality: 1.2, outragePenalty: 1.8, balance: 0.8 },
     custom:    current
+  };
+}
+
+// Zeigt die aktuellen Slider als lesbaren Pseudo-Code-Algorithmus. Didaktisch:
+// macht klar, dass „Algorithmus" letztlich eine gewichtete Summe ist.
+function showPseudoCode(rules) {
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  const fmt = v => Number(v ?? 0).toFixed(2);
+  const code = `// Streem-Algorithmus: dein aktuelles Setup.
+// Für jeden Post wird ein Score berechnet — der höchste kommt oben.
+
+function score(post, profile) {
+  return (
+    ${fmt(rules.affinity)}        * affinity(post, profile)        // wie sehr passt der Post zu deinen Interessen
+  + ${fmt(rules.engagement)}      * engagementBoost(post)          // Likes/Empörung — wird belohnt
+  + ${fmt(rules.recency)}         * recency(post)                  // wie neu ist der Post
+  + ${fmt(rules.social)}          * followedBoost(post, profile)   // kommt von jemand, dem du folgst
+  + ${fmt(rules.ads)}             * paidBoost(post, profile)       // bezahlte Anzeige?
+  - ${fmt(rules.diversity)}       * diversityPenalty(post, recent) // doppelt vom gleichen Thema → Abzug
+  + ${fmt(rules.quality)}         * qualityBonus(post)             // journalistische Qualität
+  - ${fmt(rules.outragePenalty)}  * outrageScore(post)             // Empörungs-Strafe
+  + ${fmt(rules.balance)}         * balanceBonus(post, profile)    // Gegen-Perspektive zur eigenen Neigung
+  );
+}
+
+// Pro Woche: nimm die Top-N nach Score, mit kleiner Vielfalts-Korrektur.
+const feed = sortByScoreDescending(allPosts).slice(0, 10);`;
+  overlay.innerHTML = `
+    <div class="tw-box pseudo-box">
+      <header class="pseudo-head">
+        <h3>Dein Algorithmus als Pseudo-Code</h3>
+        <button class="btn btn-ghost btn-small" id="pseudo-close">Schließen</button>
+      </header>
+      <p class="muted small">Verschiebe die Slider in der Sandbox → die Zahlen hier oben ändern sich entsprechend.</p>
+      <pre class="pseudo-code"><code>${escapeHtml(code)}</code></pre>
+      <div class="tw-actions">
+        <button class="btn btn-ghost" id="pseudo-copy">In Zwischenablage</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('#pseudo-close').onclick = close;
+  overlay.querySelector('#pseudo-copy').onclick = () => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(code).then(() => {
+        overlay.querySelector('#pseudo-copy').textContent = '✓ Kopiert';
+      }).catch(() => {});
+    }
   };
 }
 
@@ -4941,7 +5039,7 @@ function renderDmList(root, onOpenThread) {
     const last = visible[visible.length - 1];
     const seen = Store.data.dmThreads?.[t.id]?.lastSeenCount || 0;
     const unread = visible.length > seen;
-    return { thread: t, last, unread };
+    return { thread: t, last, unread, allText: visible.map(m => m.text).join(' ') };
   }).filter(Boolean);
 
   if (!items.length) {
@@ -4949,11 +5047,28 @@ function renderDmList(root, onOpenThread) {
     return;
   }
 
+  // Suchfeld erscheint ab 4 sichtbaren Threads — vorher überflüssig.
+  if (items.length >= 4) {
+    const search = document.createElement('div');
+    search.className = 'dm-search';
+    search.innerHTML = `<input type="search" id="dm-search-input" placeholder="DMs durchsuchen …" aria-label="DMs durchsuchen" />`;
+    root.appendChild(search);
+    search.querySelector('#dm-search-input').addEventListener('input', e => {
+      const q = e.target.value.trim().toLowerCase();
+      root.querySelectorAll('.dm-row').forEach(row => {
+        if (!q) { row.style.display = ''; return; }
+        const matches = row.dataset.search?.toLowerCase().includes(q);
+        row.style.display = matches ? '' : 'none';
+      });
+    });
+  }
+
   for (const it of items) {
     const c = getCharacter(it.thread.with);
     const row = document.createElement('button');
     row.type = 'button';
     row.className = 'dm-row' + (it.unread ? ' unread' : '');
+    row.dataset.search = `${it.thread.title} ${c?.name || ''} ${c?.handle || ''} ${it.allText}`;
     row.innerHTML = `
       <div class="dm-avatar">${avatarSvg(c?.avatar || 0)}${isOnline(it.thread.with) ? '<span class="dm-online" aria-label="online"></span>' : ''}</div>
       <div class="dm-meta">
@@ -5637,7 +5752,11 @@ function extractRow(item, idx, anonymize) {
     voted: s.electionVote || null,
     interests: p.interests || {},
     decisions: extractDecisions(s),
-    bookmarks: Object.values(s.bookmarks || {})
+    bookmarks: Object.values(s.bookmarks || {}),
+    selfcheck: {
+      pre:  s.selfcheck?.pre?.answers || null,
+      post: s.selfcheck?.post?.answers || null
+    }
   };
 }
 
@@ -5685,6 +5804,51 @@ function buildReportHtml(rows) {
     ${buildProtagonistBreakdown(rows)}
 
     ${buildClassBookmarks(rows)}
+
+    ${buildClassSelfcheck(rows)}
+  `;
+}
+
+// Klassen-Aggregat des Pre/Post-Selfchecks: pro Frage die durchschnittliche
+// Verschiebung zwischen vorher und nachher. Zeigt, wo das Spiel Selbstwahrnehmung
+// in der Klasse verändert hat — sehr wertvoll für die Schlussreflexion.
+function buildClassSelfcheck(rows) {
+  const QUESTIONS = [
+    ['source_check',     'Quellen prüfen vor dem Teilen'],
+    ['feed_influence',   'Feed beeinflusst, worüber ich nachdenke'],
+    ['comfort_disagree', 'Komfort mit widersprechenden Inhalten'],
+    ['algo_understand',  'Verständnis von Empfehlungs-Algorithmen'],
+    ['pause_react',      'Pause vor wütender Reaktion']
+  ];
+  const withSelfcheck = rows.filter(r => r.selfcheck.pre && r.selfcheck.post);
+  if (!withSelfcheck.length) return '';
+  const stats = QUESTIONS.map(([qid, label]) => {
+    const pres = withSelfcheck.map(r => r.selfcheck.pre[qid]).filter(v => typeof v === 'number');
+    const posts = withSelfcheck.map(r => r.selfcheck.post[qid]).filter(v => typeof v === 'number');
+    const avgPre = pres.reduce((a, b) => a + b, 0) / Math.max(1, pres.length);
+    const avgPost = posts.reduce((a, b) => a + b, 0) / Math.max(1, posts.length);
+    return { qid, label, avgPre, avgPost, delta: avgPost - avgPre };
+  });
+  return `
+    <h3>Selbsteinschätzung der Klasse · vorher / nachher</h3>
+    <p class="muted small">Durchschnittswert pro Frage (1–5) auf Basis von ${withSelfcheck.length} Spielständen, die beide Quizzes ausgefüllt haben. Δ ist die Verschiebung von vorher nach nachher.</p>
+    <div class="cc-selfcheck">
+      ${stats.map(s => {
+        const arrow = s.delta > 0.15 ? '↑' : s.delta < -0.15 ? '↓' : '→';
+        const cls = s.delta > 0.15 ? 'up' : s.delta < -0.15 ? 'down' : 'flat';
+        return `
+          <div class="cc-sc-row">
+            <div class="cc-sc-label">${escapeHtml(s.label)}</div>
+            <div class="cc-sc-vals">
+              <span><strong>${s.avgPre.toFixed(1)}</strong> <span class="muted small">vorher</span></span>
+              <span class="cc-sc-arr ${cls}">${arrow}</span>
+              <span><strong>${s.avgPost.toFixed(1)}</strong> <span class="muted small">nachher</span></span>
+              <span class="cc-sc-delta ${cls}">${s.delta >= 0 ? '+' : ''}${s.delta.toFixed(2)}</span>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
   `;
 }
 
@@ -6123,6 +6287,7 @@ function escapeHtml(s) {
   var maybeRunTutorial = __M.maybeRunTutorial;
   var forceRunTutorial = __M.forceRunTutorial;
   var showConcept = __M.showConcept;
+  var listConcepts = __M.listConcepts;
   var attachModal = __M.attachModal;
   var openGlossary = __M.openGlossary;
   var maybeShowPreQuiz = __M.maybeShowPreQuiz;
@@ -6407,6 +6572,8 @@ function bindGlobal() {
   // Glossar
   const gloBtn = document.getElementById('btn-glossary');
   if (gloBtn) gloBtn.onclick = () => { showScreen('screen-main'); openGlossary(); };
+  const conceptsBtn = document.getElementById('btn-concepts');
+  if (conceptsBtn) conceptsBtn.onclick = () => { showScreen('screen-main'); openConceptsList(); };
 
   // Wochen-Sprung für Lehrkraft
   const jumpBtn = document.getElementById('btn-jump-week');
@@ -7417,26 +7584,54 @@ function showElectionResult() {
 // Vollständige Liste aller Achievements aus events.js. Wird hier
 // gespiegelt, damit die Profil-Anzeige auch noch nicht freigeschaltete
 // Abzeichen mit Beschreibung zeigen kann.
+// Vollständige Achievement-Liste. progress(d) → { current, target } macht
+// die "noch X für Y"-Nudges möglich. null bedeutet: kein Fortschritt sinnvoll
+// quantifizierbar (z.B. Pfad-Entscheidungen).
 const ACHIEVEMENTS_CATALOG = [
-  { title: 'Early Adopter',         desc: '20 Likes in der ersten Phase' },
-  { title: 'Flammenwerfer',         desc: 'Du hast wütend kommentiert' },
-  { title: 'Stiller Beobachter',    desc: 'Lesen statt Schreiben' },
-  { title: 'Netzwerker',            desc: 'Du folgst 10+ Accounts' },
-  { title: 'Tief im Loch',          desc: 'Rabbit-Hole betreten' },
-  { title: 'Bücherwurm',            desc: 'Der Leserunde beigetreten' },
-  { title: 'Türsteher:in',          desc: '5+ Accounts stummgeschaltet — bewusst kuratiert' },
-  { title: 'Reichweiten-Bauer:in',  desc: '10+ Beiträge geteilt' },
-  { title: 'Selbstschutz',          desc: 'Mehrfach Inhalte bewusst übersprungen' },
-  { title: 'Hinschauen',            desc: 'Mehrfach durch die Warnung gegangen — bewusst informiert' },
-  { title: 'Stimme',                desc: '5+ eigene Posts geschrieben' },
-  { title: 'Sticker-Bro',           desc: 'Drei eigene Posts mit Sticker' },
-  { title: 'Sammler:in',            desc: '3+ Posts für die Reflexion gemerkt' },
-  { title: 'Antworter:in',          desc: 'Vier DMs persönlich beantwortet' },
-  { title: 'Spurensucher:in',       desc: 'Greifshafen durchgeklickt' },
-  { title: 'Beste Freundin',        desc: 'Lea sieht dich an guten Tagen.' },
-  { title: 'Wachposten',            desc: 'Finn vor der Gilde gewarnt.' },
-  { title: 'Verbündete:r',          desc: 'Mira hat dir vertraut.' }
+  { title: 'Early Adopter',         desc: '20 Likes in der ersten Phase',
+    progress: d => ({ current: countAction(d, 'like'), target: 20 }) },
+  { title: 'Flammenwerfer',         desc: 'Du hast wütend kommentiert',
+    progress: d => ({ current: countAction(d, 'angry_comment'), target: 5 }) },
+  { title: 'Stiller Beobachter',    desc: 'Lesen statt Schreiben (ab W5)',
+    progress: null },
+  { title: 'Netzwerker',            desc: 'Du folgst 10+ Accounts',
+    progress: d => ({ current: countAction(d, 'follow'), target: 10 }) },
+  { title: 'Tief im Loch',          desc: 'Rabbit-Hole betreten',
+    progress: null },
+  { title: 'Bücherwurm',            desc: 'Der Leserunde beigetreten',
+    progress: null },
+  { title: 'Türsteher:in',          desc: '5+ Accounts stummgeschaltet — bewusst kuratiert',
+    progress: d => ({ current: countAction(d, 'mute'), target: 5 }) },
+  { title: 'Reichweiten-Bauer:in',  desc: '10+ Beiträge geteilt',
+    progress: d => ({ current: countAction(d, 'share'), target: 10 }) },
+  { title: 'Selbstschutz',          desc: 'Mehrfach Inhalte bewusst übersprungen',
+    progress: d => ({ current: twCount(d, 'skipped'), target: 4 }) },
+  { title: 'Hinschauen',            desc: 'Mehrfach durch die Warnung gegangen — bewusst informiert',
+    progress: d => ({ current: twCount(d, 'shown'), target: 3 }) },
+  { title: 'Stimme',                desc: '5+ eigene Posts geschrieben',
+    progress: d => ({ current: (d.ownPosts || []).length, target: 5 }) },
+  { title: 'Sticker-Bro',           desc: 'Drei eigene Posts mit Sticker',
+    progress: d => ({ current: (d.ownPosts || []).filter(p => p.sticker).length, target: 3 }) },
+  { title: 'Sammler:in',            desc: '3+ Posts für die Reflexion gemerkt',
+    progress: d => ({ current: Object.keys(d.bookmarks || {}).length, target: 3 }) },
+  { title: 'Antworter:in',          desc: 'Vier DMs persönlich beantwortet',
+    progress: d => ({ current: Object.keys(d.dmReplies || {}).length, target: 4 }) },
+  { title: 'Spurensucher:in',       desc: 'Greifshafen durchgeklickt',
+    progress: d => ({ current: Object.values(d.placesVisited || {}).reduce((a, b) => a + b, 0), target: 6 }) },
+  { title: 'Beste Freundin',        desc: 'Lea sieht dich an guten Tagen.',
+    progress: null },
+  { title: 'Wachposten',            desc: 'Finn vor der Gilde gewarnt.',
+    progress: null },
+  { title: 'Verbündete:r',          desc: 'Mira hat dir vertraut.',
+    progress: null }
 ];
+
+function countAction(d, type) {
+  return (d.history || []).flatMap(h => h.actions || []).filter(a => a.type === type).length;
+}
+function twCount(d, kind) {
+  return Object.values(d.contentWarningsAccepted || {}).reduce((a, b) => a + (b[kind] || 0), 0);
+}
 
 function openChecklist() {
   const body = document.getElementById('checklist-body');
@@ -7491,6 +7686,39 @@ function openChecklist() {
   showScreen('screen-checklist');
 }
 
+function openConceptsList() {
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  overlay.innerHTML = `
+    <div class="tw-box glossary-box">
+      <header class="glossary-head">
+        <h3>Konzept-Karten</h3>
+        <button class="btn btn-ghost btn-small" id="concepts-list-close">Schließen</button>
+      </header>
+      <p class="muted small">Alle erklärenden Karten, die im Spiel an passender Stelle erscheinen. Klick öffnet die volle Karte.</p>
+      <ul class="glossary-list">
+        ${listConcepts().map(c => `
+          <li>
+            <button class="glossary-term" data-key="${c.key}" aria-expanded="false">
+              <strong>${escapeHtml(c.title)}</strong>
+              <span class="glossary-chev" aria-hidden="true">→</span>
+            </button>
+          </li>
+        `).join('')}
+      </ul>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const handle = attachModal(overlay);
+  overlay.querySelector('#concepts-list-close').onclick = () => handle.close();
+  overlay.querySelectorAll('.glossary-term').forEach(b => {
+    b.onclick = () => {
+      handle.close();
+      showConcept(b.dataset.key);
+    };
+  });
+}
+
 function openProfileModal() {
   const c = Store.data.character;
   const profile = Store.data.userProfile;
@@ -7514,10 +7742,22 @@ function openProfileModal() {
       <div class="badges-grid">
         ${ACHIEVEMENTS_CATALOG.map(a => {
           const earned = Store.data.badges.find(b => b.title === a.title);
+          let progressBlock = '';
+          if (!earned && a.progress) {
+            const p = a.progress(Store.data);
+            const left = Math.max(0, p.target - p.current);
+            const pct = Math.min(100, Math.round((p.current / p.target) * 100));
+            progressBlock = `
+              <div class="badge-progress">
+                <div class="badge-progress-bar"><div class="badge-progress-fill" style="width:${pct}%"></div></div>
+                <div class="badge-progress-text muted small">${p.current} / ${p.target}${left > 0 ? ` · noch ${left}` : ''}</div>
+              </div>`;
+          }
           return `<div class="badge-item ${earned ? 'earned' : 'locked'}" title="${escapeHtml(a.desc)}">
             <div class="badge-emoji" aria-hidden="true">${earned ? '🏅' : '🔒'}</div>
             <div class="badge-name">${escapeHtml(a.title)}</div>
             <div class="badge-desc muted small">${escapeHtml(a.desc)}</div>
+            ${progressBlock}
           </div>`;
         }).join('')}
       </div>
@@ -7690,6 +7930,31 @@ function exportReport() {
 
   <h2>Top-Interessen laut Algorithmus</h2>
   <ul class="interests">${topInterests.map(([k,v]) => `<li>${escapeHtml(tagLabel(k))} · ${Math.round(v*100)}%</li>`).join('') || '<li><em>noch keine Daten</em></li>'}</ul>
+
+  ${(() => {
+    const w = d.wahlomat?.answers;
+    if (!w || !Object.keys(w).length) return '';
+    const label = { agree: 'Zustimmung', neutral: 'Neutral', disagree: 'Ablehnung' };
+    const stmts = [
+      ['s_klima', 'CO₂-neutraler ÖPNV bis 2030'],
+      ['s_wohnen', '50 % mehr Sozialwohnungen am Westhafen'],
+      ['s_polizei', 'Mehr Polizeipräsenz in der Altstadt'],
+      ['s_haushalt', 'Kommunaler Haushalt komplett öffentlich'],
+      ['s_migration', 'Schnellere Abschiebungen'],
+      ['s_buergerrat', 'Bürger:innen-Räte als festes Format'],
+      ['s_stadtfest', 'Stadtfeste traditionell ausrichten'],
+      ['s_schulen', 'Mehr Klimabildung und Demokratie in Schulen']
+    ];
+    return `<section><h2>Wahlomat-Antworten</h2>
+      <p class="muted">Eigene Positionierung zu acht fiktiven Politikfragen der Stadt.</p>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr><th style="text-align:left">Aussage</th><th style="text-align:left">Antwort</th></tr></thead>
+        <tbody>
+          ${stmts.map(([id, text]) => `<tr><td style="padding:6px 4px;border-bottom:1px solid #eee">${escapeHtml(text)}</td><td style="padding:6px 4px;border-bottom:1px solid #eee">${escapeHtml(label[w[id]] || '—')}</td></tr>`).join('')}
+        </tbody>
+      </table>
+    </section>`;
+  })()}
 
   ${refBlock('Reflexion · 1. Drittel', 'halftime')}
   ${refBlock('Reflexion · 2. Drittel', 'mid')}
@@ -7895,6 +8160,14 @@ function exportCsv() {
     ['Gilden', guilds.join('; ')],
     ['In Rabbit Hole', guilds.includes('echte_werte') ? 'ja' : 'nein'],
     ['Wahl', d.electionVote || ''],
+    ['Wahlomat klima', d.wahlomat?.answers?.s_klima || ''],
+    ['Wahlomat wohnen', d.wahlomat?.answers?.s_wohnen || ''],
+    ['Wahlomat polizei', d.wahlomat?.answers?.s_polizei || ''],
+    ['Wahlomat haushalt', d.wahlomat?.answers?.s_haushalt || ''],
+    ['Wahlomat migration', d.wahlomat?.answers?.s_migration || ''],
+    ['Wahlomat buergerrat', d.wahlomat?.answers?.s_buergerrat || ''],
+    ['Wahlomat stadtfest', d.wahlomat?.answers?.s_stadtfest || ''],
+    ['Wahlomat schulen', d.wahlomat?.answers?.s_schulen || ''],
     ['Ending', d.ending || ''],
     ['Marc-DM', dm.dm_marc?.[11]?.id || ''],
     ['Finn-W8', dm.dm_finn?.[8]?.id || ''],

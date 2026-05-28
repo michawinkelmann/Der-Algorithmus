@@ -475,6 +475,24 @@ function renderOwnPost(op, opts = {}) {
   return card;
 }
 
+// Wochen-Vorschläge fürs Compose. Sollen Anstöße liefern, ohne den
+// User zu zwingen — bewusst offen, nicht fertige Sätze.
+const COMPOSE_TEMPLATES = {
+  early:    ['Erster Eindruck von Greifshafen: …', 'Was ich heute zum ersten Mal gemacht habe: …', 'Frage in die Runde — wer macht Sonntag mit?', 'Mein neuer Lieblings-Spot in der Stadt:', 'Heute morgen im Café Hafen …'],
+  early_pol:['Demo am Samstag — wer kommt mit?', 'Ich versteh nicht, warum man darüber überhaupt streitet:', 'Kurze Erinnerung an die letzte Studie zum Thema:', 'Ich war erst skeptisch, aber …'],
+  mid:      ['Das Beste an dieser Woche:', 'Ich brauche eine Empfehlung für …', 'Heißer Take, sorry nicht sorry:', 'Wenn ich Bürgermeister:in wäre …', 'Drei Sachen, die mich diese Woche genervt haben:'],
+  late:     ['Vor der Wahl noch das hier loswerden:', 'An die Unentschlossenen:', 'Was ich nach dem Wahlkampf gelernt habe:', 'Mein Manifest in einem Tweet:', 'Letzte Woche kommt mir vor wie ein halbes Jahr.'],
+  final:    ['Was ich aus den letzten 26 Wochen mitnehme:', 'An mein Ich von Woche 1:', 'Ich war zu still / zu laut bei …', 'Ein Account, dem ich nicht mehr folge — und warum:']
+};
+
+function composeTemplatesFor(week) {
+  if (week >= 22) return COMPOSE_TEMPLATES.final;
+  if (week >= 17) return COMPOSE_TEMPLATES.late;
+  if (week >= 9)  return COMPOSE_TEMPLATES.mid;
+  if (week >= 5)  return COMPOSE_TEMPLATES.early_pol;
+  return COMPOSE_TEMPLATES.early;
+}
+
 function buildComposeBox() {
   const wrap = document.createElement('div');
   wrap.className = 'compose-box';
@@ -489,6 +507,15 @@ function buildComposeBox() {
         ${trending.slice(0, 4).map(t => `<button type="button" class="compose-trend" data-tag="${escapeHtml(t.tag)}">${escapeHtml(t.tag)}</button>`).join('')}
       </div>`
     : '';
+  const templates = composeTemplatesFor(Store.data.currentWeek);
+  const templatesRow = templates.length
+    ? `<details class="compose-templates">
+        <summary>Worüber könntest du diese Woche posten?</summary>
+        <div class="compose-templates-list">
+          ${templates.map((t, i) => `<button type="button" class="compose-template" data-i="${i}">${escapeHtml(t)}</button>`).join('')}
+        </div>
+      </details>`
+    : '';
   // Simulierte Bild-Anhänge — keine echten Dateien, nur große Emoji-Bilder.
   // Gewählter Sticker wird mit dem Post gespeichert und im Feed als Vorschau gezeigt.
   const STICKERS = ['☕', '🎮', '📚', '🌱', '📢', '🎧', '🤖', '🗳️'];
@@ -501,6 +528,7 @@ function buildComposeBox() {
     </div>
     <div class="compose-topic-grid" id="compose-topics"></div>
     ${trendingRow}
+    ${templatesRow}
     <div class="compose-stickers" role="group" aria-label="Sticker anhängen">
       <span class="muted small">Sticker (optional):</span>
       ${STICKERS.map(s => `<button type="button" class="compose-sticker" data-s="${s}" aria-label="Sticker ${s}">${s}</button>`).join('')}
@@ -548,6 +576,16 @@ function buildComposeBox() {
       const sep = cur && !cur.endsWith(' ') ? ' ' : '';
       const next = (cur + sep + b.dataset.tag + ' ').slice(0, MAX);
       txt.value = next;
+      txt.dispatchEvent(new Event('input'));
+      txt.focus();
+    };
+  });
+  wrap.querySelectorAll('.compose-template').forEach(b => {
+    b.onclick = () => {
+      const i = parseInt(b.dataset.i, 10);
+      const tmpl = templates[i];
+      if (!tmpl) return;
+      txt.value = tmpl;
       txt.dispatchEvent(new Event('input'));
       txt.focus();
     };

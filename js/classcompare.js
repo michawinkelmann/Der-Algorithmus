@@ -127,7 +127,11 @@ function extractRow(item, idx, anonymize) {
     voted: s.electionVote || null,
     interests: p.interests || {},
     decisions: extractDecisions(s),
-    bookmarks: Object.values(s.bookmarks || {})
+    bookmarks: Object.values(s.bookmarks || {}),
+    selfcheck: {
+      pre:  s.selfcheck?.pre?.answers || null,
+      post: s.selfcheck?.post?.answers || null
+    }
   };
 }
 
@@ -175,6 +179,51 @@ function buildReportHtml(rows) {
     ${buildProtagonistBreakdown(rows)}
 
     ${buildClassBookmarks(rows)}
+
+    ${buildClassSelfcheck(rows)}
+  `;
+}
+
+// Klassen-Aggregat des Pre/Post-Selfchecks: pro Frage die durchschnittliche
+// Verschiebung zwischen vorher und nachher. Zeigt, wo das Spiel Selbstwahrnehmung
+// in der Klasse verändert hat — sehr wertvoll für die Schlussreflexion.
+function buildClassSelfcheck(rows) {
+  const QUESTIONS = [
+    ['source_check',     'Quellen prüfen vor dem Teilen'],
+    ['feed_influence',   'Feed beeinflusst, worüber ich nachdenke'],
+    ['comfort_disagree', 'Komfort mit widersprechenden Inhalten'],
+    ['algo_understand',  'Verständnis von Empfehlungs-Algorithmen'],
+    ['pause_react',      'Pause vor wütender Reaktion']
+  ];
+  const withSelfcheck = rows.filter(r => r.selfcheck.pre && r.selfcheck.post);
+  if (!withSelfcheck.length) return '';
+  const stats = QUESTIONS.map(([qid, label]) => {
+    const pres = withSelfcheck.map(r => r.selfcheck.pre[qid]).filter(v => typeof v === 'number');
+    const posts = withSelfcheck.map(r => r.selfcheck.post[qid]).filter(v => typeof v === 'number');
+    const avgPre = pres.reduce((a, b) => a + b, 0) / Math.max(1, pres.length);
+    const avgPost = posts.reduce((a, b) => a + b, 0) / Math.max(1, posts.length);
+    return { qid, label, avgPre, avgPost, delta: avgPost - avgPre };
+  });
+  return `
+    <h3>Selbsteinschätzung der Klasse · vorher / nachher</h3>
+    <p class="muted small">Durchschnittswert pro Frage (1–5) auf Basis von ${withSelfcheck.length} Spielständen, die beide Quizzes ausgefüllt haben. Δ ist die Verschiebung von vorher nach nachher.</p>
+    <div class="cc-selfcheck">
+      ${stats.map(s => {
+        const arrow = s.delta > 0.15 ? '↑' : s.delta < -0.15 ? '↓' : '→';
+        const cls = s.delta > 0.15 ? 'up' : s.delta < -0.15 ? 'down' : 'flat';
+        return `
+          <div class="cc-sc-row">
+            <div class="cc-sc-label">${escapeHtml(s.label)}</div>
+            <div class="cc-sc-vals">
+              <span><strong>${s.avgPre.toFixed(1)}</strong> <span class="muted small">vorher</span></span>
+              <span class="cc-sc-arr ${cls}">${arrow}</span>
+              <span><strong>${s.avgPost.toFixed(1)}</strong> <span class="muted small">nachher</span></span>
+              <span class="cc-sc-delta ${cls}">${s.delta >= 0 ? '+' : ''}${s.delta.toFixed(2)}</span>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
   `;
 }
 
