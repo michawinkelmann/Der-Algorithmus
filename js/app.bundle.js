@@ -1241,10 +1241,12 @@ function attachModal(overlay, { onClose, initialFocus } = {}) {
 // ===== microreflect.js =====
 (function(){
   var Store = __M.Store;
+  var attachModal = __M.attachModal;
 // microreflect.js — Eine-Frage-Reflexionen unmittelbar nach Wendepunkten.
 // Anders als die geplanten 3-Fragen-Reflexionen sind diese unmittelbar nach
 // dem Ereignis und haben nur eine einzige Frage. Antworten werden ins Save
 // geschrieben und landen im Lehr-Bericht.
+
 
 const PROMPTS = {
   marc_dm: {
@@ -1297,19 +1299,12 @@ function showMicroReflection(key) {
   `;
   document.body.appendChild(overlay);
   const ta = overlay.querySelector('#micro-input');
-  setTimeout(() => ta.focus(), 30);
-  const close = () => {
-    overlay.remove();
-    document.removeEventListener('keydown', onKey);
-  };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
-  document.addEventListener('keydown', onKey);
-  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  const handle = attachModal(overlay, { initialFocus: ta });
   overlay.querySelector('#micro-skip').onclick = () => {
     if (!Store.data.microReflections) Store.data.microReflections = {};
     Store.data.microReflections[key] = { skipped: true, week: Store.data.currentWeek, ts: Date.now() };
     Store.save();
-    close();
+    handle.close();
   };
   overlay.querySelector('#micro-save').onclick = () => {
     if (!Store.data.microReflections) Store.data.microReflections = {};
@@ -1320,7 +1315,7 @@ function showMicroReflection(key) {
       question: p.question
     };
     Store.save();
-    close();
+    handle.close();
   };
 }
 
@@ -1476,9 +1471,21 @@ function getRepliesForInbox() {
   return out;
 }
 
+// Antworten, die zu einem konkreten eigenen Post gehören (über `op.week_ts`).
+// Wird beim Render des angepinnten eigenen Posts im Hauptfeed verwendet.
+function getRepliesForOwnPost(op) {
+  if (!op) return [];
+  const key = `${op.week}_${op.ts || 0}`;
+  const entry = Store.data.ownPostReplies?.[key];
+  if (!entry) return [];
+  if (entry.week > Store.data.currentWeek) return [];
+  return entry.replies || [];
+}
+
   __M.generateRepliesFor = generateRepliesFor;
   __M.generateRepliesForJustEndedWeek = generateRepliesForJustEndedWeek;
   __M.getRepliesForInbox = getRepliesForInbox;
+  __M.getRepliesForOwnPost = getRepliesForOwnPost;
 })();
 
 // ===== feed.js =====
@@ -1493,6 +1500,7 @@ function getRepliesForInbox() {
   var askWarning = __M.askWarning;
   var SFX = __M.SFX;
   var getRepliesForInbox = __M.getRepliesForInbox;
+  var getRepliesForOwnPost = __M.getRepliesForOwnPost;
 // feed.js — Feed-Rendering und Interaktionen.
 
 
@@ -1875,6 +1883,24 @@ function renderPost(post) {
 function renderOwnPost(op, opts = {}) {
   const card = document.createElement('article');
   card.className = 'post-card own-post' + (opts.pinned ? ' pinned' : '');
+  const stickerBlock = op.sticker
+    ? `<div class="own-post-sticker" aria-hidden="true">${op.sticker}</div>`
+    : '';
+  const replies = getRepliesForOwnPost(op);
+  const repliesBlock = replies.length
+    ? `<div class="own-post-replies">
+        ${replies.map(r => {
+          const c = getCharacter(r.author);
+          return `<div class="own-post-reply stance-${r.stance}">
+            <div class="avatar small">${avatarSvg(c?.avatar || 0)}</div>
+            <div class="reply-meta">
+              <div class="reply-author"><strong>${escapeHtml(c?.name || r.author)}</strong> <span class="muted small">${escapeHtml(c?.handle || '')}</span></div>
+              <div class="reply-text">${escapeHtml(r.text)}</div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`
+    : '';
   card.innerHTML = `
     <div class="post-head">
       <div class="avatar" aria-hidden="true">${avatarSvg(Store.data.character.avatar || 0)}</div>
@@ -1884,7 +1910,9 @@ function renderOwnPost(op, opts = {}) {
       </div>
     </div>
     <div class="post-body">${escapeHtml(op.text)}</div>
+    ${stickerBlock}
     <div class="muted small" style="padding-top:8px">Tags: ${(op.tags || []).join(', ')}</div>
+    ${repliesBlock}
   `;
   return card;
 }
@@ -1903,6 +1931,10 @@ function buildComposeBox() {
         ${trending.slice(0, 4).map(t => `<button type="button" class="compose-trend" data-tag="${escapeHtml(t.tag)}">${escapeHtml(t.tag)}</button>`).join('')}
       </div>`
     : '';
+  // Simulierte Bild-Anhänge — keine echten Dateien, nur große Emoji-Bilder.
+  // Gewählter Sticker wird mit dem Post gespeichert und im Feed als Vorschau gezeigt.
+  const STICKERS = ['☕', '🎮', '📚', '🌱', '📢', '🎧', '🤖', '🗳️'];
+  let chosenSticker = null;
   wrap.innerHTML = `
     <textarea id="compose-text" maxlength="${MAX}" placeholder="Was ist los?" aria-label="Beitragstext"></textarea>
     <div class="compose-meta">
@@ -1911,11 +1943,27 @@ function buildComposeBox() {
     </div>
     <div class="compose-topic-grid" id="compose-topics"></div>
     ${trendingRow}
+    <div class="compose-stickers" role="group" aria-label="Sticker anhängen">
+      <span class="muted small">Sticker (optional):</span>
+      ${STICKERS.map(s => `<button type="button" class="compose-sticker" data-s="${s}" aria-label="Sticker ${s}">${s}</button>`).join('')}
+    </div>
     <div class="compose-row">
       <span class="muted small" id="compose-status"></span>
       <button class="btn btn-primary" id="btn-publish">Posten</button>
     </div>
   `;
+  wrap.querySelectorAll('.compose-sticker').forEach(b => {
+    b.onclick = () => {
+      if (chosenSticker === b.dataset.s) {
+        chosenSticker = null;
+        b.classList.remove('selected');
+      } else {
+        wrap.querySelectorAll('.compose-sticker').forEach(x => x.classList.remove('selected'));
+        chosenSticker = b.dataset.s;
+        b.classList.add('selected');
+      }
+    };
+  });
   const grid = wrap.querySelector('#compose-topics');
   for (const t of topics) {
     const b = document.createElement('button');
@@ -1957,7 +2005,7 @@ function buildComposeBox() {
     if (chosen.size === 0) { status.textContent = 'Wähle mindestens ein Thema.'; return; }
     const tags = [...chosen];
     const outrage = tags.some(t => ['politik-rechts','politik-links','verschwoerung','hass','feminismus','anti-feminismus'].includes(t)) ? 0.3 : 0.1;
-    Store.addOwnPost({ text, tags, outrage });
+    Store.addOwnPost({ text, tags, outrage, sticker: chosenSticker });
     for (const t of tags) {
       Store.data.userProfile.interests[t] = Math.min(1, (Store.data.userProfile.interests[t] || 0) + 0.1);
     }
@@ -2982,9 +3030,68 @@ function buildWrapped() {
 }
 
 // Multiple Endings — datengetrieben aus dem finalen Profil und der Spielhistorie.
+// Pro Ending eine kleine kuratierte Quellen-Liste — echte Anlaufstellen,
+// die zum Thema des Endings passen. Macht aus „du hast jetzt erlebt …"
+// einen konkreten Anschluss-Schritt.
+const ENDING_SOURCES = {
+  finn_lost: [
+    { label: 'beratung-gegen-rechtsextremismus.de', what: 'wenn jemand in deinem Umfeld abdriftet' },
+    { label: 'jugendschutz.net', what: 'Meldestelle für extremistische und jugendgefährdende Inhalte' },
+    { label: 'bpb.de — Reihe „Was tun gegen Rechtsextremismus"', what: 'Hintergrund + Handlungsoptionen' }
+  ],
+  finn_saved: [
+    { label: 'bpb.de — Radikalisierungsprävention', what: 'was hat hier geholfen, was hilft strukturell' },
+    { label: 'klicksafe.de — „Hass im Netz"', what: 'wie du andere unterstützen kannst' }
+  ],
+  rabbithole: [
+    { label: 'exit-deutschland.de', what: 'Ausstiegshilfe aus extremistischen Szenen' },
+    { label: 'beratung-gegen-rechtsextremismus.de', what: 'auch für Angehörige' },
+    { label: 'Telefonseelsorge 0800 111 0 111', what: 'wenn dir nach dem Spiel etwas hängenbleibt' }
+  ],
+  allyship: [
+    { label: 'hateaid.org', what: 'rechtliche und psychologische Unterstützung bei digitaler Gewalt' },
+    { label: 'fearlessdemocracy.org', what: 'Hate-Speech erkennen und melden' },
+    { label: 'bpb.de — „Antifeminismus erkennen"', what: 'Hintergrund zu Mustern, die du gesehen hast' }
+  ],
+  aware: [
+    { label: 'bpb.de — „Wie funktionieren Algorithmen?"', what: 'die Mechanik, die du im Spiel ausgestellt gesehen hast' },
+    { label: 'klicksafe.de — „Algorithmen verstehen"', what: 'Material für Schule und für dich selbst' },
+    { label: 'algorithmwatch.org', what: 'forscht und berichtet zu algorithmischer Macht' }
+  ],
+  influencer: [
+    { label: 'klicksafe.de — „Reichweite und Verantwortung"', what: 'was sollte ich beachten, wenn ich poste' },
+    { label: 'hateaid.org', what: 'Schutz vor Pile-Ons' }
+  ],
+  crusader: [
+    { label: 'bpb.de — „Wie diskutieren wir online?"', what: 'Gesprächsführung statt Empörung' },
+    { label: 'klicksafe.de — „Mein digitaler Fußabdruck"', what: 'was bleibt online?' }
+  ],
+  guarded: [
+    { label: 'klicksafe.de — „Selbstschutz online"', what: 'Werkzeuge für die eigene Aufmerksamkeit' },
+    { label: 'bpb.de — Medienkompetenz', what: 'tiefer einsteigen' }
+  ],
+  nerd: [
+    { label: 'algorithmwatch.org', what: 'wissenschaftlich-kritische Sicht auf Plattformen' },
+    { label: 'iqo.uni-hannover.de — Open Science', what: 'Studien lesen, bevor du Schlagzeilen teilst' }
+  ],
+  driven: [
+    { label: 'klicksafe.de', what: 'Erste Anlaufstelle für sicheren Umgang mit Social Media' },
+    { label: 'bpb.de — „Politische Bildung digital"', what: 'einordnen, was dein Feed dir gezeigt hat' }
+  ]
+};
+
 function buildEndingSlide(d) {
   const e = computeEnding(d);
   d.ending = e.key;
+  const sources = ENDING_SOURCES[e.key] || ENDING_SOURCES.driven;
+  const sourceList = `
+    <div class="ending-sources">
+      <div class="ending-sources-head">Wenn dich das Thema weiter beschäftigt:</div>
+      <ul>
+        ${sources.map(s => `<li><strong>${escapeHtml(s.label)}</strong><br/><span class="muted small">${escapeHtml(s.what)}</span></li>`).join('')}
+      </ul>
+    </div>
+  `;
   return {
     id: 's8b',
     html: `
@@ -2996,6 +3103,7 @@ function buildEndingSlide(d) {
         <div class="ending-stats muted small">
           ${e.facts.map(f => `<div>${escapeHtml(f)}</div>`).join('')}
         </div>
+        ${sourceList}
       </div>
       <p class="muted small">Dieses Ergebnis hängt von deinen Entscheidungen ab — andere Spielzüge führen zu anderen Bögen.</p>
     `
@@ -4224,8 +4332,10 @@ function escapeHtml(s) {
 // ===== concepts.js =====
 (function(){
   var Store = __M.Store;
+  var attachModal = __M.attachModal;
 // concepts.js — Kurze Konzept-Karten, die vor didaktischen Wendepunkten
 // angezeigt werden. Bewusst sehr knapp gehalten — eine Karte ≤ 60 Sekunden Lesezeit.
+
 
 const CONCEPTS = {
   bots_intro: {
@@ -4305,11 +4415,8 @@ function showConcept(key) {
     </div>
   `;
   document.body.appendChild(overlay);
-  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
-  document.addEventListener('keydown', onKey);
-  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
-  overlay.querySelector('#concept-close').onclick = close;
+  const handle = attachModal(overlay);
+  overlay.querySelector('#concept-close').onclick = () => handle.close();
 }
 
 function escapeHtml(s) {
@@ -4320,6 +4427,110 @@ function escapeHtml(s) {
   __M.queueConcept = queueConcept;
   __M.maybeShowQueuedConcept = maybeShowQueuedConcept;
   __M.showConcept = showConcept;
+})();
+
+// ===== glossary.js =====
+(function(){
+  var attachModal = __M.attachModal;
+// glossary.js — Schnellnachschlage für zentrale Begriffe.
+// Im Settings erreichbar. Bewusst kurz: 3-4 Sätze pro Begriff,
+// kein Wikipedia-Ersatz.
+
+const TERMS = [
+  {
+    term: 'Algorithmus',
+    text: 'Eine Regel-Sammlung, nach der ein System entscheidet, welche Inhalte du siehst und in welcher Reihenfolge. In Streem siehst du genau diese Regeln im 🔍-Panel — bei echten Plattformen meist nicht.'
+  },
+  {
+    term: 'Filterblase',
+    text: 'Effekt, bei dem du algorithmisch hauptsächlich Inhalte siehst, die deinen bisherigen Vorlieben entsprechen. Andere Perspektiven werden seltener angezeigt — und du merkst das selten selbst.'
+  },
+  {
+    term: 'Echokammer',
+    text: 'Eine Filterblase mit sozialer Verstärkung: deine Meinung wird von immer denselben Stimmen bestätigt. Widerspruch erreicht dich kaum, weil deine Gilde, deine Freunde, dein Feed alle ähnlich ticken.'
+  },
+  {
+    term: 'Engagement',
+    text: 'Jede Interaktion: Like, Kommentar, Share, Verweildauer. Algorithmen messen Engagement, um Inhalte zu sortieren. Wütende Kommentare zählen meistens genauso viel wie zustimmende — das ist genau das Problem.'
+  },
+  {
+    term: 'Reach (Reichweite)',
+    text: 'Wie viele Menschen deinen Beitrag tatsächlich sehen. Hängt vom Algorithmus ab — nicht von deiner Followerzahl. Empörungslastige Inhalte bekommen oft mehr Reichweite als sachliche.'
+  },
+  {
+    term: 'Bot',
+    text: 'Automatisiertes Konto, das wie ein Mensch wirkt. Typische Hinweise: junger Account, hohe Posting-Frequenz, generisches Profilbild, Naming-Schema mit Zahlen. Bots verstärken Stimmungen, ohne dass jemand dafür haftet.'
+  },
+  {
+    term: 'Engagement-Bait',
+    text: 'Beiträge, die so gestaltet sind, dass sie Reaktionen provozieren — über inhaltlichen Wert hinaus. Beispiele: bewusst zugespitzte Formulierungen, „Stimmt zu, wenn ihr auch denkt …", Quizfragen ohne Sachbezug.'
+  },
+  {
+    term: 'Outrage / Empörung',
+    text: 'Empörung ist algorithmisch wertvoll, weil sie Engagement erzeugt. Genau deshalb steigt empörender Inhalt im Feed — auch wenn er manipuliert, vereinfacht oder schadet.'
+  },
+  {
+    term: 'Targeting (Werbung)',
+    text: 'Anzeigen werden gezielt an Gruppen ausgespielt, deren Profil zum Werbeziel passt. Politische Anzeigen sind dabei besonders heikel, weil unterschiedliche Gruppen unterschiedliche Botschaften zu sehen bekommen, ohne öffentliche Debatte.'
+  },
+  {
+    term: 'Shadowban',
+    text: 'Wenn deine Beiträge stiller weniger Reichweite bekommen, ohne dass dir das mitgeteilt wird. Schwer nachzuweisen, weil Plattformen sich selten dazu äußern. In Streem nicht implementiert, aber im echten Netz real.'
+  },
+  {
+    term: 'Rabbit Hole',
+    text: 'Das schrittweise Hineinrutschen in immer radikalere Inhalte. Empfehlungssysteme können das beschleunigen, weil sie „mehr vom Gleichen" liefern. Im Spiel bist du diesem Effekt mit der Gilde „Echte Werte" begegnet.'
+  },
+  {
+    term: 'Deepfake',
+    text: 'Manipulierte Bilder, Videos oder Audios, die mit KI erzeugt wurden. Wirken echt, sind es aber nicht. Faktencheck mit Rückwärtsbildersuche und Quellenprüfung ist die einfachste Verteidigung.'
+  }
+];
+
+function openGlossary() {
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  overlay.innerHTML = `
+    <div class="tw-box glossary-box">
+      <header class="glossary-head">
+        <h3>Glossar</h3>
+        <button class="btn btn-ghost btn-small" id="glossary-close">Schließen</button>
+      </header>
+      <p class="muted small">Kurze Definitionen der Begriffe, die in Streem vorkommen. Klicke einen Eintrag, um ihn aufzuklappen.</p>
+      <ul class="glossary-list">
+        ${TERMS.map((t, i) => `
+          <li>
+            <button class="glossary-term" data-i="${i}" aria-expanded="false">
+              <strong>${escapeHtml(t.term)}</strong>
+              <span class="glossary-chev" aria-hidden="true">+</span>
+            </button>
+            <div class="glossary-text" hidden>${escapeHtml(t.text)}</div>
+          </li>
+        `).join('')}
+      </ul>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const handle = attachModal(overlay);
+  overlay.querySelector('#glossary-close').onclick = () => handle.close();
+  overlay.querySelectorAll('.glossary-term').forEach(b => {
+    b.onclick = () => {
+      const i = parseInt(b.dataset.i, 10);
+      const txt = overlay.querySelectorAll('.glossary-text')[i];
+      const open = txt.hidden;
+      txt.hidden = !open;
+      b.setAttribute('aria-expanded', open ? 'true' : 'false');
+      b.querySelector('.glossary-chev').textContent = open ? '−' : '+';
+    };
+  });
+}
+
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+  __M.openGlossary = openGlossary;
 })();
 
 // ===== main.js =====
@@ -4362,7 +4573,11 @@ function escapeHtml(s) {
   var maybeShowPush = __M.maybeShowPush;
   var maybeRunTutorial = __M.maybeRunTutorial;
   var showConcept = __M.showConcept;
+  var attachModal = __M.attachModal;
+  var openGlossary = __M.openGlossary;
 // main.js — Einstieg, Routing, Orchestrierung aller Module.
+
+
 
 
 
@@ -4557,6 +4772,7 @@ function bindGlobal() {
       document.querySelectorAll('.navbtn').forEach(x => x.classList.remove('active'));
       b.classList.add('active');
       const view = b.dataset.view;
+      document.getElementById('feed-root')?.classList.remove('dm-mode');
       if (view === 'dms') {
         openDmInbox();
       } else {
@@ -4597,6 +4813,10 @@ function bindGlobal() {
   // Bot-Minigame jederzeit wiederholbar
   const mgBtn = document.getElementById('btn-minigame');
   if (mgBtn) mgBtn.onclick = () => { showScreen('screen-main'); openBotMinigame(); };
+
+  // Glossar
+  const gloBtn = document.getElementById('btn-glossary');
+  if (gloBtn) gloBtn.onclick = () => { showScreen('screen-main'); openGlossary(); };
 
   // Wochen-Sprung für Lehrkraft
   const jumpBtn = document.getElementById('btn-jump-week');
@@ -4775,6 +4995,7 @@ function updateDmBadge() {
 
 function openDmInbox() {
   const root = document.getElementById('feed-root');
+  root.classList.remove('dm-mode');
   root.innerHTML = '';
   const wrap = document.createElement('div');
   wrap.className = 'dm-inbox';
@@ -4786,11 +5007,14 @@ function openDmInbox() {
   renderDmList(wrap.querySelector('#dm-list-root'), async (thread) => {
     SFX.swipe();
     const root2 = document.getElementById('feed-root');
+    root2.classList.add('dm-mode');
     root2.innerHTML = '';
     const w2 = document.createElement('div');
     w2.className = 'dm-thread-wrap';
     root2.appendChild(w2);
     await renderDmThread(w2, thread, () => {
+      const r = document.getElementById('feed-root');
+      r.classList.remove('dm-mode');
       openDmInbox();
       updateDmBadge();
     });
@@ -4803,8 +5027,6 @@ function openStory(story) {
   const c = getCharacter(story.author);
   const overlay = document.createElement('div');
   overlay.className = 'tw-overlay story-overlay';
-  overlay.setAttribute('role', 'dialog');
-  overlay.setAttribute('aria-modal', 'true');
   overlay.innerHTML = `
     <div class="story-box">
       <div class="story-bar"><div class="story-bar-fill"></div></div>
@@ -4821,48 +5043,60 @@ function openStory(story) {
     </div>
   `;
   document.body.appendChild(overlay);
-  const close = () => {
-    overlay.remove();
-    document.removeEventListener('keydown', onKey);
-    clearTimeout(autoClose);
-  };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
-  document.addEventListener('keydown', onKey);
-  overlay.addEventListener('click', e => { if (e.target === overlay || e.target.classList.contains('story-close')) close(); });
-  const autoClose = setTimeout(close, 5000);
+  // Pause-on-Touch: solange Pointer/Tap auf der Story ist, läuft der
+  // Fortschrittsbalken nicht weiter. So verpasst niemand den Inhalt.
+  const bar = overlay.querySelector('.story-bar-fill');
+  let pausedAt = null;
+  let consumed = 0;
+  const DURATION = 5000;
+  let raf = null;
+  function tick(ts) {
+    if (pausedAt) { raf = requestAnimationFrame(tick); return; }
+    consumed += 16.7;
+    const ratio = Math.min(1, consumed / DURATION);
+    if (bar) bar.style.width = (ratio * 100) + '%';
+    if (ratio >= 1) { handle.close(); return; }
+    raf = requestAnimationFrame(tick);
+  }
+  raf = requestAnimationFrame(tick);
+  const onDown = () => { pausedAt = Date.now(); };
+  const onUp = () => { pausedAt = null; };
+  overlay.addEventListener('pointerdown', onDown);
+  overlay.addEventListener('pointerup', onUp);
+  overlay.addEventListener('pointerleave', onUp);
+  const handle = attachModal(overlay, {
+    onClose: () => {
+      cancelAnimationFrame(raf);
+      overlay.removeEventListener('pointerdown', onDown);
+      overlay.removeEventListener('pointerup', onUp);
+      overlay.removeEventListener('pointerleave', onUp);
+    }
+  });
+  overlay.querySelector('.story-close').onclick = () => handle.close();
 }
 
 function openMap() {
   SFX.swipe();
   const overlay = document.createElement('div');
   overlay.className = 'tw-overlay';
-  overlay.setAttribute('role', 'dialog');
-  overlay.setAttribute('aria-modal', 'true');
   const box = document.createElement('div');
   box.className = 'tw-box big';
   overlay.appendChild(box);
   document.body.appendChild(overlay);
-  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
-  document.addEventListener('keydown', onKey);
-  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
-  renderMap(box, close);
+  const handle = attachModal(overlay);
+  renderMap(box, () => handle.close());
 }
 
 function openClassCompare() {
   SFX.swipe();
   const overlay = document.createElement('div');
   overlay.className = 'tw-overlay';
-  overlay.setAttribute('role', 'dialog');
-  overlay.setAttribute('aria-modal', 'true');
   const box = document.createElement('div');
   box.className = 'tw-box big';
   overlay.appendChild(box);
   document.body.appendChild(overlay);
-  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
-  document.addEventListener('keydown', onKey);
-  renderClassCompare(box, close);
+  const handle = attachModal(overlay);
+  renderClassCompare(box, () => handle.close());
 }
 
 function applyTheme(theme) {
@@ -4901,10 +5135,8 @@ function openBotMinigame() {
   box.className = 'tw-box big';
   overlay.appendChild(box);
   document.body.appendChild(overlay);
-  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
-  document.addEventListener('keydown', onKey);
-  runMinigame(box, close);
+  const handle = attachModal(overlay);
+  runMinigame(box, () => handle.close());
 }
 
 function maybeUnlockForWeek() {
@@ -4974,7 +5206,10 @@ function showWeekendCard(weekNum, eventResults, badges) {
     <div class="stat"><div class="num">${(d.userProfile.political_lean_estimated).toFixed(2)}</div><div class="lbl">Lean</div><div class="delta">${leanDelta>=0?'+':''}${leanDelta.toFixed(2)}</div></div>
   `;
 
-  let storyHtml = '';
+  // Highlight der Woche — ein knapper Satz, der eine markante Bewegung
+  // hervorhebt. Sehr knapp, damit es nicht mit den Events konkurriert.
+  const highlight = weekHighlight(d, eventResults, badges, prev, now, leanDelta, followedDelta);
+  let storyHtml = highlight ? `<div class="week-highlight"><span class="kicker">Highlight</span><span>${escapeHtml(highlight)}</span></div>` : '';
   // Events
   for (const r of eventResults) {
     const e = r.event, res = r.result;
@@ -5077,6 +5312,11 @@ function advanceWeek() {
   if (pendingReflection) {
     openReflection(pendingReflection);
     return;
+  }
+  // Direkt nach dem ersten Shitstorm einen Mikro-Reflexions-Moment anbieten.
+  const hadShitstorm = (Store.data.shitstormHistory || []).length > 0;
+  if (hadShitstorm && !Store.data.microReflections?.first_shitstorm) {
+    setTimeout(() => maybeQueueMicroReflection('first_shitstorm'), 400);
   }
   enterMain();
 }
@@ -5207,6 +5447,28 @@ function dynamicCharacterOverlay(id, base) {
   if (id === 'char_mira') {
     if ((arcs.mira_close || 0) >= 0.4) return { bio: 'Klima-Aktivistin · danke an alle, die zuhören.' };
     if ((arcs.mira_close || 0) <= -0.2) return { bio: 'Klima-Aktivistin. DMs vorerst zu.' };
+  }
+  return null;
+}
+
+function weekHighlight(d, eventResults, badges, prev, now, leanDelta, followedDelta) {
+  for (const r of eventResults) {
+    if (r.result?.kind === 'shitstorm') return 'Einer deiner Posts ist viral gegangen.';
+    if (r.result?.kind === 'deepfake') return 'Ein Deepfake hat dein Greifshafen aufgewirbelt.';
+    if (r.result?.kind === 'invite') return 'Du hast eine neue Gilden-Einladung bekommen.';
+    if (r.result?.kind === 'election_vote') return 'Wahltag — dein Feed hat dir eine ganz bestimmte Version gezeigt.';
+  }
+  if (badges?.length) return `Neues Abzeichen: ${badges[0]}.`;
+  if (Math.abs(leanDelta) > 0.08) {
+    return leanDelta > 0
+      ? 'Deine politische Position ist diese Woche sichtbar nach rechts gerutscht.'
+      : 'Deine politische Position ist diese Woche sichtbar nach links gerutscht.';
+  }
+  if (followedDelta >= 3) return `Du folgst jetzt ${followedDelta} neuen Accounts.`;
+  const prevTop = Object.entries(prev?.interests || {}).sort((a,b)=>b[1]-a[1])[0]?.[0];
+  const nowTop  = Object.entries(now?.interests  || {}).sort((a,b)=>b[1]-a[1])[0]?.[0];
+  if (prevTop && nowTop && prevTop !== nowTop) {
+    return `Dein Top-Thema hat sich von „${tagLabel(prevTop)}" auf „${tagLabel(nowTop)}" verschoben.`;
   }
   return null;
 }
@@ -5402,12 +5664,14 @@ function showElectionResult() {
         const obj = Math.round(p.share * 100);
         const per = Math.round((pc?.perceived || 0) * 100);
         const diff = per - obj;
+        const arrow = diff > 0 ? '↑' : diff < 0 ? '↓' : '→';
+        const diffLabel = diff > 0 ? 'mehr im Feed' : diff < 0 ? 'weniger im Feed' : 'gleich';
         return `
           <div class="election-row">
             <div class="party-label" style="color:${col}">${escapeHtml(p.name)}</div>
             <div class="bar-pair">
               <div class="bar"><div class="fill" style="width:${obj}%;background:${col};opacity:0.55"></div><span class="bar-val">${obj}%</span></div>
-              <div class="bar"><div class="fill" style="width:${per}%;background:${col}"></div><span class="bar-val">${per}% <em class="diff ${diff>=0?'pos':'neg'}">${diff>=0?'+':''}${diff}</em></span></div>
+              <div class="bar"><div class="fill" style="width:${per}%;background:${col}"></div><span class="bar-val">${per}% <em class="diff ${diff>=0?'pos':'neg'}" aria-label="${escapeHtml(diffLabel)}"><span aria-hidden="true">${arrow}</span> ${diff>=0?'+':''}${diff}</em></span></div>
             </div>
           </div>`;
       }).join('')}

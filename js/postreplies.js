@@ -140,3 +140,14 @@ export function getRepliesForInbox() {
   out.sort((a, b) => b.week - a.week);
   return out;
 }
+
+// Antworten, die zu einem konkreten eigenen Post gehören (über `op.week_ts`).
+// Wird beim Render des angepinnten eigenen Posts im Hauptfeed verwendet.
+export function getRepliesForOwnPost(op) {
+  if (!op) return [];
+  const key = `${op.week}_${op.ts || 0}`;
+  const entry = Store.data.ownPostReplies?.[key];
+  if (!entry) return [];
+  if (entry.week > Store.data.currentWeek) return [];
+  return entry.replies || [];
+}
