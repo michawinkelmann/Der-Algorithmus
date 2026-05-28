@@ -591,6 +591,16 @@
 .tutorial-tip p { margin: 0 0 10px; font-size: 14px; }
 .tutorial-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
 .tutorial-actions .btn-small { padding: 6px 12px; font-size: 13px; min-height: 32px; }
+.tutorial-close {
+  position: absolute; top: 4px; right: 4px;
+  background: transparent; border: 0;
+  color: var(--text-dim); font-size: 18px;
+  width: 28px; height: 28px;
+  cursor: pointer; border-radius: 50%;
+  display: grid; place-items: center;
+  line-height: 1;
+}
+.tutorial-close:hover { background: var(--bg-elev-2); color: var(--text); }
 
 /* ===== Konzept-Karte ===== */
 .concept-box {
