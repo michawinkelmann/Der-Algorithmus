@@ -99,6 +99,9 @@ async function boot() {
 
   bindGlobal();
 
+  // Subtilen Save-Indikator anzeigen, sobald Store auto-speichert.
+  Store.onSaved(() => showSaveIndicator());
+
   // Spielstand?
   if (Store.load()) {
     document.getElementById('btn-continue').hidden = false;
@@ -544,6 +547,32 @@ function openClassCompare() {
   renderClassCompare(box, () => handle.close());
 }
 
+// Save-Indikator: kleines, dezentes Häkchen unten links. Verschwindet
+// nach 1,2 s. Erscheint höchstens alle paar Sekunden, weil _notifySaved
+// debounced ist.
+let _saveIndicator = null;
+let _saveIndicatorHideAt = 0;
+function showSaveIndicator() {
+  // Während des Onboardings (kein Save-Indikator über dem Start-Screen).
+  const startActive = document.getElementById('screen-start')?.classList.contains('active');
+  if (startActive) return;
+  if (!_saveIndicator) {
+    _saveIndicator = document.createElement('div');
+    _saveIndicator.className = 'save-indicator';
+    _saveIndicator.setAttribute('role', 'status');
+    _saveIndicator.setAttribute('aria-live', 'polite');
+    _saveIndicator.innerHTML = '<span aria-hidden="true">✓</span> gespeichert';
+    document.body.appendChild(_saveIndicator);
+  }
+  _saveIndicator.classList.add('in');
+  _saveIndicatorHideAt = Date.now() + 1200;
+  setTimeout(() => {
+    if (Date.now() >= _saveIndicatorHideAt - 50 && _saveIndicator) {
+      _saveIndicator.classList.remove('in');
+    }
+  }, 1300);
+}
+
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
 }
@@ -655,6 +684,15 @@ function showWeekendCard(weekNum, eventResults, badges) {
   // hervorhebt. Sehr knapp, damit es nicht mit den Events konkurriert.
   const highlight = weekHighlight(d, eventResults, badges, prev, now, leanDelta, followedDelta);
   let storyHtml = highlight ? `<div class="week-highlight"><span class="kicker">Highlight</span><span>${escapeHtml(highlight)}</span></div>` : '';
+
+  // NPC-Aktivitäts-Bulletin: simulierte, aber konsistente Stadt-Bewegungen.
+  const buzz = npcBuzzFor(weekNum);
+  if (buzz.length) {
+    storyHtml += `<div class="npc-buzz">
+      <div class="kicker muted small">In deiner Streem-Stadt diese Woche:</div>
+      <ul>${buzz.map(b => `<li>${escapeHtml(b)}</li>`).join('')}</ul>
+    </div>`;
+  }
   // Events
   for (const r of eventResults) {
     const e = r.event, res = r.result;
@@ -896,6 +934,43 @@ function dynamicCharacterOverlay(id, base) {
   return null;
 }
 
+// NPC-Buzz: kleine fiktive Stadt-Mikro-Bewegungen pro Woche. Zeigt, dass die
+// Welt um den User herum aktiv ist — auch ohne dass er etwas tut.
+// Deterministisch aus Woche + Seed, damit es nicht zufällig springt.
+const BUZZ_POOL = [
+  'Lea hat Mira\'s Klima-Post geteilt.',
+  'Finn hat in einem Stream stundenlang Patches kommentiert.',
+  'Mira hat eine Demo angekündigt — Fleetplatz, Samstag.',
+  'Tariq hat in einem Faden eine Studie korrigiert.',
+  'Sara hat ein neues Roboter-Video hochgeladen.',
+  'Marc Stay-Based hat einen Live-Stream gemacht — 4 800 Zuschauer:innen.',
+  'Jule hat ihre Playlist „Greifshafener Spätsommer" gepostet.',
+  'Lara Weiss wurde heute morgen in einer Talkshow zitiert.',
+  'Noah hat einen langen Faden zur Mitte gepostet — kaum Likes.',
+  'Streem Kuratiert hat ein neues Feature angeteasert — keiner weiß was.',
+  'Benedikt Schmitt hat 800 neue Follower bekommen — alle in dieser Woche.',
+  'Moritz hat einen Trainingspartner gesucht. Drei Antworten.',
+  'Ana hat aus Berlin gepostet, ohne zu sagen warum sie dort ist.',
+  'Nele empfiehlt ein Buch — kein Klick auf den Affiliate-Link.',
+  'truecrime.de hat einen alten Fall wieder ausgegraben.'
+];
+
+function npcBuzzFor(weekNum) {
+  const seed = (Store.data.random_seed || 1) ^ (weekNum * 2654435761);
+  const used = new Set();
+  const out = [];
+  let x = seed >>> 0;
+  while (out.length < 2 && used.size < BUZZ_POOL.length) {
+    x = (x * 16807 + 1) >>> 0;
+    const idx = x % BUZZ_POOL.length;
+    if (!used.has(idx)) {
+      used.add(idx);
+      out.push(BUZZ_POOL[idx]);
+    }
+  }
+  return out;
+}
+
 function weekHighlight(d, eventResults, badges, prev, now, leanDelta, followedDelta) {
   for (const r of eventResults) {
     if (r.result?.kind === 'shitstorm') return 'Einer deiner Posts ist viral gegangen.';
@@ -1032,20 +1107,69 @@ const PARTY_COLORS = {
   sonst:     '#94a3b8'
 };
 
+// Kurze, fiktive Parteiprogramme — bewusst klischeehaft, damit SuS die Muster
+// erkennen, nicht echte Parteien meinen.
+const PARTY_PROGRAMS = {
+  p_zukunft: {
+    headline: 'Klimaschutz, Bildung, Sozialwohnungen.',
+    bullets: [
+      'CO₂-neutraler ÖPNV bis 2030',
+      '50 % mehr Sozialwohnungen am Westhafen',
+      'Schulen modernisieren, mehr Lehrkräfte einstellen',
+      'Bürger:innen-Räte als ständiges Mitspracheformat'
+    ]
+  },
+  p_buerger: {
+    headline: 'Pragmatisch, transparent, ohne Lagerdenken.',
+    bullets: [
+      'Kommunalhaushalt offen einsehbar',
+      'Wirtschaftsförderung für lokale Betriebe',
+      'Bestehende Schulen sanieren statt neu bauen',
+      'Mehr Polizei in der Altstadt, mehr Sozialarbeit'
+    ]
+  },
+  p_alt: {
+    headline: 'Endlich zuhören — was die Bürger:innen wirklich wollen.',
+    bullets: [
+      'Senkung der Grundsteuer für Hauseigentümer',
+      'Mehr Kontrollen am Hafen',
+      'Stadtfeste nur noch traditionell ausrichten',
+      'Migration begrenzen, „klare Linie"'
+    ]
+  },
+  p_heimat: {
+    headline: 'Unsere Stadt, unsere Regeln.',
+    bullets: [
+      'Abschiebungen beschleunigen',
+      '„Echte Greifshafener" zuerst bei Wohnungsvergabe',
+      'Schulplan: weniger „bunte Themen", mehr Heimat',
+      'Bürgerwehr im Hafenviertel'
+    ]
+  }
+};
+
 function openElection() {
   const parties = [...getParties()].sort((a, b) => (a.lean ?? 0) - (b.lean ?? 0));
   const body = document.getElementById('election-body');
   body.innerHTML = `
-    <p class="muted">Wen willst du wählen? Die Parteien — sortiert von links nach rechts, wie sie dir im Feed begegnet sind:</p>
+    <p class="muted">Wen willst du wählen? Die Parteien — sortiert von links nach rechts, wie sie dir im Feed begegnet sind. Klick „Programm" für die Kernpunkte.</p>
     <div class="party-grid">
       ${parties.map(p => {
         const cov = estimateCoverageFor(p);
         const col = PARTY_COLORS[p.id] || '#888';
+        const prog = PARTY_PROGRAMS[p.id];
         return `
         <div class="party-card" style="border-left:4px solid ${col}">
           <div class="name" style="color:${col}">${escapeHtml(p.name)}</div>
           <div class="slogan">„${escapeHtml(p.slogan)}"</div>
           <div class="coverage">In deinem Feed: <span class="cov cov-${cov.level}">${escapeHtml(cov.text)}</span></div>
+          ${prog ? `<details class="party-program">
+            <summary>Programm</summary>
+            <div class="party-program-body">
+              <strong>${escapeHtml(prog.headline)}</strong>
+              <ul>${prog.bullets.map(b => `<li>${escapeHtml(b)}</li>`).join('')}</ul>
+            </div>
+          </details>` : ''}
           <div class="party-vote-bar">
             <button class="btn btn-primary" data-vote="${p.id}">Für ${escapeHtml(p.name)} stimmen</button>
           </div>
@@ -1265,11 +1389,29 @@ function exportReport() {
   ul.interests li { display: inline-block; background: #eef; padding: 2px 8px; border-radius: 10px; margin: 2px; font-size: 13px; }
   .profile-bio { font-style: italic; color: #555; border-left: 3px solid #c026d3; padding: 6px 12px; margin: 1rem 0; background: #faf7fb; }
   ol.disc li { margin: .8rem 0; font-size: 14px; }
+  .teacher-aside { background: #fffbe6; border: 1px solid #f0c060; border-radius: 8px; padding: 14px; margin: 1.5rem 0; }
+  .teacher-aside strong { display: block; color: #92520a; margin-bottom: 8px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .teacher-aside ol { margin: .5rem 0 .8rem 1.2rem; padding: 0; }
+  .teacher-aside ol li { margin: .3rem 0; font-size: 14px; }
+  @media print { .teacher-aside { page-break-inside: avoid; } }
 </style></head>
 <body>
   <h1>Streem-Bericht</h1>
   <p class="meta"><strong>${escapeHtml(c.name)}</strong>${c.pronoun && c.pronoun !== 'keine' ? ' · ' + escapeHtml(c.pronoun) : ''} · ${escapeHtml(c.city || '')} · Protagonist:in: ${escapeHtml(c.protagonist || 'alex')}<br/>Stand: Woche ${d.currentWeek} · erstellt ${new Date().toLocaleString('de-DE')}</p>
   ${c.bio ? `<blockquote class="profile-bio">${escapeHtml(c.bio)}</blockquote>` : ''}
+
+  <aside class="teacher-aside">
+    <strong>Für die Lehrkraft</strong>
+    <p>Dieses Dokument zeigt einen Spielverlauf — gedacht für die Reflexionsphase im Anschluss. Vorschlag für 45 Minuten:</p>
+    <ol>
+      <li>5 Min: SuS überfliegen ihren eigenen Bericht (besonders Mikro-Reflexionen, Lesezeichen, Ending).</li>
+      <li>10 Min: In Kleingruppen ein Lesezeichen vorstellen — warum genau dieses?</li>
+      <li>15 Min: Im Plenum eine der „Diskussionsfragen für die Klasse" unten am Dokument.</li>
+      <li>10 Min: Manifest-Sätze laut vorlesen, Konsens und Dissens markieren.</li>
+      <li>5 Min: Anlaufstellen kurz vorstellen — bei wem würden SuS sich melden, wenn etwas eskaliert?</li>
+    </ol>
+    <p class="muted small">Bei mehreren Berichten: „Klassen-Vergleich" in der App nutzen (Saves aller SuS als JSON sammeln → eine HTML-Übersicht mit Entscheidungs-Diffs und geteilten Lesezeichen).</p>
+  </aside>
 
   <h2>Übersicht</h2>
   <div class="stats">

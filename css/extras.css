@@ -1053,3 +1053,123 @@ html[data-theme="light"] .pathway-node.radical { background: rgba(202, 138, 4, 0
   font-size: 14px;
 }
 .missed-emoji { font-size: 24px; text-align: center; }
+
+/* ===== Hätte ich anders entschieden? (Wrapped) ===== */
+.whatif-grid { display: flex; flex-direction: column; gap: 14px; max-width: 760px; margin: 14px auto; }
+.whatif-pivot {
+  background: rgba(0,0,0,0.25);
+  border-radius: var(--radius);
+  padding: 12px;
+  text-align: left;
+}
+.whatif-pivot-q { font-weight: 600; margin-bottom: 8px; font-size: 14px; }
+.whatif-row {
+  display: grid; grid-template-columns: 1fr; gap: 8px;
+}
+@media (min-width: 720px) {
+  .whatif-row { grid-template-columns: 1fr 1fr 1fr; }
+}
+.whatif-cell {
+  background: var(--bg-elev);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  border: 1px solid var(--line);
+}
+.whatif-cell.chosen { border-color: var(--accent); background: linear-gradient(180deg, rgba(255,46,136,0.12), var(--bg-elev)); }
+.whatif-cell.alt.diff { border-color: var(--accent-2); }
+.whatif-cell.alt.same { opacity: 0.55; }
+.whatif-cell-tag { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+.whatif-cell.chosen .whatif-cell-tag { color: var(--accent); }
+.whatif-cell.alt.diff .whatif-cell-tag { color: var(--accent-2); }
+.whatif-cell-label { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.whatif-cell-ending { font-size: 13px; }
+
+/* ===== Beat-Map (Wrapped) ===== */
+.beat-map {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(38px, 1fr));
+  gap: 4px; max-width: 760px; margin: 18px auto;
+}
+.beat-cell {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border-radius: 6px;
+  padding: 6px 4px;
+  min-height: 50px;
+  display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+  color: #fff;
+  font-size: 10px;
+  transition: transform 120ms ease;
+}
+.beat-cell:hover { transform: scale(1.05); }
+.beat-num { font-weight: 700; }
+.beat-icons { font-size: 11px; }
+
+/* ===== NPC-Buzz (Wochenend-Karte) ===== */
+.npc-buzz {
+  background: var(--bg-elev-2);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin: 10px 0;
+  font-size: 13px;
+  border-left: 3px solid var(--accent-2);
+}
+.npc-buzz .kicker { display: block; margin-bottom: 4px; }
+.npc-buzz ul { margin: 0; padding-left: 18px; }
+.npc-buzz li { margin: 3px 0; color: var(--text); }
+
+/* ===== Wahlprogramm-Details ===== */
+.party-program {
+  margin: 8px 0 4px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.party-program > summary {
+  cursor: pointer; padding: 8px 12px;
+  font-size: 13px; font-weight: 600;
+  list-style: none;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.party-program > summary::-webkit-details-marker { display: none; }
+.party-program > summary::after { content: '▾'; color: var(--text-dim); transition: transform 200ms ease; }
+.party-program[open] > summary::after { transform: rotate(180deg); }
+.party-program-body { padding: 0 12px 12px; font-size: 13px; }
+.party-program-body strong { display: block; margin-bottom: 6px; color: var(--text); }
+.party-program-body ul { margin: 0; padding-left: 18px; }
+.party-program-body li { margin: 3px 0; color: var(--text-dim); }
+
+/* ===== Glossar-Inline-Links in Konzept-Karten ===== */
+.glossary-link {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px dashed var(--accent-2);
+  color: var(--accent-2);
+  cursor: pointer;
+  font: inherit;
+  padding: 0 2px;
+  font-weight: 600;
+}
+.glossary-link:hover { background: rgba(34,211,238,0.1); border-radius: 3px; }
+
+/* ===== Auto-Save-Indikator ===== */
+.save-indicator {
+  position: fixed;
+  left: 12px;
+  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 45;
+  transition: opacity 200ms ease;
+  display: flex; align-items: center; gap: 6px;
+}
+.save-indicator.in { opacity: 0.85; }
+.save-indicator span[aria-hidden] { color: var(--ok); font-weight: 700; }
+html[data-theme="light"] .save-indicator {
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--text);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+}
