@@ -18,7 +18,7 @@ import { maybeShowPush } from './push.js';
 import { maybeRunTutorial, forceRunTutorial } from './tutorial.js';
 import { showConcept, listConcepts } from './concepts.js';
 import { attachModal } from './modals.js';
-import { openGlossary } from './glossary.js';
+import { openGlossary, listGlossaryTerms } from './glossary.js';
 import { maybeShowPreQuiz, showPostQuiz, buildSelfcheckCompareHtml } from './selfcheck.js';
 import { openWahlomat } from './wahlomat.js';
 import { runFactcheck } from './factcheck.js';
@@ -146,6 +146,7 @@ function maybeShowTeacherBanner() {
 // ===== Start-Actions ======
 function bindGlobal() {
   document.getElementById('btn-new-game').onclick = () => openIntro();
+  document.getElementById('btn-quick-start')?.addEventListener('click', quickStart);
   document.getElementById('btn-continue').onclick = () => enterMain();
   document.getElementById('btn-about').onclick = () => showScreen('screen-about');
   document.getElementById('btn-about-close').onclick = () => showScreen('screen-start');
@@ -188,6 +189,46 @@ function bindGlobal() {
     const blob = new Blob([Store.exportJson()], { type: 'application/json' });
     downloadBlob(blob, 'streem-save.json');
   };
+  const importBtn = document.getElementById('btn-save-import');
+  const importInput = document.getElementById('save-import-input');
+  if (importBtn && importInput) {
+    importBtn.onclick = () => importInput.click();
+    importInput.onchange = async () => {
+      const file = importInput.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const ok = Store.importJson(text);
+        if (ok) {
+          toast('Spielstand importiert. Lade neu …', { long: true });
+          setTimeout(() => location.reload(), 800);
+        } else {
+          alert('Konnte den Spielstand nicht lesen. Ist es ein Streem-JSON?');
+        }
+      } catch (e) {
+        alert('Fehler beim Lesen: ' + (e.message || 'unbekannt'));
+      }
+      importInput.value = '';
+    };
+  }
+  const restoreBtn = document.getElementById('btn-restore-backup');
+  if (restoreBtn) {
+    const info = Store.getBackupInfo();
+    if (!info) restoreBtn.hidden = true;
+    restoreBtn.onclick = () => {
+      const info2 = Store.getBackupInfo();
+      if (!info2) { alert('Kein Backup vorhanden.'); return; }
+      const dateStr = new Date(info2.ts).toLocaleString('de-DE');
+      if (confirm(`Backup vom ${dateStr} wiederherstellen? Der aktuelle Spielstand wird überschrieben.`)) {
+        if (Store.restoreBackup()) {
+          toast('Backup wiederhergestellt. Lade neu …', { long: true });
+          setTimeout(() => location.reload(), 800);
+        } else {
+          alert('Wiederherstellen fehlgeschlagen.');
+        }
+      }
+    };
+  }
   const reportBtn = document.getElementById('btn-export-report');
   if (reportBtn) reportBtn.onclick = exportReport;
   const csvBtn = document.getElementById('btn-export-csv');
@@ -399,6 +440,35 @@ function buildIntroForm() {
 }
 
 function openIntro() { showScreen('screen-intro'); }
+
+// Quick-Start: 3-Klick-Spielstart mit Defaults. Für SuS, die ohne Detail
+// einsteigen wollen, und für Lehrkräfte beim Demo-Einsatz.
+function quickStart() {
+  const protagonists = DATA.protagonists?.protagonists || [];
+  const pro = protagonists.find(p => p.id === 'alex') || protagonists[0];
+  if (!pro) { openIntro(); return; }
+  const interests = pro.start_interests || ['lifestyle', 'humor'];
+  // Zufälligen Avatar aus den 12 wählen, damit nicht jeder Schnellstart gleich aussieht.
+  const avatar = Math.floor(Math.random() * 12);
+  Store.start({
+    name: pro.name || 'Alex',
+    pronoun: 'sie/ihr',
+    avatar,
+    interests_initial: interests,
+    city: 'Greifshafen',
+    bio: '',
+    protagonist: pro.id
+  });
+  if (typeof pro.start_lean === 'number') {
+    Store.data.userProfile.political_lean_estimated = pro.start_lean;
+    Store.data.initialProfileSnapshot = structuredClone(Store.data.userProfile);
+    Store.save();
+  }
+  maybeShowPreQuiz(() => {
+    enterMain();
+    toast('Schnellstart — du spielst Alex.', { long: true });
+  });
+}
 
 function startGame() {
   const name = document.getElementById('inp-name').value.trim() || 'Alex';
@@ -1503,6 +1573,53 @@ function openProfileModal() {
       <div class="stat"><div class="num">${Store.data.ownPosts.length}</div><div class="lbl">Posts</div></div>
       <div class="stat"><div class="num">${Store.data.badges.length}</div><div class="lbl">Badges</div></div>
     </div>
+    ${(() => {
+      // Quick-Stats: kompakte Wochen-Deltas der letzten 3 Wochen.
+      const hist = Store.data.history || [];
+      if (hist.length < 1) return '';
+      const recent = hist.slice(-3);
+      return `
+      <details class="profile-quickstats">
+        <summary>Letzte ${recent.length} Woche${recent.length === 1 ? '' : 'n'}</summary>
+        <div class="quickstats-list">
+          ${recent.map((h, i) => {
+            const acts = (h.actions || []).length;
+            const lean = h.profileSnapshot?.political_lean_estimated || 0;
+            const prev = i === 0 ? (hist[hist.length - recent.length - 1]?.profileSnapshot?.political_lean_estimated || 0) : (recent[i-1].profileSnapshot?.political_lean_estimated || 0);
+            const dLean = lean - prev;
+            const arrow = dLean > 0.05 ? '↑' : dLean < -0.05 ? '↓' : '→';
+            return `<div class="quickstats-row">
+              <span class="quickstats-week">W${h.week}</span>
+              <span class="quickstats-stat">${acts} Aktionen</span>
+              <span class="quickstats-stat">Lean ${lean.toFixed(2)} <span class="muted small">${arrow}</span></span>
+            </div>`;
+          }).join('')}
+        </div>
+      </details>`;
+    })()}
+    ${(() => {
+      const all = (DATA.stories?.stories || []);
+      const viewed = Object.keys(Store.data.storiesViewed || {});
+      const seenStories = all.filter(s => viewed.includes(s.id) && s.week <= Store.data.currentWeek);
+      if (!seenStories.length) return '';
+      return `
+      <details class="profile-stories">
+        <summary>Stories-Archiv <span class="muted small">(${seenStories.length})</span></summary>
+        <div class="profile-stories-list">
+          ${seenStories.map(s => {
+            const c = getCharacter(s.author);
+            return `<button type="button" class="profile-story-item" data-story-id="${s.id}">
+              <span class="profile-story-emoji">${s.emoji || '·'}</span>
+              <span class="profile-story-meta">
+                <strong>${escapeHtml(c?.name || s.author)}</strong>
+                <span class="muted small">W${s.week}</span>
+              </span>
+              <span class="profile-story-text">${escapeHtml(truncate(s.text, 50))}</span>
+            </button>`;
+          }).join('')}
+        </div>
+      </details>`;
+    })()}
     <details class="profile-badges">
       <summary>Alle Abzeichen <span class="muted small">(${Store.data.badges.length}/${ACHIEVEMENTS_CATALOG.length})</span></summary>
       <div class="badges-grid">
@@ -1545,7 +1662,16 @@ function openProfileModal() {
   document.addEventListener('keydown', onKey);
   body.querySelector('#profile-close').onclick = close;
   body.querySelector('#profile-edit-btn').onclick = () => { close(); openProfileEdit(); };
+  body.querySelectorAll('.profile-story-item').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.storyId;
+      const story = (DATA.stories?.stories || []).find(s => s.id === id);
+      if (story) { close(); openStory(story); }
+    };
+  });
 }
+
+function truncate(s, n) { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
 
 function openProfileEdit() {
   const c = Store.data.character;
@@ -1692,6 +1818,8 @@ function exportReport() {
   ul.interests li { display: inline-block; background: #eef; padding: 2px 8px; border-radius: 10px; margin: 2px; font-size: 13px; }
   .profile-bio { font-style: italic; color: #555; border-left: 3px solid #c026d3; padding: 6px 12px; margin: 1rem 0; background: #faf7fb; }
   ol.disc li { margin: .8rem 0; font-size: 14px; }
+  dl.glossary-print dt { font-weight: 700; color: #4338ca; margin-top: 8px; }
+  dl.glossary-print dd { margin: 4px 0 8px 0; font-size: 13px; line-height: 1.5; }
   .teacher-aside { background: #fffbe6; border: 1px solid #f0c060; border-radius: 8px; padding: 14px; margin: 1.5rem 0; }
   .teacher-aside strong { display: block; color: #92520a; margin-bottom: 8px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; }
   .teacher-aside ol { margin: .5rem 0 .8rem 1.2rem; padding: 0; }
@@ -1797,6 +1925,12 @@ function exportReport() {
   <ol class="disc">
     ${buildContextualDiscussionQuestions(d).map(q => `<li>${escapeHtml(q)}</li>`).join('')}
   </ol>
+
+  <h2>Glossar</h2>
+  <p class="muted">Begriffe, die im Spiel und in der Reflexion auftauchen. Druckbar als Handout.</p>
+  <dl class="glossary-print">
+    ${listGlossaryTerms().map(t => `<dt>${escapeHtml(t.term)}</dt><dd>${escapeHtml(t.text)}</dd>`).join('')}
+  </dl>
 
   <div class="foot">
     Erstellt mit dem Lernspiel „Der Algorithmus". Dokument zur Vorlage in der Projektwoche.<br/>

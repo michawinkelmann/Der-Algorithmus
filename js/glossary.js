@@ -79,6 +79,10 @@ const TERMS = [
   }
 ];
 
+export function listGlossaryTerms() {
+  return TERMS.map(t => ({ term: t.term, text: t.text }));
+}
+
 export function openGlossary(initialTerm = '') {
   const overlay = document.createElement('div');
   overlay.className = 'tw-overlay';
