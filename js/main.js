@@ -9,8 +9,6 @@ import { initSandbox, renderSandbox } from './sandbox.js';
 import { explainPost } from './algorithm.js';
 import { initDms, renderDmList, renderDmThread, unreadCount as dmUnread } from './dms.js';
 import { initPlaces, renderMap } from './places.js';
-import { runMinigame } from './minigame.js';
-import { renderClassCompare } from './classcompare.js';
 import { SFX, setSoundEnabled, setSoundVolume } from './sound.js';
 import { maybeQueueMicroReflection } from './microreflect.js';
 import { generateRepliesForJustEndedWeek } from './postreplies.js';
@@ -20,11 +18,46 @@ import { showConcept, listConcepts } from './concepts.js';
 import { attachModal } from './modals.js';
 import { openGlossary, listGlossaryTerms } from './glossary.js';
 import { maybeShowPreQuiz, showPostQuiz, buildSelfcheckCompareHtml } from './selfcheck.js';
-import { openWahlomat } from './wahlomat.js';
-import { runFactcheck } from './factcheck.js';
-import { runHeadline } from './headline.js';
-import { runGlossquiz } from './glossquiz.js';
 import { setTtsEnabled, isSupported as ttsSupported, speak as ttsSpeak } from './tts.js';
+
+// Lazy-loaded modules — werden erst nachgeladen, wenn ein User sie öffnet.
+// Spart ~60 KB beim ersten Startup. Resolves zu window.__M nach dem ersten
+// erfolgreichen Skript-Tag-Load.
+let _lazyPromise = null;
+function ensureLazyBundle() {
+  if (window.__lazyLoaded) return Promise.resolve();
+  if (_lazyPromise) return _lazyPromise;
+  _lazyPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-streem-lazy]');
+    if (existing) {
+      // Schon im Laden — auf onload warten.
+      existing.addEventListener('load', () => resolve());
+      existing.addEventListener('error', reject);
+      return;
+    }
+    const s = document.createElement('script');
+    s.src = 'js/app.lazy.bundle.js';
+    s.setAttribute('data-streem-lazy', '1');
+    s.onload = () => resolve();
+    s.onerror = () => {
+      _lazyPromise = null;
+      reject(new Error('Lazy-Bundle konnte nicht geladen werden.'));
+    };
+    document.head.appendChild(s);
+  });
+  return _lazyPromise;
+}
+
+// Erleichtert lazy-Modul-Zugriff: nach await sind die Funktionen auf
+// window.__M registriert.
+async function lazy(name) {
+  await ensureLazyBundle();
+  const fn = window.__M?.[name];
+  if (typeof fn !== 'function') {
+    throw new Error(`Lazy-Funktion „${name}" nicht gefunden.`);
+  }
+  return fn;
+}
 
 // ===== Daten-Bundle (statt fetch, damit file:// funktioniert) =====
 // Die JSONs werden zur Laufzeit geladen — funktioniert per fetch() auch bei file://
@@ -698,16 +731,23 @@ function openMap() {
   renderMap(box, () => handle.close());
 }
 
-function openClassCompare() {
+async function openClassCompare() {
   SFX.swipe();
   const overlay = document.createElement('div');
   overlay.className = 'tw-overlay';
   const box = document.createElement('div');
   box.className = 'tw-box big';
+  box.innerHTML = '<p class="muted small" style="text-align:center;padding:30px">Lade Klassen-Vergleich …</p>';
   overlay.appendChild(box);
   document.body.appendChild(overlay);
   const handle = attachModal(overlay);
-  renderClassCompare(box, () => handle.close());
+  try {
+    const renderClassCompare = await lazy('renderClassCompare');
+    renderClassCompare(box, () => handle.close());
+  } catch (e) {
+    box.innerHTML = `<p style="padding:20px">${escapeHtml(e.message)}</p><button class="btn btn-primary" id="lazy-err-close">Schließen</button>`;
+    box.querySelector('#lazy-err-close').onclick = () => handle.close();
+  }
 }
 
 // Save-Indikator: kleines, dezentes Häkchen unten links. Verschwindet
@@ -815,53 +855,28 @@ function openWeekJump() {
   toast(`Sprung zu W${target}.`, { long: true });
 }
 
-function openBotMinigame() {
+async function openMinigameOverlay(fnName) {
   SFX.swipe();
   const overlay = document.createElement('div');
   overlay.className = 'tw-overlay';
   const box = document.createElement('div');
   box.className = 'tw-box big';
+  box.innerHTML = '<p class="muted small" style="text-align:center;padding:30px">Lade Mini-Game …</p>';
   overlay.appendChild(box);
   document.body.appendChild(overlay);
   const handle = attachModal(overlay);
-  runMinigame(box, () => handle.close());
+  try {
+    const fn = await lazy(fnName);
+    fn(box, () => handle.close());
+  } catch (e) {
+    box.innerHTML = `<p style="padding:20px">${escapeHtml(e.message)}</p><button class="btn btn-primary" id="lazy-err-close">Schließen</button>`;
+    box.querySelector('#lazy-err-close').onclick = () => handle.close();
+  }
 }
-
-function openFactcheckMinigame() {
-  SFX.swipe();
-  const overlay = document.createElement('div');
-  overlay.className = 'tw-overlay';
-  const box = document.createElement('div');
-  box.className = 'tw-box big';
-  overlay.appendChild(box);
-  document.body.appendChild(overlay);
-  const handle = attachModal(overlay);
-  runFactcheck(box, () => handle.close());
-}
-
-function openHeadlineMinigame() {
-  SFX.swipe();
-  const overlay = document.createElement('div');
-  overlay.className = 'tw-overlay';
-  const box = document.createElement('div');
-  box.className = 'tw-box big';
-  overlay.appendChild(box);
-  document.body.appendChild(overlay);
-  const handle = attachModal(overlay);
-  runHeadline(box, () => handle.close());
-}
-
-function openGlossquizMinigame() {
-  SFX.swipe();
-  const overlay = document.createElement('div');
-  overlay.className = 'tw-overlay';
-  const box = document.createElement('div');
-  box.className = 'tw-box big';
-  overlay.appendChild(box);
-  document.body.appendChild(overlay);
-  const handle = attachModal(overlay);
-  runGlossquiz(box, () => handle.close());
-}
+function openBotMinigame()       { return openMinigameOverlay('runMinigame'); }
+function openFactcheckMinigame() { return openMinigameOverlay('runFactcheck'); }
+function openHeadlineMinigame()  { return openMinigameOverlay('runHeadline'); }
+function openGlossquizMinigame() { return openMinigameOverlay('runGlossquiz'); }
 
 function maybeUnlockForWeek() {
   const w = Store.data.currentWeek;
@@ -1480,7 +1495,12 @@ function openElection() {
     </div>
     <div id="election-result-slot"></div>
   `;
-  body.querySelector('#btn-open-wahlomat').onclick = () => openWahlomat();
+  body.querySelector('#btn-open-wahlomat').onclick = async () => {
+    try {
+      const fn = await lazy('openWahlomat');
+      fn();
+    } catch (e) { alert(e.message); }
+  };
   body.querySelectorAll('[data-vote]').forEach(b => {
     b.onclick = () => {
       Store.data.electionVote = b.dataset.vote;

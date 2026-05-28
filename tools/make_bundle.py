@@ -1,8 +1,12 @@
 """
-Baut einen file://-kompatiblen Bundle.
-- Liest data/*.json und schreibt data/data.bundle.js mit window.__DATA_*
-- Liest js/*.js (in richtiger Reihenfolge), parst import/export, wrappt jedes Modul
-  in eine eigene IIFE und verbindet sie via __M-Namespace, und schreibt js/app.bundle.js
+Baut zwei file://-kompatible Bundles:
+- data/data.bundle.js  → JSON-Daten als window.__DATA_* Variablen
+- js/app.bundle.js     → Core: alle Module, die beim Start gebraucht werden
+- js/app.lazy.bundle.js → Lazy: selten genutzte Module (Mini-Games,
+                          Klassen-Vergleich, Wahlomat), die nur bei Bedarf
+                          nachgeladen werden.
+Beide JS-Bundles teilen sich denselben __M-Namespace über window.__M.
+Das Lazy-Bundle setzt am Ende window.__lazyLoaded = true.
 """
 import json
 import re
@@ -12,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 JS_DIR = ROOT / "js"
 
-ORDER = [
+CORE_ORDER = [
     "state.js",
     "algorithm.js",
     "warnings.js",
@@ -34,13 +38,16 @@ ORDER = [
     "wrapped.js",
     "dms.js",
     "places.js",
+    "main.js",
+]
+
+LAZY_ORDER = [
     "minigame.js",
     "factcheck.js",
     "headline.js",
     "glossquiz.js",
     "classcompare.js",
     "wahlomat.js",
-    "main.js",
 ]
 
 
@@ -99,13 +106,14 @@ def strip_module_syntax(src: str) -> str:
     return src
 
 
-def build_app_bundle():
+def build_one_bundle(order, out_name, finalize_marker=None):
     out_parts = [
-        "// Auto-generated bundle. Regenerate with: python tools/make_bundle.py\n",
+        f"// Auto-generated bundle. Regenerate with: python tools/make_bundle.py\n",
         "(function(){\n",
-        "var __M = {};\n",
+        # Shared __M zwischen Core und Lazy: window.__M.
+        "var __M = window.__M = window.__M || {};\n",
     ]
-    for name in ORDER:
+    for name in order:
         path = JS_DIR / name
         src = path.read_text(encoding="utf-8")
         imports = parse_imports(src)
@@ -122,10 +130,17 @@ def build_app_bundle():
         for exp in exports:
             out_parts.append(f"\n  __M.{exp} = {exp};")
         out_parts.append("\n})();\n")
+    if finalize_marker:
+        out_parts.append(f"\nwindow.{finalize_marker} = true;\n")
     out_parts.append("\n})();\n")
-    out = JS_DIR / "app.bundle.js"
+    out = JS_DIR / out_name
     out.write_text("".join(out_parts), encoding="utf-8")
     print(f"wrote {out.relative_to(ROOT)}  ({out.stat().st_size} bytes)")
+
+
+def build_app_bundle():
+    build_one_bundle(CORE_ORDER, "app.bundle.js")
+    build_one_bundle(LAZY_ORDER, "app.lazy.bundle.js", finalize_marker="__lazyLoaded")
 
 
 if __name__ == "__main__":
