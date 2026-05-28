@@ -65,32 +65,49 @@ export function openGlossary() {
         <button class="btn btn-ghost btn-small" id="glossary-close">Schließen</button>
       </header>
       <p class="muted small">Kurze Definitionen der Begriffe, die in Streem vorkommen. Klicke einen Eintrag, um ihn aufzuklappen.</p>
-      <ul class="glossary-list">
-        ${TERMS.map((t, i) => `
-          <li>
-            <button class="glossary-term" data-i="${i}" aria-expanded="false">
-              <strong>${escapeHtml(t.term)}</strong>
-              <span class="glossary-chev" aria-hidden="true">+</span>
-            </button>
-            <div class="glossary-text" hidden>${escapeHtml(t.text)}</div>
-          </li>
-        `).join('')}
-      </ul>
+      <div class="glossary-search">
+        <input type="search" id="glossary-q" placeholder="Suchen … (z.B. „Bot", „Filterblase")" aria-label="Glossar durchsuchen" />
+      </div>
+      <ul class="glossary-list" id="glossary-list"></ul>
+      <p class="muted small glossary-empty" id="glossary-empty" hidden>Kein Eintrag passt zu deiner Suche.</p>
     </div>
   `;
   document.body.appendChild(overlay);
   const handle = attachModal(overlay);
   overlay.querySelector('#glossary-close').onclick = () => handle.close();
-  overlay.querySelectorAll('.glossary-term').forEach(b => {
-    b.onclick = () => {
-      const i = parseInt(b.dataset.i, 10);
-      const txt = overlay.querySelectorAll('.glossary-text')[i];
-      const open = txt.hidden;
-      txt.hidden = !open;
-      b.setAttribute('aria-expanded', open ? 'true' : 'false');
-      b.querySelector('.glossary-chev').textContent = open ? '−' : '+';
-    };
-  });
+
+  const list = overlay.querySelector('#glossary-list');
+  const search = overlay.querySelector('#glossary-q');
+  const empty = overlay.querySelector('#glossary-empty');
+
+  function render(query) {
+    const q = (query || '').trim().toLowerCase();
+    const matches = TERMS
+      .map((t, i) => ({ t, i }))
+      .filter(({ t }) => !q || t.term.toLowerCase().includes(q) || t.text.toLowerCase().includes(q));
+    list.innerHTML = matches.map(({ t, i }) => `
+      <li>
+        <button class="glossary-term" data-i="${i}" aria-expanded="false">
+          <strong>${escapeHtml(t.term)}</strong>
+          <span class="glossary-chev" aria-hidden="true">+</span>
+        </button>
+        <div class="glossary-text" hidden>${escapeHtml(t.text)}</div>
+      </li>
+    `).join('');
+    empty.hidden = matches.length > 0;
+    list.querySelectorAll('.glossary-term').forEach(b => {
+      b.onclick = () => {
+        const txt = b.nextElementSibling;
+        const open = txt.hidden;
+        txt.hidden = !open;
+        b.setAttribute('aria-expanded', open ? 'true' : 'false');
+        b.querySelector('.glossary-chev').textContent = open ? '−' : '+';
+      };
+    });
+  }
+
+  render('');
+  search.addEventListener('input', () => render(search.value));
 }
 
 function escapeHtml(s) {

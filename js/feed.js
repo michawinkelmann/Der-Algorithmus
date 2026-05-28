@@ -57,6 +57,14 @@ function getActiveStories() {
 
 // Trending-Hashtags pro Woche: aggregiert aus #-Vorkommen und dominanten
 // Tags der gerade sichtbaren Posts. Liefert die 5 häufigsten.
+// Deterministischer pseudo-Random aus Woche und Seed, damit Trending
+// nicht bei jedem Render anders aussieht.
+function deterministicRand(week, seed, salt) {
+  let x = (week * 16807 + seed + salt * 2654435761) >>> 0;
+  x ^= x << 13; x ^= x >>> 17; x ^= x << 5;
+  return (x >>> 0) / 4294967295;
+}
+
 function getTrendingHashtags() {
   const counts = new Map();
   const tagRe = /#[A-Za-zÄÖÜäöüß0-9_]{3,}/g;
@@ -66,10 +74,14 @@ function getTrendingHashtags() {
     for (const m of matches) counts.set(m, (counts.get(m) || 0) + 1);
   }
   // Plus thematische Pseudo-Hashtags aus dominanten Post-Tags.
+  const week = Store.data.currentWeek;
+  const seed = Store.data.random_seed || 1;
+  let salt = 0;
   for (const p of candidates.slice(0, 30)) {
     for (const t of p.tags || []) {
       const key = '#' + t.replace(/[^a-zA-Z0-9]/g, '');
-      if (!counts.has(key) && Math.random() < 0.4) counts.set(key, 1);
+      salt++;
+      if (!counts.has(key) && deterministicRand(week, seed, salt) < 0.4) counts.set(key, 1);
     }
   }
   return [...counts.entries()]

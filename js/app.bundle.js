@@ -1577,6 +1577,14 @@ function getActiveStories() {
 
 // Trending-Hashtags pro Woche: aggregiert aus #-Vorkommen und dominanten
 // Tags der gerade sichtbaren Posts. Liefert die 5 häufigsten.
+// Deterministischer pseudo-Random aus Woche und Seed, damit Trending
+// nicht bei jedem Render anders aussieht.
+function deterministicRand(week, seed, salt) {
+  let x = (week * 16807 + seed + salt * 2654435761) >>> 0;
+  x ^= x << 13; x ^= x >>> 17; x ^= x << 5;
+  return (x >>> 0) / 4294967295;
+}
+
 function getTrendingHashtags() {
   const counts = new Map();
   const tagRe = /#[A-Za-zÄÖÜäöüß0-9_]{3,}/g;
@@ -1586,10 +1594,14 @@ function getTrendingHashtags() {
     for (const m of matches) counts.set(m, (counts.get(m) || 0) + 1);
   }
   // Plus thematische Pseudo-Hashtags aus dominanten Post-Tags.
+  const week = Store.data.currentWeek;
+  const seed = Store.data.random_seed || 1;
+  let salt = 0;
   for (const p of candidates.slice(0, 30)) {
     for (const t of p.tags || []) {
       const key = '#' + t.replace(/[^a-zA-Z0-9]/g, '');
-      if (!counts.has(key) && Math.random() < 0.4) counts.set(key, 1);
+      salt++;
+      if (!counts.has(key) && deterministicRand(week, seed, salt) < 0.4) counts.set(key, 1);
     }
   }
   return [...counts.entries()]
@@ -3253,6 +3265,7 @@ function buildWrapped() {
         <p>Ungefähr auf der App verbracht. ${ownCount} eigene Posts. ${twShown} Inhaltswarnungen angeschaut, ${twSkipped} übersprungen.</p>
       `
     },
+    buildMissedStoriesSlide(d),
     buildEndingSlide(d),
     {
       id: 's9',
@@ -3319,6 +3332,35 @@ const ENDING_SOURCES = {
     { label: 'bpb.de — „Politische Bildung digital"', what: 'einordnen, was dein Feed dir gezeigt hat' }
   ]
 };
+
+// Stories, die der User während des Spiels NICHT angeklickt hat.
+// Pädagogisch wertvoll: zeigt, wie Stories ablaufen, ohne dass man's merkt.
+function buildMissedStoriesSlide(d) {
+  const viewed = d.storiesViewed || {};
+  const all = (window.__DATA_STORIES?.stories || []);
+  const missed = all.filter(s => s.week <= d.currentWeek && !viewed[s.id]);
+  const totalSeen = all.filter(s => s.week <= d.currentWeek && viewed[s.id]).length;
+  const total = all.filter(s => s.week <= d.currentWeek).length;
+  if (!total) {
+    return {
+      id: 's8c',
+      html: `<h2>Stories</h2><p>Keine Stories gespielt. Macht nichts — die meisten verschwinden eh nach 24 Stunden.</p>`
+    };
+  }
+  const pct = Math.round(totalSeen / total * 100);
+  const samples = missed.slice(0, 4);
+  return {
+    id: 's8c',
+    html: `
+      <h2>Stories: was du nicht gesehen hast</h2>
+      <div class="big-num">${missed.length}</div>
+      <p>Stories sind nach einer Woche weg — du hast ${totalSeen} von ${total} angeklickt (${pct} %). Plattformen nutzen genau diesen Verschwindeeffekt, um dich öfter zurückzuholen.</p>
+      ${samples.length ? `<div class="missed-stories">
+        ${samples.map(s => `<div class="missed-story"><span class="missed-emoji">${escapeHtml(s.emoji || '·')}</span><span class="muted small">W${s.week}</span><span>${escapeHtml(s.text)}</span></div>`).join('')}
+      </div>` : ''}
+    `
+  };
+}
 
 function buildEndingSlide(d) {
   const e = computeEnding(d);
@@ -4317,7 +4359,8 @@ function extractRow(item, idx, anonymize) {
     guilds: guilds.length,
     voted: s.electionVote || null,
     interests: p.interests || {},
-    decisions: extractDecisions(s)
+    decisions: extractDecisions(s),
+    bookmarks: Object.values(s.bookmarks || {})
   };
 }
 
@@ -4361,6 +4404,84 @@ function buildReportHtml(rows) {
     <h3>Entscheidungen an Wendepunkten</h3>
     <p class="muted small">Die markanten Punkte, an denen sich Klassen am ehesten unterhalten: Marc-Anwerbung, Finn auf seiner Bahn, Lara nach Hate-Incident, Mira nach Hate-Kommentaren, Lea in W14. Die Verteilung verrät am meisten.</p>
     ${buildDecisionDiffs(rows)}
+
+    ${buildProtagonistBreakdown(rows)}
+
+    ${buildClassBookmarks(rows)}
+  `;
+}
+
+// Aufschlüsselung nach gewählter Spielfigur: zeigt, ob die Wahl der
+// Spielfigur signifikant zu unterschiedlichen Verläufen geführt hat.
+function buildProtagonistBreakdown(rows) {
+  const groups = { alex: [], jamal: [], ronja: [] };
+  for (const r of rows) {
+    const k = (r.protagonist || 'alex').toLowerCase();
+    if (groups[k]) groups[k].push(r); else (groups.alex ||= []).push(r);
+  }
+  const used = Object.entries(groups).filter(([, list]) => list.length > 0);
+  if (used.length < 2) return ''; // nur eine Spielfigur — kein Vergleich.
+
+  function summary(list) {
+    if (!list.length) return null;
+    const lean = list.reduce((a, r) => a + r.lean, 0) / list.length;
+    const angry = list.reduce((a, r) => a + r.angry, 0) / list.length;
+    const ownPosts = list.reduce((a, r) => a + r.ownPosts, 0) / list.length;
+    const rabbit = list.filter(r => r.inRabbitHole).length;
+    return { lean, angry, ownPosts, rabbit, n: list.length };
+  }
+
+  return `
+    <h3>Vergleich nach Spielfigur</h3>
+    <p class="muted small">Hatte die Wahl der Spielfigur einen Einfluss auf den Verlauf? Hier siehst du, ob Alex, Jamal und Ronja in der Klasse zu unterschiedlichen Mustern geführt haben.</p>
+    <div class="cc-protag-grid">
+      ${used.map(([key, list]) => {
+        const s = summary(list);
+        return `<div class="cc-protag-card">
+          <div class="cc-protag-name">${escapeHtml(key)}</div>
+          <div class="cc-protag-meta muted small">${s.n} Spielstand${s.n === 1 ? '' : 'ände'}</div>
+          <div class="cc-protag-stats">
+            <div><b>${s.lean.toFixed(2)}</b><span class="muted small">Ø Lean</span></div>
+            <div><b>${s.angry.toFixed(1)}</b><span class="muted small">Ø wütende Komm.</span></div>
+            <div><b>${s.ownPosts.toFixed(1)}</b><span class="muted small">Ø eigene Posts</span></div>
+            <div><b>${s.rabbit}</b><span class="muted small">in „Echte Werte"</span></div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+}
+
+// Welche Posts hat die Klasse zusammen gemerkt? Beiträge mit mehreren
+// Bookmarks sind starke Diskussionsanker.
+function buildClassBookmarks(rows) {
+  const all = {};
+  for (const r of rows) {
+    for (const b of r.bookmarks || []) {
+      const key = `${b.author || '?'}__W${b.week ?? '?'}__${(b.text || '').slice(0, 60)}`;
+      if (!all[key]) all[key] = { count: 0, author: b.author, week: b.week, text: b.text, tags: b.tags || [] };
+      all[key].count++;
+    }
+  }
+  const items = Object.values(all)
+    .filter(it => it.text)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 12);
+  if (!items.length) return '';
+  return `
+    <h3>Geteilte Lesezeichen</h3>
+    <p class="muted small">Posts, die in der Klasse mehrfach für die Reflexion gemerkt wurden. Posts mit hoher Markierung sind Kandidaten für die gemeinsame Diskussion.</p>
+    <div class="cc-bookmarks">
+      ${items.map(it => `
+        <div class="cc-bookmark ${it.count > 1 ? 'multi' : ''}">
+          <div class="cc-bookmark-head">
+            <span class="cc-bookmark-count">${it.count}× markiert</span>
+            <span class="cc-bookmark-meta muted small">W${it.week} · ${escapeHtml(it.author || '')}</span>
+          </div>
+          <div class="cc-bookmark-text">${escapeHtml(it.text)}</div>
+        </div>
+      `).join('')}
+    </div>
   `;
 }
 
@@ -4592,8 +4713,16 @@ const STEPS = [
 
 function maybeRunTutorial() {
   if (Store.data.tutorialDone) return;
-  if (Store.data.currentWeek > 0) { Store.data.tutorialDone = true; Store.save(); return; }
+  // Wenn die Wochen schon vorangeschritten sind: Tutorial trotzdem nachholen,
+  // aber nur, wenn der User es explizit angefordert hat (Replay).
   setTimeout(() => runTutorial(0), 800);
+}
+
+// Expliziter Replay vom Settings-Menü — bypassed alle Bedingungen.
+function forceRunTutorial() {
+  Store.data.tutorialDone = false;
+  Store.save();
+  setTimeout(() => runTutorial(0), 600);
 }
 
 function runTutorial(idx) {
@@ -4667,6 +4796,7 @@ function escapeHtml(s) {
 }
 
   __M.maybeRunTutorial = maybeRunTutorial;
+  __M.forceRunTutorial = forceRunTutorial;
 })();
 
 // ===== concepts.js =====
@@ -4837,32 +4967,49 @@ function openGlossary() {
         <button class="btn btn-ghost btn-small" id="glossary-close">Schließen</button>
       </header>
       <p class="muted small">Kurze Definitionen der Begriffe, die in Streem vorkommen. Klicke einen Eintrag, um ihn aufzuklappen.</p>
-      <ul class="glossary-list">
-        ${TERMS.map((t, i) => `
-          <li>
-            <button class="glossary-term" data-i="${i}" aria-expanded="false">
-              <strong>${escapeHtml(t.term)}</strong>
-              <span class="glossary-chev" aria-hidden="true">+</span>
-            </button>
-            <div class="glossary-text" hidden>${escapeHtml(t.text)}</div>
-          </li>
-        `).join('')}
-      </ul>
+      <div class="glossary-search">
+        <input type="search" id="glossary-q" placeholder="Suchen … (z.B. „Bot", „Filterblase")" aria-label="Glossar durchsuchen" />
+      </div>
+      <ul class="glossary-list" id="glossary-list"></ul>
+      <p class="muted small glossary-empty" id="glossary-empty" hidden>Kein Eintrag passt zu deiner Suche.</p>
     </div>
   `;
   document.body.appendChild(overlay);
   const handle = attachModal(overlay);
   overlay.querySelector('#glossary-close').onclick = () => handle.close();
-  overlay.querySelectorAll('.glossary-term').forEach(b => {
-    b.onclick = () => {
-      const i = parseInt(b.dataset.i, 10);
-      const txt = overlay.querySelectorAll('.glossary-text')[i];
-      const open = txt.hidden;
-      txt.hidden = !open;
-      b.setAttribute('aria-expanded', open ? 'true' : 'false');
-      b.querySelector('.glossary-chev').textContent = open ? '−' : '+';
-    };
-  });
+
+  const list = overlay.querySelector('#glossary-list');
+  const search = overlay.querySelector('#glossary-q');
+  const empty = overlay.querySelector('#glossary-empty');
+
+  function render(query) {
+    const q = (query || '').trim().toLowerCase();
+    const matches = TERMS
+      .map((t, i) => ({ t, i }))
+      .filter(({ t }) => !q || t.term.toLowerCase().includes(q) || t.text.toLowerCase().includes(q));
+    list.innerHTML = matches.map(({ t, i }) => `
+      <li>
+        <button class="glossary-term" data-i="${i}" aria-expanded="false">
+          <strong>${escapeHtml(t.term)}</strong>
+          <span class="glossary-chev" aria-hidden="true">+</span>
+        </button>
+        <div class="glossary-text" hidden>${escapeHtml(t.text)}</div>
+      </li>
+    `).join('');
+    empty.hidden = matches.length > 0;
+    list.querySelectorAll('.glossary-term').forEach(b => {
+      b.onclick = () => {
+        const txt = b.nextElementSibling;
+        const open = txt.hidden;
+        txt.hidden = !open;
+        b.setAttribute('aria-expanded', open ? 'true' : 'false');
+        b.querySelector('.glossary-chev').textContent = open ? '−' : '+';
+      };
+    });
+  }
+
+  render('');
+  search.addEventListener('input', () => render(search.value));
 }
 
 function escapeHtml(s) {
@@ -4913,6 +5060,7 @@ function escapeHtml(s) {
   var generateRepliesForJustEndedWeek = __M.generateRepliesForJustEndedWeek;
   var maybeShowPush = __M.maybeShowPush;
   var maybeRunTutorial = __M.maybeRunTutorial;
+  var forceRunTutorial = __M.forceRunTutorial;
   var showConcept = __M.showConcept;
   var attachModal = __M.attachModal;
   var openGlossary = __M.openGlossary;
@@ -5080,6 +5228,11 @@ function bindGlobal() {
   // Settings
   document.getElementById('btn-settings').onclick = () => showScreen('screen-settings');
   document.getElementById('btn-settings-close').onclick = () => showScreen('screen-main');
+  document.getElementById('btn-settings-close-top')?.addEventListener('click', () => showScreen('screen-main'));
+  document.getElementById('btn-replay-tutorial')?.addEventListener('click', () => {
+    showScreen('screen-main');
+    setTimeout(() => forceRunTutorial(), 400);
+  });
   document.getElementById('btn-reset').onclick = () => {
     if (confirm('Spielstand wirklich löschen?')) {
       Store.reset();
@@ -6224,15 +6377,9 @@ function exportReport() {
   })()}
 
   <h2>Diskussionsfragen für die Klasse</h2>
-  <p class="muted">Gedacht für die Reflexionsphase nach dem Spiel. Frei zu kürzen, zu ergänzen, zu ignorieren.</p>
+  <p class="muted">Auf den tatsächlichen Spielverlauf zugeschnitten — gedacht für die Reflexionsphase. Frei zu kürzen, zu ergänzen, zu ignorieren.</p>
   <ol class="disc">
-    <li>Welche eine Entscheidung im Spiel würdest du heute anders treffen — und warum?</li>
-    <li>Ab welcher Woche hast du das Gefühl gehabt, der Algorithmus „lernt dich"?</li>
-    <li>Wo war der Unterschied zwischen Empörung und Engagement für dich am ehesten spürbar?</li>
-    <li>Welche Push-Notification hat dich am ehesten zurückgeholt — und wie real ist das im echten Leben?</li>
-    <li>Wenn du Lehrkraft wärst: was würdest du an „Streem" anders bauen, damit es weniger süchtig macht?</li>
-    <li>Was war das Beste, was dir auf der Plattform passiert ist? Was das Schlimmste?</li>
-    <li>Welche Rolle haben die NPCs (Lea, Finn, Mira, Lara) gespielt, und welche Stimmen hast du im echten Netz?</li>
+    ${buildContextualDiscussionQuestions(d).map(q => `<li>${escapeHtml(q)}</li>`).join('')}
   </ol>
 
   <div class="foot">
@@ -6244,6 +6391,124 @@ function exportReport() {
   const blob = new Blob([html], { type: 'text/html' });
   downloadBlob(blob, `streem-bericht-${(c.name||'spieler').toLowerCase().replace(/[^a-z0-9]/g,'_')}.html`);
   toast('Bericht exportiert.', { long: true });
+}
+
+// Diskussionsfragen, die sich an den tatsächlichen Spielverlauf anpassen.
+// Eine Mischung aus immer-passenden und kontext-spezifischen Fragen,
+// gewichtet so, dass kontextuelle zuerst kommen.
+function buildContextualDiscussionQuestions(d) {
+  const out = [];
+  const p = d.userProfile || {};
+  const arcs = d.npcArcs || {};
+  const guilds = d.guildMemberships || [];
+  const dmReplies = d.dmReplies || {};
+  const tw = d.contentWarningsAccepted || {};
+  const twSkip = Object.values(tw).reduce((a, b) => a + (b.skipped || 0), 0);
+  const twShown = Object.values(tw).reduce((a, b) => a + (b.shown || 0), 0);
+  const actions = (d.history || []).flatMap(h => h.actions || []);
+  const angry = actions.filter(a => a.type === 'angry_comment').length;
+  const ownPosts = (d.ownPosts || []).length;
+  const ending = d.ending;
+  const marcChoice = dmReplies.dm_marc?.[11]?.id || null;
+  const finnPath = arcs.finn_path || 0;
+  const lara = dmReplies.dm_lara?.[24]?.id || null;
+  const lea14 = dmReplies.dm_lea?.[14]?.id || null;
+  const mira15 = dmReplies.dm_mira?.[15]?.id || null;
+  const protag = d.character?.protagonist || 'alex';
+
+  // 1) Ending-spezifische Eröffnungsfrage
+  if (ending === 'rabbithole' || ending === 'finn_lost') {
+    out.push('Bei welcher Entscheidung im Spiel hättest du am ehesten einen Bruch einleiten können — wenn du es im echten Leben mit einer Person erleben würdest, die genauso abrutscht?');
+  } else if (ending === 'finn_saved') {
+    out.push('Du hast Finn auf seiner Bahn gestoppt. Was war im Spiel die kleinste Bewegung, die einen echten Unterschied gemacht hat?');
+  } else if (ending === 'aware') {
+    out.push('Du hast Lea gegenüber zugegeben, dass dieser Feed etwas mit dir macht. Wann hast du das im echten Leben zuletzt zu jemandem gesagt — oder hörst du es selten?');
+  } else if (ending === 'allyship') {
+    out.push('Mira hat dich nach einem Hate-Pile-On gebeten, kurz zu helfen. Wo ist im echten Netz die Grenze zwischen „Helfen" und „Aufmerksamkeits-Spirale weiterdrehen"?');
+  } else if (ending === 'crusader') {
+    out.push('Du hast viel und laut kommentiert. Wann führt Empörung zu Veränderung — wann nur zu mehr Empörung?');
+  } else if (ending === 'guarded') {
+    out.push('Du hast viele Inhalte übersprungen, Accounts stummgeschaltet. Macht das den Feed sicherer — oder nur enger?');
+  } else if (ending === 'influencer') {
+    out.push('Du warst Mikro-Influencer:in. Was hat sich verändert, als du selbst gepostet hast — verglichen mit nur konsumieren?');
+  } else {
+    out.push('Wann im Spielverlauf hattest du das Gefühl, der Algorithmus „lernt dich" — auch wenn du nicht aktiv etwas geändert hast?');
+  }
+
+  // 2) Marc-DM-spezifisch
+  if (marcChoice === 'marc_join') {
+    out.push('Du hast Marc Stay-Based geantwortet, mit in den Discord zu gehen. Was war attraktiv an seiner Anwerbung — auch wenn du wusstest, was er repräsentiert?');
+  } else if (marcChoice === 'marc_curious') {
+    out.push('Du hast bei Marc nachgefragt, ohne mitzumachen. Wo verläuft im echten Netz die Linie zwischen „neugierig zuschauen" und „bestätigen"?');
+  } else if (marcChoice === 'marc_block') {
+    out.push('Du hast Marc sofort blockiert. War das die richtige Reaktion — oder verliert man dadurch auch die Chance zu verstehen, was dort passiert?');
+  } else {
+    out.push('Marc Stay-Based hat dich angeschrieben. Wenn dich jemand wie er in echt anschreiben würde — wie würdest du reagieren?');
+  }
+
+  // 3) Finn-Pfad-spezifisch
+  if (finnPath >= 2) {
+    out.push('Finn ist auf seiner Bahn in Richtung Gilde gerutscht, du hast ihn nicht aufgehalten. Was hätte dich im echten Leben getriggert, einzugreifen — und was hat dich im Spiel davon abgehalten?');
+  } else if (finnPath <= -2) {
+    out.push('Du hast Finn zweimal widersprochen. Erinnerst du dich an eine Situation im echten Leben, in der du jemanden hättest stoppen sollen — aber nicht hast?');
+  }
+
+  // 4) Lara/Mira-Solidarität
+  if (lara === 'lara_24_solidarity' || mira15 === 'mira_15_support') {
+    out.push('Du hast einer Person, die online Hass abbekam, kurz zur Seite gestanden. Welche Form von Unterstützung hilft im echten Netz — und welche schadet?');
+  } else if (lara === 'lara_24_silence' && mira15 === 'mira_15_distance') {
+    out.push('In beiden Fällen, in denen jemand Hass abbekam, hast du Distanz gehalten. Welche Gründe gibt es, sich rauszuhalten — und welche Kosten?');
+  }
+
+  // 5) Selbstwahrnehmung
+  if (lea14 === 'lea_14_open') {
+    out.push('Lea zu sagen, dass dieser Feed etwas mit dir macht — was hat das im Spiel verändert? Wo wäre es im echten Leben schwieriger?');
+  } else if (lea14 === 'lea_14_deflect') {
+    out.push('Lea hat gefragt, was los ist — du hast „Stress halt" geantwortet. Was hindert uns daran, ehrlich zu sagen, wenn ein Feed uns formt?');
+  }
+
+  // 6) Empörung/Engagement
+  if (angry >= 5) {
+    out.push(`Du hast ${angry}-mal wütend kommentiert. Was war im Spiel der Anreiz dazu — und wem hat es etwas gebracht?`);
+  }
+
+  // 7) Inhaltswarnungen
+  if (twSkip >= 3 && twShown >= 3) {
+    out.push('Du hast sowohl mehrmals durch Inhaltswarnungen gegangen als auch mehrmals abgebrochen. Wie hast du im Moment entschieden — Bauch, Tagesform, etwas Spezifisches?');
+  } else if (twSkip >= 4) {
+    out.push('Du hast viele Inhaltswarnungen übersprungen. Schützt das wirklich — oder schiebt es das Thema nur weg, ohne es zu verarbeiten?');
+  } else if (twShown >= 4) {
+    out.push('Du bist oft bewusst durch die Inhaltswarnungen gegangen. Was ist der Wert davon, sich schwierige Inhalte aktiv anzusehen?');
+  }
+
+  // 8) Eigene Posts
+  if (ownPosts >= 5) {
+    out.push(`Du hast ${ownPosts} eigene Posts geschrieben. Was hat sich daran verändert, selbst etwas in den Feed zu geben — gegenüber nur lesen?`);
+  } else if (ownPosts === 0) {
+    out.push('Du hast nichts selbst gepostet — was hat dich davon abgehalten? Wäre das im echten Leben anders?');
+  }
+
+  // 9) Gilden
+  if (guilds.includes('echte_werte')) {
+    out.push('Du warst in „Echte Werte". Welche Mechanik in dieser Gilde war für dich am beunruhigendsten — und warum?');
+  } else if (guilds.includes('lese_runde')) {
+    out.push('Du warst in der Leserunde. Auch das ist eine Filterblase — nur eine angenehmere. Was unterscheidet eine gute von einer schlechten Filterblase?');
+  }
+
+  // 10) Protagonist-spezifisch
+  if (protag === 'jamal') {
+    out.push('Du hast Jamal gespielt — politisch unentschieden. Hat dich der Algorithmus in eine Richtung gezogen, die du dir vorher nicht vorgestellt hattest?');
+  } else if (protag === 'ronja') {
+    out.push('Du hast Ronja gespielt — aktivistisch von Anfang an. Hat dich der Algorithmus radikalisiert oder eher abgebaut?');
+  }
+
+  // Allgemeine Schluss-Fragen (mind. eine, max. zwei).
+  out.push('Welche Push-Notification hat dich am ehesten zurückgeholt — und wie real ist das im echten Leben?');
+  if (out.length < 7) {
+    out.push('Wenn du das Spiel nochmal spielen könntest: welche eine Sache würdest du anders machen?');
+  }
+
+  return out.slice(0, 8);
 }
 
 function downloadBlob(blob, filename) {

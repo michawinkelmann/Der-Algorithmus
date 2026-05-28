@@ -74,6 +74,13 @@
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
+  /* Animationen, die ohne Bewegung störungsfrei sein sollen, bekommen feste
+     End-Zustände. */
   .heart-floater { display: none; }
+  .lean-dot { box-shadow: 0 0 0 3px rgba(255,255,255,0.2) !important; }
+  .story-bar-fill { width: 100% !important; }
+  .push-banner { transform: translate(-50%, 0) !important; transition: none !important; }
+  .tutorial-spot { box-shadow: 0 0 0 9999px rgba(0,0,0,0.55), 0 0 0 3px var(--accent) !important; }
 }

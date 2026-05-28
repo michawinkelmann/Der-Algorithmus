@@ -22,8 +22,16 @@ const STEPS = [
 
 export function maybeRunTutorial() {
   if (Store.data.tutorialDone) return;
-  if (Store.data.currentWeek > 0) { Store.data.tutorialDone = true; Store.save(); return; }
+  // Wenn die Wochen schon vorangeschritten sind: Tutorial trotzdem nachholen,
+  // aber nur, wenn der User es explizit angefordert hat (Replay).
   setTimeout(() => runTutorial(0), 800);
+}
+
+// Expliziter Replay vom Settings-Menü — bypassed alle Bedingungen.
+export function forceRunTutorial() {
+  Store.data.tutorialDone = false;
+  Store.save();
+  setTimeout(() => runTutorial(0), 600);
 }
 
 function runTutorial(idx) {
