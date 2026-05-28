@@ -4,6 +4,7 @@
 
 import { Store } from './state.js';
 import { SFX } from './sound.js';
+import { showConcept } from './concepts.js';
 
 const TEMPLATES = [
   { id: 'mention_sara',    from: 'Streem', text: 'Sara hat dich in einem Kommentar erwähnt.',         deceptive: true,  week_min: 3 },
@@ -45,8 +46,13 @@ export function maybeShowPush() {
   lastShownWeek = w;
   showPushBanner(t);
   if (!Store.data.pushNotificationsSeen) Store.data.pushNotificationsSeen = {};
+  const firstPush = Object.keys(Store.data.pushNotificationsSeen).length === 0;
   Store.data.pushNotificationsSeen[t.id] = w;
   Store.save();
+  // Direkt nach der allerersten Push: kurze Konzept-Karte „Dark Patterns".
+  if (firstPush && !Store.data.conceptsSeen?.dark_patterns) {
+    setTimeout(() => showConcept('dark_patterns'), 7000);
+  }
   return true;
 }
 

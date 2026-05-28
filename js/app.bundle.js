@@ -86,6 +86,7 @@ function freshSave() {
     bookmarks: {},
     hashtagFilters: {},
     soundVolume: 0.6,
+    selfcheck: { pre: null, post: null },
     random_seed: Math.floor(Math.random() * 1e9)
   };
 }
@@ -120,19 +121,30 @@ const Store = {
   },
 
   _migrate() {
-    // Defensiv: fehlende Keys ergänzen, falls Save alt ist.
+    // Defensiv: fehlende Keys über die ganze Save-Struktur ergänzen.
+    // Iteration für Iteration kamen neue Felder dazu — alte Saves dürfen nicht crashen.
     const base = freshSave();
-    for (const k of Object.keys(base)) {
-      if (!(k in this.data)) this.data[k] = base[k];
-    }
-    for (const k of Object.keys(base.userProfile.interests)) {
-      if (!(k in this.data.userProfile.interests)) {
-        this.data.userProfile.interests[k] = 0;
+    function fillIn(target, src) {
+      if (!target || typeof target !== 'object' || Array.isArray(target)) return;
+      if (!src || typeof src !== 'object' || Array.isArray(src)) return;
+      for (const k of Object.keys(src)) {
+        const sv = src[k];
+        if (!(k in target)) {
+          target[k] = sv;
+        } else if (sv && typeof sv === 'object' && !Array.isArray(sv) &&
+                   target[k] && typeof target[k] === 'object' && !Array.isArray(target[k])) {
+          // Tieferes Auffüllen für verschachtelte Strukturen wie userProfile,
+          // userProfile.interests, weights, character, meta, npcArcs, selfcheck.
+          fillIn(target[k], sv);
+        }
       }
     }
-    for (const k of Object.keys(base.weights)) {
-      if (!(k in this.data.weights)) this.data.weights[k] = base.weights[k];
-    }
+    fillIn(this.data, base);
+    // Charakter-Defaults (alte Saves hatten z.B. keinen `protagonist`-Key).
+    if (!this.data.character.protagonist) this.data.character.protagonist = 'alex';
+    if (typeof this.data.character.bio !== 'string') this.data.character.bio = '';
+    // meta.version inkrementieren wäre hier ein Ort, falls künftige Saves
+    // strukturelle Brüche markieren müssen.
   },
 
   hasSave() {
@@ -1522,6 +1534,851 @@ function getRepliesForOwnPost(op) {
   __M.generateRepliesForJustEndedWeek = generateRepliesForJustEndedWeek;
   __M.getRepliesForInbox = getRepliesForInbox;
   __M.getRepliesForOwnPost = getRepliesForOwnPost;
+})();
+
+// ===== selfcheck.js =====
+(function(){
+  var Store = __M.Store;
+  var attachModal = __M.attachModal;
+// selfcheck.js — Pre/Post-Selbsteinschätzung. Vor dem ersten Feed und im
+// Wrapped dieselben 5 Fragen, später Vergleich.
+
+
+const QUESTIONS = [
+  {
+    id: 'source_check',
+    text: 'Wie oft prüfst du Quellen, bevor du etwas online teilst?',
+    poles: ['nie', 'immer']
+  },
+  {
+    id: 'feed_influence',
+    text: 'Wie stark beeinflusst dein Feed, worüber du nachdenkst?',
+    poles: ['gar nicht', 'sehr stark']
+  },
+  {
+    id: 'comfort_disagree',
+    text: 'Wie wohl ist dir mit Inhalten, die deiner Meinung widersprechen?',
+    poles: ['unwohl', 'sehr wohl']
+  },
+  {
+    id: 'algo_understand',
+    text: 'Wie gut verstehst du, wie ein Empfehlungs-Algorithmus funktioniert?',
+    poles: ['gar nicht', 'sehr gut']
+  },
+  {
+    id: 'pause_react',
+    text: 'Wie oft hältst du inne, bevor du wütend kommentierst?',
+    poles: ['selten', 'fast immer']
+  }
+];
+
+function renderForm(prefilled = {}) {
+  return `
+    <form class="selfcheck-form">
+      ${QUESTIONS.map(q => `
+        <fieldset class="selfcheck-q">
+          <legend>${escapeHtml(q.text)}</legend>
+          <div class="selfcheck-scale">
+            <span class="muted small">${escapeHtml(q.poles[0])}</span>
+            ${[1, 2, 3, 4, 5].map(v => `
+              <label class="selfcheck-radio">
+                <input type="radio" name="${q.id}" value="${v}" ${prefilled[q.id] == v ? 'checked' : ''} />
+                <span>${v}</span>
+              </label>
+            `).join('')}
+            <span class="muted small">${escapeHtml(q.poles[1])}</span>
+          </div>
+        </fieldset>
+      `).join('')}
+    </form>
+  `;
+}
+
+function readAnswers(formEl) {
+  const out = {};
+  for (const q of QUESTIONS) {
+    const radio = formEl.querySelector(`input[name="${q.id}"]:checked`);
+    if (radio) out[q.id] = parseInt(radio.value, 10);
+  }
+  return out;
+}
+
+// Pre-Quiz: erscheint einmal nach dem Onboarding, bevor das Hauptspiel startet.
+function maybeShowPreQuiz(onDone) {
+  if (Store.data?.selfcheck?.pre) { onDone(); return; }
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  overlay.innerHTML = `
+    <div class="tw-box selfcheck-box">
+      <h3>Kurz: wo stehst du gerade?</h3>
+      <p class="muted small">Fünf Fragen, fünf Skalen. Dauert eine Minute. Wir zeigen dir am Ende des Spiels deinen Vergleich. Die Antworten bleiben auf deinem Gerät.</p>
+      ${renderForm()}
+      <div class="tw-actions">
+        <button class="btn btn-ghost" id="selfcheck-skip">Überspringen</button>
+        <button class="btn btn-primary" id="selfcheck-save">Speichern &amp; los</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const handle = attachModal(overlay);
+  const form = overlay.querySelector('.selfcheck-form');
+  overlay.querySelector('#selfcheck-skip').onclick = () => {
+    if (!Store.data.selfcheck) Store.data.selfcheck = {};
+    Store.data.selfcheck.pre = { skipped: true, ts: Date.now() };
+    Store.save();
+    handle.close();
+    onDone();
+  };
+  overlay.querySelector('#selfcheck-save').onclick = () => {
+    const answers = readAnswers(form);
+    if (Object.keys(answers).length < QUESTIONS.length) {
+      const status = document.createElement('p');
+      status.className = 'muted small';
+      status.style.color = 'var(--warn)';
+      status.textContent = 'Bitte beantworte alle Fragen.';
+      form.appendChild(status);
+      setTimeout(() => status.remove(), 2400);
+      return;
+    }
+    if (!Store.data.selfcheck) Store.data.selfcheck = {};
+    Store.data.selfcheck.pre = { answers, ts: Date.now() };
+    Store.save();
+    handle.close();
+    onDone();
+  };
+}
+
+// Post-Quiz: wird im Wrapped vor dem Ending angeboten — wenn skipped,
+// landet er trotzdem im Vergleichs-Slide als „nicht ausgefüllt".
+function showPostQuiz(onDone) {
+  if (Store.data?.selfcheck?.post) { onDone(); return; }
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  overlay.innerHTML = `
+    <div class="tw-box selfcheck-box">
+      <h3>Dieselben fünf Fragen — jetzt nach dem Spiel.</h3>
+      <p class="muted small">Vergleich kommt im nächsten Schritt.</p>
+      ${renderForm()}
+      <div class="tw-actions">
+        <button class="btn btn-ghost" id="selfcheck-skip">Überspringen</button>
+        <button class="btn btn-primary" id="selfcheck-save">Speichern &amp; weiter</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const handle = attachModal(overlay);
+  const form = overlay.querySelector('.selfcheck-form');
+  overlay.querySelector('#selfcheck-skip').onclick = () => {
+    if (!Store.data.selfcheck) Store.data.selfcheck = {};
+    Store.data.selfcheck.post = { skipped: true, ts: Date.now() };
+    Store.save();
+    handle.close();
+    onDone();
+  };
+  overlay.querySelector('#selfcheck-save').onclick = () => {
+    const answers = readAnswers(form);
+    if (Object.keys(answers).length < QUESTIONS.length) {
+      const status = document.createElement('p');
+      status.className = 'muted small';
+      status.style.color = 'var(--warn)';
+      status.textContent = 'Bitte beantworte alle Fragen.';
+      form.appendChild(status);
+      setTimeout(() => status.remove(), 2400);
+      return;
+    }
+    if (!Store.data.selfcheck) Store.data.selfcheck = {};
+    Store.data.selfcheck.post = { answers, ts: Date.now() };
+    Store.save();
+    handle.close();
+    onDone();
+  };
+}
+
+// HTML-Snippet für die Vergleichs-Slide im Wrapped.
+function buildSelfcheckCompareHtml() {
+  const sc = Store.data.selfcheck || {};
+  const pre = sc.pre?.answers;
+  const post = sc.post?.answers;
+  if (!pre && !post) {
+    return `<p>Du hast die Selbsteinschätzung übersprungen. In einer Klassen-Reflexion lohnt sich der Vergleich — versuch's beim nächsten Mal.</p>`;
+  }
+  return `
+    <div class="selfcheck-compare">
+      ${QUESTIONS.map(q => {
+        const a = pre?.[q.id];
+        const b = post?.[q.id];
+        const aFmt = a ? `${a}` : '—';
+        const bFmt = b ? `${b}` : '—';
+        const delta = (a && b) ? (b - a) : null;
+        const arrow = delta === null ? '' : (delta > 0 ? '↑' : delta < 0 ? '↓' : '→');
+        return `
+          <div class="sc-row">
+            <div class="sc-q">${escapeHtml(q.text)}</div>
+            <div class="sc-vals">
+              <span class="sc-pre">vorher: <strong>${aFmt}</strong></span>
+              <span class="sc-arr">${arrow}</span>
+              <span class="sc-post">nachher: <strong>${bFmt}</strong></span>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+  __M.maybeShowPreQuiz = maybeShowPreQuiz;
+  __M.showPostQuiz = showPostQuiz;
+  __M.buildSelfcheckCompareHtml = buildSelfcheckCompareHtml;
+})();
+
+// ===== sharecard.js =====
+(function(){
+  var Store = __M.Store;
+// sharecard.js — Erzeugt eine PNG-Karte mit den Wrapped-Highlights
+// via Canvas API. Datei wird heruntergeladen; SuS können sie in echten
+// Social-Apps posten (was selbst Teil der didaktischen Mechanik ist:
+// genau dieser „Share my Wrapped"-Reflex).
+
+const W = 1080, H = 1350; // Instagram-Story-Format
+
+function topInterestLabel() {
+  const interests = Store.data.userProfile?.interests || {};
+  const top = Object.entries(interests).sort((a, b) => b[1] - a[1])[0];
+  if (!top || top[1] < 0.05) return 'Lifestyle';
+  const map = {
+    gaming: 'Gaming', musik: 'Musik', lifestyle: 'Lifestyle', sport: 'Sport',
+    wissenschaft: 'Wissenschaft', klima: 'Klima', humor: 'Humor',
+    'politik-mitte': 'Politik (Mitte)', 'politik-links': 'Politik (links)',
+    'politik-rechts': 'Politik (rechts)', feminismus: 'Feminismus',
+    'anti-feminismus': 'Anti-Fem.', verschwoerung: 'Verschwörung',
+    hass: 'Hass', 'true-crime': 'True Crime'
+  };
+  return map[top[0]] || top[0];
+}
+
+function generateShareCard() {
+  const d = Store.data;
+  if (!d) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  // Hintergrund-Gradient (Streem-Magenta → Cyan, wie das Logo).
+  const grad = ctx.createLinearGradient(0, 0, W, H);
+  grad.addColorStop(0, '#2a0b3c');
+  grad.addColorStop(0.5, '#1a1029');
+  grad.addColorStop(1, '#06070b');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Streem-Wortmarke oben.
+  ctx.fillStyle = '#ff2e88';
+  ctx.font = '900 96px -apple-system, "Segoe UI", Roboto, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Streem', W / 2, 180);
+  ctx.font = '500 36px -apple-system, "Segoe UI", Roboto, sans-serif';
+  ctx.fillStyle = '#9aa3b8';
+  ctx.fillText('Mein Rückblick', W / 2, 240);
+
+  // Jahres-Wort.
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '700 48px -apple-system, sans-serif';
+  ctx.fillText('Mein Jahres-Wort', W / 2, 360);
+  ctx.font = '900 140px -apple-system, sans-serif';
+  // Gradient-Text via Linear-Gradient als Fill.
+  const wordGrad = ctx.createLinearGradient(0, 400, W, 540);
+  wordGrad.addColorStop(0, '#ff2e88');
+  wordGrad.addColorStop(1, '#22d3ee');
+  ctx.fillStyle = wordGrad;
+  ctx.fillText(topInterestLabel(), W / 2, 520);
+
+  // Stats-Reihe.
+  const actions = (d.history || []).flatMap(h => h.actions || []);
+  const likes = actions.filter(a => a.type === 'like').length;
+  const stats = [
+    { num: String(likes),                  lbl: 'Likes' },
+    { num: String((d.ownPosts || []).length), lbl: 'eigene Posts' },
+    { num: String((d.userProfile?.followed || []).length), lbl: 'gefolgt' }
+  ];
+  const statBoxW = 280, statBoxH = 160, gap = 40;
+  const totalW = stats.length * statBoxW + (stats.length - 1) * gap;
+  let x0 = (W - totalW) / 2;
+  for (const s of stats) {
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    roundRect(ctx, x0, 660, statBoxW, statBoxH, 24);
+    ctx.fill();
+    ctx.fillStyle = '#22d3ee';
+    ctx.font = '900 72px -apple-system, sans-serif';
+    ctx.fillText(s.num, x0 + statBoxW / 2, 745);
+    ctx.fillStyle = '#9aa3b8';
+    ctx.font = '500 30px -apple-system, sans-serif';
+    ctx.fillText(s.lbl, x0 + statBoxW / 2, 790);
+    x0 += statBoxW + gap;
+  }
+
+  // Ending.
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '700 48px -apple-system, sans-serif';
+  ctx.fillText('Mein Bogen', W / 2, 920);
+  ctx.font = '700 56px -apple-system, sans-serif';
+  ctx.fillStyle = '#ff2e88';
+  const endLabel = endingTitle(d.ending) || 'Mitgetrieben';
+  ctx.fillText(endLabel, W / 2, 1000);
+
+  // Disclaimer unten.
+  ctx.fillStyle = '#6b7388';
+  ctx.font = '400 28px -apple-system, sans-serif';
+  ctx.fillText('Lernspiel · Der Algorithmus', W / 2, 1200);
+  ctx.font = '400 24px -apple-system, sans-serif';
+  ctx.fillText('Alle Zahlen aus einem fiktiven Spielverlauf.', W / 2, 1240);
+
+  return canvas;
+}
+
+function endingTitle(key) {
+  const m = {
+    finn_lost: '🕳️ Finn ist abgerutscht',
+    finn_saved: '🪢 Finn gehalten',
+    aware: '🪞 Selbstbewusst durch den Feed',
+    allyship: '🤝 Verbündete:r',
+    rabbithole: '🕳️ Tief im Loch',
+    influencer: '📣 Mikro-Influencer:in',
+    crusader: '⚔️ Empörte:r Engagierte:r',
+    guarded: '🛡️ Achtsame:r Beobachter:in',
+    nerd: '📚 Quelle vor Meinung',
+    driven: '🌊 Mitgetrieben'
+  };
+  return m[key];
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y,     x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x,     y + h, r);
+  ctx.arcTo(x,     y + h, x,     y,     r);
+  ctx.arcTo(x,     y,     x + w, y,     r);
+  ctx.closePath();
+}
+
+function downloadShareCard() {
+  const canvas = generateShareCard();
+  if (!canvas) return;
+  canvas.toBlob(blob => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'streem-wrapped.png';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 500);
+  }, 'image/png');
+}
+
+  __M.generateShareCard = generateShareCard;
+  __M.downloadShareCard = downloadShareCard;
+})();
+
+// ===== glossary.js =====
+(function(){
+  var attachModal = __M.attachModal;
+// glossary.js — Schnellnachschlage für zentrale Begriffe.
+// Im Settings erreichbar. Bewusst kurz: 3-4 Sätze pro Begriff,
+// kein Wikipedia-Ersatz.
+
+const TERMS = [
+  {
+    term: 'Algorithmus',
+    text: 'Eine Regel-Sammlung, nach der ein System entscheidet, welche Inhalte du siehst und in welcher Reihenfolge. In Streem siehst du genau diese Regeln im 🔍-Panel — bei echten Plattformen meist nicht.'
+  },
+  {
+    term: 'Filterblase',
+    text: 'Effekt, bei dem du algorithmisch hauptsächlich Inhalte siehst, die deinen bisherigen Vorlieben entsprechen. Andere Perspektiven werden seltener angezeigt — und du merkst das selten selbst.'
+  },
+  {
+    term: 'Echokammer',
+    text: 'Eine Filterblase mit sozialer Verstärkung: deine Meinung wird von immer denselben Stimmen bestätigt. Widerspruch erreicht dich kaum, weil deine Gilde, deine Freunde, dein Feed alle ähnlich ticken.'
+  },
+  {
+    term: 'Engagement',
+    text: 'Jede Interaktion: Like, Kommentar, Share, Verweildauer. Algorithmen messen Engagement, um Inhalte zu sortieren. Wütende Kommentare zählen meistens genauso viel wie zustimmende — das ist genau das Problem.'
+  },
+  {
+    term: 'Reach (Reichweite)',
+    text: 'Wie viele Menschen deinen Beitrag tatsächlich sehen. Hängt vom Algorithmus ab — nicht von deiner Followerzahl. Empörungslastige Inhalte bekommen oft mehr Reichweite als sachliche.'
+  },
+  {
+    term: 'Bot',
+    text: 'Automatisiertes Konto, das wie ein Mensch wirkt. Typische Hinweise: junger Account, hohe Posting-Frequenz, generisches Profilbild, Naming-Schema mit Zahlen. Bots verstärken Stimmungen, ohne dass jemand dafür haftet.'
+  },
+  {
+    term: 'Engagement-Bait',
+    text: 'Beiträge, die so gestaltet sind, dass sie Reaktionen provozieren — über inhaltlichen Wert hinaus. Beispiele: bewusst zugespitzte Formulierungen, „Stimmt zu, wenn ihr auch denkt …", Quizfragen ohne Sachbezug.'
+  },
+  {
+    term: 'Outrage / Empörung',
+    text: 'Empörung ist algorithmisch wertvoll, weil sie Engagement erzeugt. Genau deshalb steigt empörender Inhalt im Feed — auch wenn er manipuliert, vereinfacht oder schadet.'
+  },
+  {
+    term: 'Targeting (Werbung)',
+    text: 'Anzeigen werden gezielt an Gruppen ausgespielt, deren Profil zum Werbeziel passt. Politische Anzeigen sind dabei besonders heikel, weil unterschiedliche Gruppen unterschiedliche Botschaften zu sehen bekommen, ohne öffentliche Debatte.'
+  },
+  {
+    term: 'Shadowban',
+    text: 'Wenn deine Beiträge stiller weniger Reichweite bekommen, ohne dass dir das mitgeteilt wird. Schwer nachzuweisen, weil Plattformen sich selten dazu äußern. In Streem nicht implementiert, aber im echten Netz real.'
+  },
+  {
+    term: 'Rabbit Hole',
+    text: 'Das schrittweise Hineinrutschen in immer radikalere Inhalte. Empfehlungssysteme können das beschleunigen, weil sie „mehr vom Gleichen" liefern. Im Spiel bist du diesem Effekt mit der Gilde „Echte Werte" begegnet.'
+  },
+  {
+    term: 'Deepfake',
+    text: 'Manipulierte Bilder, Videos oder Audios, die mit KI erzeugt wurden. Wirken echt, sind es aber nicht. Faktencheck mit Rückwärtsbildersuche und Quellenprüfung ist die einfachste Verteidigung.'
+  }
+];
+
+function openGlossary(initialTerm = '') {
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  overlay.innerHTML = `
+    <div class="tw-box glossary-box">
+      <header class="glossary-head">
+        <h3>Glossar</h3>
+        <button class="btn btn-ghost btn-small" id="glossary-close">Schließen</button>
+      </header>
+      <p class="muted small">Kurze Definitionen der Begriffe, die in Streem vorkommen. Klicke einen Eintrag, um ihn aufzuklappen.</p>
+      <div class="glossary-search">
+        <input type="search" id="glossary-q" placeholder="Suchen … (z.B. „Bot", „Filterblase")" aria-label="Glossar durchsuchen" />
+      </div>
+      <ul class="glossary-list" id="glossary-list"></ul>
+      <p class="muted small glossary-empty" id="glossary-empty" hidden>Kein Eintrag passt zu deiner Suche.</p>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const handle = attachModal(overlay);
+  overlay.querySelector('#glossary-close').onclick = () => handle.close();
+
+  const list = overlay.querySelector('#glossary-list');
+  const search = overlay.querySelector('#glossary-q');
+  const empty = overlay.querySelector('#glossary-empty');
+
+  function render(query) {
+    const q = (query || '').trim().toLowerCase();
+    const matches = TERMS
+      .map((t, i) => ({ t, i }))
+      .filter(({ t }) => !q || t.term.toLowerCase().includes(q) || t.text.toLowerCase().includes(q));
+    list.innerHTML = matches.map(({ t, i }) => `
+      <li>
+        <button class="glossary-term" data-i="${i}" aria-expanded="false">
+          <strong>${escapeHtml(t.term)}</strong>
+          <span class="glossary-chev" aria-hidden="true">+</span>
+        </button>
+        <div class="glossary-text" hidden>${escapeHtml(t.text)}</div>
+      </li>
+    `).join('');
+    empty.hidden = matches.length > 0;
+    list.querySelectorAll('.glossary-term').forEach(b => {
+      b.onclick = () => {
+        const txt = b.nextElementSibling;
+        const open = txt.hidden;
+        txt.hidden = !open;
+        b.setAttribute('aria-expanded', open ? 'true' : 'false');
+        b.querySelector('.glossary-chev').textContent = open ? '−' : '+';
+      };
+    });
+  }
+
+  if (initialTerm) {
+    search.value = initialTerm;
+    render(initialTerm);
+    // Den ersten Match direkt aufklappen.
+    setTimeout(() => {
+      const first = overlay.querySelector('.glossary-term');
+      if (first) first.click();
+    }, 50);
+  } else {
+    render('');
+  }
+  search.addEventListener('input', () => render(search.value));
+}
+
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+  __M.openGlossary = openGlossary;
+})();
+
+// ===== concepts.js =====
+(function(){
+  var Store = __M.Store;
+  var attachModal = __M.attachModal;
+  var openGlossary = __M.openGlossary;
+// concepts.js — Kurze Konzept-Karten, die vor didaktischen Wendepunkten
+// angezeigt werden. Bewusst sehr knapp gehalten — eine Karte ≤ 60 Sekunden Lesezeit.
+
+
+
+// Begriffe, die in Konzept-Texten als Inline-Links zum Glossar werden.
+// Reihenfolge nach Länge absteigend, damit „Engagement-Bait" vor „Engagement"
+// gematcht wird.
+const GLOSSARY_TERMS = [
+  'Engagement-Bait', 'Filterblase', 'Echokammer', 'Algorithmus', 'Deepfake',
+  'Empörung', 'Shadowban', 'Targeting', 'Reichweite', 'Reach',
+  'Rabbit Hole', 'Outrage', 'Bot'
+];
+
+function linkifyGlossaryTerms(text) {
+  let safe = escapeHtml(text);
+  for (const term of GLOSSARY_TERMS) {
+    const re = new RegExp(`\\b(${escapeRegex(term)})\\b`, 'g');
+    safe = safe.replace(re, '<button type="button" class="glossary-link" data-term="$1">$1</button>');
+  }
+  return safe;
+}
+
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const CONCEPTS = {
+  bots_intro: {
+    title: 'Was ist ein Bot?',
+    points: [
+      'Ein Bot ist ein automatisiertes Konto, das aussieht wie ein Mensch — postet, liked, kommentiert.',
+      'Typische Tells: sehr junger Account, hohe Posting-Frequenz, generisches Profilbild oder Naming-Schema mit Zahlen.',
+      'Gefährlich, weil sie Stimmungen verstärken können, ohne dass jemand dafür Verantwortung trägt.',
+      'Plattformen erkennen viele, aber nicht alle. Manche Profile sind „Cyborgs": teils Mensch, teils Auto-Posting.'
+    ],
+    bg: 'tech'
+  },
+  bot_minigame_intro: {
+    title: 'Gleich: Bot oder Mensch?',
+    points: [
+      'Du siehst gleich Profile mit Bio, Beitrag, Account-Alter und Posting-Frequenz.',
+      'Markiere für jedes: Bot oder Mensch. Beide können vorkommen — auch beide Bots oder beide Menschen.',
+      'Es ist absichtlich nicht immer eindeutig. Genau das ist der Punkt.'
+    ],
+    bg: 'tech'
+  },
+  algorithm_panel_intro: {
+    title: 'Blick hinter den Algorithmus',
+    points: [
+      'Plattformen speichern Modelle über dich. Deine Interessen, deine politische Neigung, deine Outrage-Toleranz.',
+      'Diese Werte siehst du oben rechts unter 🔍 — sie werden mit jeder Aktion neu justiert.',
+      'In der echten Welt sind diese Werte meist nicht einsehbar. Streem ist hier ehrlich, damit du siehst, wie es funktioniert.'
+    ],
+    bg: 'tech'
+  },
+  ads_intro: {
+    title: 'Warum jetzt Anzeigen?',
+    points: [
+      'Anzeigen sind gekennzeichnet. Sie werden nach deinen Interessen ausgespielt — die Plattform verdient daran.',
+      'Politische Anzeigen sind besonders heikel: sie können gezielt nur bestimmte Gruppen erreichen ohne öffentliche Debatte.',
+      'Klick „Warum sehe ich das?" unter Anzeigen, um das Targeting zu sehen.'
+    ],
+    bg: 'commerce'
+  },
+  dark_patterns: {
+    title: 'Dark Patterns',
+    points: [
+      'UI-Tricks, die dich zu Klicks drängen — z.B. unauffällig platzierte „Abmelden"-Buttons, vorab angekreuzte Newsletter, künstliche Knappheit („nur noch 2 verfügbar").',
+      'Auch Push-Notifications, die so aussehen, als würde etwas passieren, sind Dark Patterns — du hast Streem-Notifications wie „Sara hat dich erwähnt" gesehen, ohne dass tatsächlich etwas war.',
+      'Streak-Anzeigen („18 Tage in Folge!"), endlose Feeds, ungelesen-Badges — alles bewusst gestaltete Engagement-Treiber.',
+      'Erkennen heißt nicht: nicht mehr nutzen. Es heißt: weniger automatisch reagieren.'
+    ],
+    bg: 'commerce'
+  },
+  recommender: {
+    title: 'Empfehlungssysteme',
+    points: [
+      'Ein Empfehlungssystem sortiert Inhalte nach einer Funktion: viele Faktoren werden gewichtet, der Top-Wert kommt zuerst.',
+      'In Streem siehst du diese Faktoren live: Affinität, Engagement, Aktualität, Soziales, Anzeigen, Vielfalt, Qualität, Empörungsstrafe, Gegen-Perspektive.',
+      'Plattformen bauen ähnliche Systeme — die Gewichte sind aber meistens nicht öffentlich.',
+      'Die Sandbox lässt dich die Gewichte selbst verschieben. Ein „guter" Algorithmus ist eine politische Entscheidung, kein technisches Detail.'
+    ],
+    bg: 'tech'
+  }
+};
+
+let queued = null;
+
+function queueConcept(key) {
+  if (!CONCEPTS[key]) return;
+  if (Store.data.conceptsSeen?.[key]) return;
+  queued = key;
+}
+
+function maybeShowQueuedConcept() {
+  if (!queued) return false;
+  const key = queued;
+  queued = null;
+  showConcept(key);
+  return true;
+}
+
+function showConcept(key) {
+  const c = CONCEPTS[key];
+  if (!c) return;
+  if (!Store.data.conceptsSeen) Store.data.conceptsSeen = {};
+  Store.data.conceptsSeen[key] = Date.now();
+  Store.save();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay concept-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.innerHTML = `
+    <div class="concept-box concept-bg-${c.bg}">
+      <div class="concept-kicker">Kurz erklärt</div>
+      <h2>${escapeHtml(c.title)}</h2>
+      <ul class="concept-points">
+        ${c.points.map(p => `<li>${linkifyGlossaryTerms(p)}</li>`).join('')}
+      </ul>
+      <button class="btn btn-primary concept-go" id="concept-close">Verstanden</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const handle = attachModal(overlay);
+  overlay.querySelector('#concept-close').onclick = () => handle.close();
+  overlay.querySelectorAll('.glossary-link').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      openGlossary(btn.dataset.term);
+    };
+  });
+}
+
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+  __M.queueConcept = queueConcept;
+  __M.maybeShowQueuedConcept = maybeShowQueuedConcept;
+  __M.showConcept = showConcept;
+})();
+
+// ===== push.js =====
+(function(){
+  var Store = __M.Store;
+  var SFX = __M.SFX;
+  var showConcept = __M.showConcept;
+// push.js — Fake-Push-Notifications, die mid-Feed hochpoppen.
+// Didaktischer Sinn: SuS sollen die Manipulationsmechanik nicht nur lesen,
+// sondern selbst spüren.
+
+
+
+const TEMPLATES = [
+  { id: 'mention_sara',    from: 'Streem', text: 'Sara hat dich in einem Kommentar erwähnt.',         deceptive: true,  week_min: 3 },
+  { id: 'streak',          from: 'Streem', text: 'Du bist seit {W} Wochen aktiv — Streak halten!',     deceptive: true,  week_min: 7 },
+  { id: 'reactivate',      from: 'Streem', text: '3 neue Aktivitäten warten auf dich.',                deceptive: true,  week_min: 5 },
+  { id: 'trending',        from: 'Streem', text: 'Dein Post von letzter Woche bekommt jetzt Schub.',   deceptive: true,  week_min: 8, needs_own_post: true },
+  { id: 'finn_typing',     from: 'Streem', text: 'Finn schreibt dir gerade…',                          deceptive: true,  week_min: 8 },
+  { id: 'similar_account', from: 'Streem', text: 'Jemand, dem du ähnelst, folgt jetzt einer Gilde.',   deceptive: true,  week_min: 10 },
+  { id: 'fomo',            from: 'Streem', text: '12 Personen aus Greifshafen sind gerade online.',    deceptive: true,  week_min: 6 },
+  { id: 'badge_ready',     from: 'Streem', text: 'Ein neues Abzeichen ist fast freigeschaltet — bleib dran!', deceptive: true, week_min: 4 }
+];
+
+const RATE_LIMIT_WEEKS = 2; // höchstens alle 2 Wochen ein Push.
+
+function pickTemplate() {
+  const w = Store.data.currentWeek;
+  const seen = Store.data.pushNotificationsSeen || {};
+  const hasOwn = (Store.data.ownPosts || []).length > 0;
+  const eligible = TEMPLATES.filter(t => {
+    if (t.week_min > w) return false;
+    if (t.needs_own_post && !hasOwn) return false;
+    if (seen[t.id]) return false;
+    return true;
+  });
+  if (!eligible.length) return null;
+  // Deterministisch pro Woche, damit es nicht zufällig springt bei Re-Render.
+  const idx = (w * 7 + (Store.data.random_seed || 1)) % eligible.length;
+  return eligible[idx];
+}
+
+let lastShownWeek = -RATE_LIMIT_WEEKS;
+
+function maybeShowPush() {
+  const w = Store.data.currentWeek;
+  if (w - lastShownWeek < RATE_LIMIT_WEEKS) return false;
+  if (w < 3) return false; // erste Wochen ruhig lassen.
+  const t = pickTemplate();
+  if (!t) return false;
+  lastShownWeek = w;
+  showPushBanner(t);
+  if (!Store.data.pushNotificationsSeen) Store.data.pushNotificationsSeen = {};
+  const firstPush = Object.keys(Store.data.pushNotificationsSeen).length === 0;
+  Store.data.pushNotificationsSeen[t.id] = w;
+  Store.save();
+  // Direkt nach der allerersten Push: kurze Konzept-Karte „Dark Patterns".
+  if (firstPush && !Store.data.conceptsSeen?.dark_patterns) {
+    setTimeout(() => showConcept('dark_patterns'), 7000);
+  }
+  return true;
+}
+
+function showPushBanner(template) {
+  const w = Store.data.currentWeek;
+  const text = template.text.replace('{W}', w);
+  const banner = document.createElement('div');
+  banner.className = 'push-banner';
+  banner.setAttribute('role', 'alert');
+  banner.innerHTML = `
+    <div class="push-app">📱 ${escapeHtml(template.from)}</div>
+    <div class="push-body">
+      <div class="push-text">${escapeHtml(text)}</div>
+      <button class="push-close" aria-label="Schließen">×</button>
+    </div>
+    <div class="push-disclaimer muted small">${template.deceptive ? 'Das war eine fiktive Notification. Echte Apps senden so etwas, um dich zurückzuholen — meistens, ohne dass etwas Echtes passiert ist.' : ''}</div>
+  `;
+  document.body.appendChild(banner);
+  SFX.toast();
+  // Slide-in via Klasse.
+  requestAnimationFrame(() => banner.classList.add('in'));
+  const close = () => {
+    banner.classList.remove('in');
+    setTimeout(() => banner.remove(), 280);
+    clearTimeout(autoClose);
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  banner.querySelector('.push-close').onclick = close;
+  banner.addEventListener('click', e => {
+    if (e.target === banner.querySelector('.push-close')) return;
+    // Klick auf Banner zeigt den Disclaimer (Reflexionsmoment).
+    banner.classList.add('expanded');
+  });
+  const autoClose = setTimeout(close, 6500);
+}
+
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+  __M.maybeShowPush = maybeShowPush;
+})();
+
+// ===== tutorial.js =====
+(function(){
+  var Store = __M.Store;
+// tutorial.js — Erst-Erklärungs-Tooltips beim allerersten Feed-Render.
+
+const STEPS = [
+  {
+    selector: '.post-card .actions',
+    text: 'Likes, Kommentare und Shares füttern den Algorithmus. Auch wütende Kommentare gelten als Engagement — das ist genau der Punkt.',
+    placement: 'top'
+  },
+  {
+    selector: '.bottombar .navbtn[data-view="dms"]',
+    text: 'Hier landen Direkt-Nachrichten von NPCs. Lea, Finn, Mira melden sich im Lauf der Wochen. Deine Antworten verändern, was passiert.',
+    placement: 'top'
+  },
+  {
+    selector: '.stories-bar .story-item:first-child',
+    text: 'Stories: 24-h-Inhalte. Klick öffnet sie. Nach einer Spielwoche verschwinden sie.',
+    placement: 'bottom'
+  }
+];
+
+function maybeRunTutorial() {
+  if (Store.data.tutorialDone) return;
+  // Wenn die Wochen schon vorangeschritten sind: Tutorial trotzdem nachholen,
+  // aber nur, wenn der User es explizit angefordert hat (Replay).
+  setTimeout(() => runTutorial(0), 800);
+}
+
+// Expliziter Replay vom Settings-Menü — bypassed alle Bedingungen.
+function forceRunTutorial() {
+  Store.data.tutorialDone = false;
+  Store.save();
+  setTimeout(() => runTutorial(0), 600);
+}
+
+function runTutorial(idx) {
+  if (idx >= STEPS.length) {
+    Store.data.tutorialDone = true;
+    Store.save();
+    return;
+  }
+  const step = STEPS[idx];
+  const target = document.querySelector(step.selector);
+  if (!target) { runTutorial(idx + 1); return; }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'tutorial-overlay';
+
+  const spot = document.createElement('div');
+  spot.className = 'tutorial-spot';
+
+  const tip = document.createElement('div');
+  tip.className = 'tutorial-tip placement-' + (step.placement || 'top');
+  tip.innerHTML = `
+    <p>${escapeHtml(step.text)}</p>
+    <div class="tutorial-actions">
+      <span class="muted small">Schritt ${idx + 1} von ${STEPS.length}</span>
+      <div>
+        <button class="btn btn-ghost btn-small" id="tut-skip">Überspringen</button>
+        <button class="btn btn-primary btn-small" id="tut-next">${idx === STEPS.length - 1 ? 'Verstanden' : 'Weiter'}</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+  document.body.appendChild(spot);
+  document.body.appendChild(tip);
+
+  positionAround(target, spot, tip, step.placement);
+
+  const close = () => {
+    overlay.remove(); spot.remove(); tip.remove();
+  };
+  tip.querySelector('#tut-next').onclick = () => { close(); runTutorial(idx + 1); };
+  tip.querySelector('#tut-skip').onclick = () => { close(); Store.data.tutorialDone = true; Store.save(); };
+}
+
+function positionAround(target, spot, tip, placement) {
+  const rect = target.getBoundingClientRect();
+  const pad = 8;
+  spot.style.left   = (rect.left - pad) + 'px';
+  spot.style.top    = (rect.top - pad) + 'px';
+  spot.style.width  = (rect.width + pad * 2) + 'px';
+  spot.style.height = (rect.height + pad * 2) + 'px';
+
+  const tipW = 280;
+  let tipX = rect.left + rect.width / 2 - tipW / 2;
+  if (tipX < 8) tipX = 8;
+  if (tipX + tipW > window.innerWidth - 8) tipX = window.innerWidth - tipW - 8;
+  tip.style.width = tipW + 'px';
+  tip.style.left  = tipX + 'px';
+
+  if (placement === 'bottom') {
+    tip.style.top = (rect.bottom + 18) + 'px';
+  } else {
+    const tipH = tip.offsetHeight || 140;
+    tip.style.top = Math.max(8, rect.top - tipH - 18) + 'px';
+  }
+}
+
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+  __M.maybeRunTutorial = maybeRunTutorial;
+  __M.forceRunTutorial = forceRunTutorial;
 })();
 
 // ===== feed.js =====
@@ -3109,7 +3966,11 @@ function escapeHtml(s) {
 // ===== wrapped.js =====
 (function(){
   var Store = __M.Store;
+  var buildSelfcheckCompareHtml = __M.buildSelfcheckCompareHtml;
+  var downloadShareCard = __M.downloadShareCard;
 // wrapped.js — Jahresrückblick im "Wrapped"-Stil.
+
+
 
 let POSTS_LOOKUP = null;
 
@@ -3284,6 +4145,14 @@ function buildWrapped() {
       `
     },
     buildMissedStoriesSlide(d),
+    {
+      id: 's8e',
+      html: `
+        <h2>Vorher und nachher — du selbst</h2>
+        <p>Wie unterschiedlich siehst du dieselben fünf Fragen am Anfang und am Ende des Spiels?</p>
+        ${buildSelfcheckCompareHtml()}
+      `
+    },
     buildEndingSlide(d),
     buildWhatIfSlide(d),
     {
@@ -3295,7 +4164,9 @@ function buildWrapped() {
         <div class="wrapped-final-actions">
           <button class="btn btn-primary" id="btn-go-sandbox">Dein eigener Algorithmus →</button>
           <button class="btn btn-ghost" id="btn-go-manifest">Medien-Manifest →</button>
+          <button class="btn btn-ghost" id="btn-share-card">Als Bild teilen 📸</button>
         </div>
+        <p class="muted small" style="margin-top:14px">„Teilen" lädt eine PNG-Datei zum Speichern. Ob du sie in einer echten App postest — entscheidet dein Algorithmus.</p>
       `
     }
   ];
@@ -3846,6 +4717,8 @@ function renderWrapped(onSandbox, onManifest) {
         if (sbx) sbx.onclick = () => onSandbox && onSandbox();
         const mf = root.querySelector('#btn-go-manifest');
         if (mf) mf.onclick = () => onManifest && onManifest();
+        const sh = root.querySelector('#btn-share-card');
+        if (sh) sh.onclick = () => downloadShareCard();
       }, 20);
     }
   };
@@ -4774,475 +5647,6 @@ function escapeHtml(s) {
   __M.renderClassCompare = renderClassCompare;
 })();
 
-// ===== push.js =====
-(function(){
-  var Store = __M.Store;
-  var SFX = __M.SFX;
-// push.js — Fake-Push-Notifications, die mid-Feed hochpoppen.
-// Didaktischer Sinn: SuS sollen die Manipulationsmechanik nicht nur lesen,
-// sondern selbst spüren.
-
-
-const TEMPLATES = [
-  { id: 'mention_sara',    from: 'Streem', text: 'Sara hat dich in einem Kommentar erwähnt.',         deceptive: true,  week_min: 3 },
-  { id: 'streak',          from: 'Streem', text: 'Du bist seit {W} Wochen aktiv — Streak halten!',     deceptive: true,  week_min: 7 },
-  { id: 'reactivate',      from: 'Streem', text: '3 neue Aktivitäten warten auf dich.',                deceptive: true,  week_min: 5 },
-  { id: 'trending',        from: 'Streem', text: 'Dein Post von letzter Woche bekommt jetzt Schub.',   deceptive: true,  week_min: 8, needs_own_post: true },
-  { id: 'finn_typing',     from: 'Streem', text: 'Finn schreibt dir gerade…',                          deceptive: true,  week_min: 8 },
-  { id: 'similar_account', from: 'Streem', text: 'Jemand, dem du ähnelst, folgt jetzt einer Gilde.',   deceptive: true,  week_min: 10 },
-  { id: 'fomo',            from: 'Streem', text: '12 Personen aus Greifshafen sind gerade online.',    deceptive: true,  week_min: 6 },
-  { id: 'badge_ready',     from: 'Streem', text: 'Ein neues Abzeichen ist fast freigeschaltet — bleib dran!', deceptive: true, week_min: 4 }
-];
-
-const RATE_LIMIT_WEEKS = 2; // höchstens alle 2 Wochen ein Push.
-
-function pickTemplate() {
-  const w = Store.data.currentWeek;
-  const seen = Store.data.pushNotificationsSeen || {};
-  const hasOwn = (Store.data.ownPosts || []).length > 0;
-  const eligible = TEMPLATES.filter(t => {
-    if (t.week_min > w) return false;
-    if (t.needs_own_post && !hasOwn) return false;
-    if (seen[t.id]) return false;
-    return true;
-  });
-  if (!eligible.length) return null;
-  // Deterministisch pro Woche, damit es nicht zufällig springt bei Re-Render.
-  const idx = (w * 7 + (Store.data.random_seed || 1)) % eligible.length;
-  return eligible[idx];
-}
-
-let lastShownWeek = -RATE_LIMIT_WEEKS;
-
-function maybeShowPush() {
-  const w = Store.data.currentWeek;
-  if (w - lastShownWeek < RATE_LIMIT_WEEKS) return false;
-  if (w < 3) return false; // erste Wochen ruhig lassen.
-  const t = pickTemplate();
-  if (!t) return false;
-  lastShownWeek = w;
-  showPushBanner(t);
-  if (!Store.data.pushNotificationsSeen) Store.data.pushNotificationsSeen = {};
-  Store.data.pushNotificationsSeen[t.id] = w;
-  Store.save();
-  return true;
-}
-
-function showPushBanner(template) {
-  const w = Store.data.currentWeek;
-  const text = template.text.replace('{W}', w);
-  const banner = document.createElement('div');
-  banner.className = 'push-banner';
-  banner.setAttribute('role', 'alert');
-  banner.innerHTML = `
-    <div class="push-app">📱 ${escapeHtml(template.from)}</div>
-    <div class="push-body">
-      <div class="push-text">${escapeHtml(text)}</div>
-      <button class="push-close" aria-label="Schließen">×</button>
-    </div>
-    <div class="push-disclaimer muted small">${template.deceptive ? 'Das war eine fiktive Notification. Echte Apps senden so etwas, um dich zurückzuholen — meistens, ohne dass etwas Echtes passiert ist.' : ''}</div>
-  `;
-  document.body.appendChild(banner);
-  SFX.toast();
-  // Slide-in via Klasse.
-  requestAnimationFrame(() => banner.classList.add('in'));
-  const close = () => {
-    banner.classList.remove('in');
-    setTimeout(() => banner.remove(), 280);
-    clearTimeout(autoClose);
-    document.removeEventListener('keydown', onKey);
-  };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
-  document.addEventListener('keydown', onKey);
-  banner.querySelector('.push-close').onclick = close;
-  banner.addEventListener('click', e => {
-    if (e.target === banner.querySelector('.push-close')) return;
-    // Klick auf Banner zeigt den Disclaimer (Reflexionsmoment).
-    banner.classList.add('expanded');
-  });
-  const autoClose = setTimeout(close, 6500);
-}
-
-function escapeHtml(s) {
-  if (s === null || s === undefined) return '';
-  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-}
-
-  __M.maybeShowPush = maybeShowPush;
-})();
-
-// ===== tutorial.js =====
-(function(){
-  var Store = __M.Store;
-// tutorial.js — Erst-Erklärungs-Tooltips beim allerersten Feed-Render.
-
-const STEPS = [
-  {
-    selector: '.post-card .actions',
-    text: 'Likes, Kommentare und Shares füttern den Algorithmus. Auch wütende Kommentare gelten als Engagement — das ist genau der Punkt.',
-    placement: 'top'
-  },
-  {
-    selector: '.bottombar .navbtn[data-view="dms"]',
-    text: 'Hier landen Direkt-Nachrichten von NPCs. Lea, Finn, Mira melden sich im Lauf der Wochen. Deine Antworten verändern, was passiert.',
-    placement: 'top'
-  },
-  {
-    selector: '.stories-bar .story-item:first-child',
-    text: 'Stories: 24-h-Inhalte. Klick öffnet sie. Nach einer Spielwoche verschwinden sie.',
-    placement: 'bottom'
-  }
-];
-
-function maybeRunTutorial() {
-  if (Store.data.tutorialDone) return;
-  // Wenn die Wochen schon vorangeschritten sind: Tutorial trotzdem nachholen,
-  // aber nur, wenn der User es explizit angefordert hat (Replay).
-  setTimeout(() => runTutorial(0), 800);
-}
-
-// Expliziter Replay vom Settings-Menü — bypassed alle Bedingungen.
-function forceRunTutorial() {
-  Store.data.tutorialDone = false;
-  Store.save();
-  setTimeout(() => runTutorial(0), 600);
-}
-
-function runTutorial(idx) {
-  if (idx >= STEPS.length) {
-    Store.data.tutorialDone = true;
-    Store.save();
-    return;
-  }
-  const step = STEPS[idx];
-  const target = document.querySelector(step.selector);
-  if (!target) { runTutorial(idx + 1); return; }
-
-  const overlay = document.createElement('div');
-  overlay.className = 'tutorial-overlay';
-
-  const spot = document.createElement('div');
-  spot.className = 'tutorial-spot';
-
-  const tip = document.createElement('div');
-  tip.className = 'tutorial-tip placement-' + (step.placement || 'top');
-  tip.innerHTML = `
-    <p>${escapeHtml(step.text)}</p>
-    <div class="tutorial-actions">
-      <span class="muted small">Schritt ${idx + 1} von ${STEPS.length}</span>
-      <div>
-        <button class="btn btn-ghost btn-small" id="tut-skip">Überspringen</button>
-        <button class="btn btn-primary btn-small" id="tut-next">${idx === STEPS.length - 1 ? 'Verstanden' : 'Weiter'}</button>
-      </div>
-    </div>
-  `;
-
-  document.body.appendChild(overlay);
-  document.body.appendChild(spot);
-  document.body.appendChild(tip);
-
-  positionAround(target, spot, tip, step.placement);
-
-  const close = () => {
-    overlay.remove(); spot.remove(); tip.remove();
-  };
-  tip.querySelector('#tut-next').onclick = () => { close(); runTutorial(idx + 1); };
-  tip.querySelector('#tut-skip').onclick = () => { close(); Store.data.tutorialDone = true; Store.save(); };
-}
-
-function positionAround(target, spot, tip, placement) {
-  const rect = target.getBoundingClientRect();
-  const pad = 8;
-  spot.style.left   = (rect.left - pad) + 'px';
-  spot.style.top    = (rect.top - pad) + 'px';
-  spot.style.width  = (rect.width + pad * 2) + 'px';
-  spot.style.height = (rect.height + pad * 2) + 'px';
-
-  const tipW = 280;
-  let tipX = rect.left + rect.width / 2 - tipW / 2;
-  if (tipX < 8) tipX = 8;
-  if (tipX + tipW > window.innerWidth - 8) tipX = window.innerWidth - tipW - 8;
-  tip.style.width = tipW + 'px';
-  tip.style.left  = tipX + 'px';
-
-  if (placement === 'bottom') {
-    tip.style.top = (rect.bottom + 18) + 'px';
-  } else {
-    const tipH = tip.offsetHeight || 140;
-    tip.style.top = Math.max(8, rect.top - tipH - 18) + 'px';
-  }
-}
-
-function escapeHtml(s) {
-  if (s === null || s === undefined) return '';
-  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-}
-
-  __M.maybeRunTutorial = maybeRunTutorial;
-  __M.forceRunTutorial = forceRunTutorial;
-})();
-
-// ===== concepts.js =====
-(function(){
-  var Store = __M.Store;
-  var attachModal = __M.attachModal;
-  var openGlossary = __M.openGlossary;
-// concepts.js — Kurze Konzept-Karten, die vor didaktischen Wendepunkten
-// angezeigt werden. Bewusst sehr knapp gehalten — eine Karte ≤ 60 Sekunden Lesezeit.
-
-
-
-// Begriffe, die in Konzept-Texten als Inline-Links zum Glossar werden.
-// Reihenfolge nach Länge absteigend, damit „Engagement-Bait" vor „Engagement"
-// gematcht wird.
-const GLOSSARY_TERMS = [
-  'Engagement-Bait', 'Filterblase', 'Echokammer', 'Algorithmus', 'Deepfake',
-  'Empörung', 'Shadowban', 'Targeting', 'Reichweite', 'Reach',
-  'Rabbit Hole', 'Outrage', 'Bot'
-];
-
-function linkifyGlossaryTerms(text) {
-  let safe = escapeHtml(text);
-  for (const term of GLOSSARY_TERMS) {
-    const re = new RegExp(`\\b(${escapeRegex(term)})\\b`, 'g');
-    safe = safe.replace(re, '<button type="button" class="glossary-link" data-term="$1">$1</button>');
-  }
-  return safe;
-}
-
-function escapeRegex(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-const CONCEPTS = {
-  bots_intro: {
-    title: 'Was ist ein Bot?',
-    points: [
-      'Ein Bot ist ein automatisiertes Konto, das aussieht wie ein Mensch — postet, liked, kommentiert.',
-      'Typische Tells: sehr junger Account, hohe Posting-Frequenz, generisches Profilbild oder Naming-Schema mit Zahlen.',
-      'Gefährlich, weil sie Stimmungen verstärken können, ohne dass jemand dafür Verantwortung trägt.',
-      'Plattformen erkennen viele, aber nicht alle. Manche Profile sind „Cyborgs": teils Mensch, teils Auto-Posting.'
-    ],
-    bg: 'tech'
-  },
-  bot_minigame_intro: {
-    title: 'Gleich: Bot oder Mensch?',
-    points: [
-      'Du siehst gleich Profile mit Bio, Beitrag, Account-Alter und Posting-Frequenz.',
-      'Markiere für jedes: Bot oder Mensch. Beide können vorkommen — auch beide Bots oder beide Menschen.',
-      'Es ist absichtlich nicht immer eindeutig. Genau das ist der Punkt.'
-    ],
-    bg: 'tech'
-  },
-  algorithm_panel_intro: {
-    title: 'Blick hinter den Algorithmus',
-    points: [
-      'Plattformen speichern Modelle über dich. Deine Interessen, deine politische Neigung, deine Outrage-Toleranz.',
-      'Diese Werte siehst du oben rechts unter 🔍 — sie werden mit jeder Aktion neu justiert.',
-      'In der echten Welt sind diese Werte meist nicht einsehbar. Streem ist hier ehrlich, damit du siehst, wie es funktioniert.'
-    ],
-    bg: 'tech'
-  },
-  ads_intro: {
-    title: 'Warum jetzt Anzeigen?',
-    points: [
-      'Anzeigen sind gekennzeichnet. Sie werden nach deinen Interessen ausgespielt — die Plattform verdient daran.',
-      'Politische Anzeigen sind besonders heikel: sie können gezielt nur bestimmte Gruppen erreichen ohne öffentliche Debatte.',
-      'Klick „Warum sehe ich das?" unter Anzeigen, um das Targeting zu sehen.'
-    ],
-    bg: 'commerce'
-  }
-};
-
-let queued = null;
-
-function queueConcept(key) {
-  if (!CONCEPTS[key]) return;
-  if (Store.data.conceptsSeen?.[key]) return;
-  queued = key;
-}
-
-function maybeShowQueuedConcept() {
-  if (!queued) return false;
-  const key = queued;
-  queued = null;
-  showConcept(key);
-  return true;
-}
-
-function showConcept(key) {
-  const c = CONCEPTS[key];
-  if (!c) return;
-  if (!Store.data.conceptsSeen) Store.data.conceptsSeen = {};
-  Store.data.conceptsSeen[key] = Date.now();
-  Store.save();
-
-  const overlay = document.createElement('div');
-  overlay.className = 'tw-overlay concept-overlay';
-  overlay.setAttribute('role', 'dialog');
-  overlay.setAttribute('aria-modal', 'true');
-  overlay.innerHTML = `
-    <div class="concept-box concept-bg-${c.bg}">
-      <div class="concept-kicker">Kurz erklärt</div>
-      <h2>${escapeHtml(c.title)}</h2>
-      <ul class="concept-points">
-        ${c.points.map(p => `<li>${linkifyGlossaryTerms(p)}</li>`).join('')}
-      </ul>
-      <button class="btn btn-primary concept-go" id="concept-close">Verstanden</button>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-  const handle = attachModal(overlay);
-  overlay.querySelector('#concept-close').onclick = () => handle.close();
-  overlay.querySelectorAll('.glossary-link').forEach(btn => {
-    btn.onclick = (e) => {
-      e.stopPropagation();
-      openGlossary(btn.dataset.term);
-    };
-  });
-}
-
-function escapeHtml(s) {
-  if (s === null || s === undefined) return '';
-  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-}
-
-  __M.queueConcept = queueConcept;
-  __M.maybeShowQueuedConcept = maybeShowQueuedConcept;
-  __M.showConcept = showConcept;
-})();
-
-// ===== glossary.js =====
-(function(){
-  var attachModal = __M.attachModal;
-// glossary.js — Schnellnachschlage für zentrale Begriffe.
-// Im Settings erreichbar. Bewusst kurz: 3-4 Sätze pro Begriff,
-// kein Wikipedia-Ersatz.
-
-const TERMS = [
-  {
-    term: 'Algorithmus',
-    text: 'Eine Regel-Sammlung, nach der ein System entscheidet, welche Inhalte du siehst und in welcher Reihenfolge. In Streem siehst du genau diese Regeln im 🔍-Panel — bei echten Plattformen meist nicht.'
-  },
-  {
-    term: 'Filterblase',
-    text: 'Effekt, bei dem du algorithmisch hauptsächlich Inhalte siehst, die deinen bisherigen Vorlieben entsprechen. Andere Perspektiven werden seltener angezeigt — und du merkst das selten selbst.'
-  },
-  {
-    term: 'Echokammer',
-    text: 'Eine Filterblase mit sozialer Verstärkung: deine Meinung wird von immer denselben Stimmen bestätigt. Widerspruch erreicht dich kaum, weil deine Gilde, deine Freunde, dein Feed alle ähnlich ticken.'
-  },
-  {
-    term: 'Engagement',
-    text: 'Jede Interaktion: Like, Kommentar, Share, Verweildauer. Algorithmen messen Engagement, um Inhalte zu sortieren. Wütende Kommentare zählen meistens genauso viel wie zustimmende — das ist genau das Problem.'
-  },
-  {
-    term: 'Reach (Reichweite)',
-    text: 'Wie viele Menschen deinen Beitrag tatsächlich sehen. Hängt vom Algorithmus ab — nicht von deiner Followerzahl. Empörungslastige Inhalte bekommen oft mehr Reichweite als sachliche.'
-  },
-  {
-    term: 'Bot',
-    text: 'Automatisiertes Konto, das wie ein Mensch wirkt. Typische Hinweise: junger Account, hohe Posting-Frequenz, generisches Profilbild, Naming-Schema mit Zahlen. Bots verstärken Stimmungen, ohne dass jemand dafür haftet.'
-  },
-  {
-    term: 'Engagement-Bait',
-    text: 'Beiträge, die so gestaltet sind, dass sie Reaktionen provozieren — über inhaltlichen Wert hinaus. Beispiele: bewusst zugespitzte Formulierungen, „Stimmt zu, wenn ihr auch denkt …", Quizfragen ohne Sachbezug.'
-  },
-  {
-    term: 'Outrage / Empörung',
-    text: 'Empörung ist algorithmisch wertvoll, weil sie Engagement erzeugt. Genau deshalb steigt empörender Inhalt im Feed — auch wenn er manipuliert, vereinfacht oder schadet.'
-  },
-  {
-    term: 'Targeting (Werbung)',
-    text: 'Anzeigen werden gezielt an Gruppen ausgespielt, deren Profil zum Werbeziel passt. Politische Anzeigen sind dabei besonders heikel, weil unterschiedliche Gruppen unterschiedliche Botschaften zu sehen bekommen, ohne öffentliche Debatte.'
-  },
-  {
-    term: 'Shadowban',
-    text: 'Wenn deine Beiträge stiller weniger Reichweite bekommen, ohne dass dir das mitgeteilt wird. Schwer nachzuweisen, weil Plattformen sich selten dazu äußern. In Streem nicht implementiert, aber im echten Netz real.'
-  },
-  {
-    term: 'Rabbit Hole',
-    text: 'Das schrittweise Hineinrutschen in immer radikalere Inhalte. Empfehlungssysteme können das beschleunigen, weil sie „mehr vom Gleichen" liefern. Im Spiel bist du diesem Effekt mit der Gilde „Echte Werte" begegnet.'
-  },
-  {
-    term: 'Deepfake',
-    text: 'Manipulierte Bilder, Videos oder Audios, die mit KI erzeugt wurden. Wirken echt, sind es aber nicht. Faktencheck mit Rückwärtsbildersuche und Quellenprüfung ist die einfachste Verteidigung.'
-  }
-];
-
-function openGlossary(initialTerm = '') {
-  const overlay = document.createElement('div');
-  overlay.className = 'tw-overlay';
-  overlay.innerHTML = `
-    <div class="tw-box glossary-box">
-      <header class="glossary-head">
-        <h3>Glossar</h3>
-        <button class="btn btn-ghost btn-small" id="glossary-close">Schließen</button>
-      </header>
-      <p class="muted small">Kurze Definitionen der Begriffe, die in Streem vorkommen. Klicke einen Eintrag, um ihn aufzuklappen.</p>
-      <div class="glossary-search">
-        <input type="search" id="glossary-q" placeholder="Suchen … (z.B. „Bot", „Filterblase")" aria-label="Glossar durchsuchen" />
-      </div>
-      <ul class="glossary-list" id="glossary-list"></ul>
-      <p class="muted small glossary-empty" id="glossary-empty" hidden>Kein Eintrag passt zu deiner Suche.</p>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-  const handle = attachModal(overlay);
-  overlay.querySelector('#glossary-close').onclick = () => handle.close();
-
-  const list = overlay.querySelector('#glossary-list');
-  const search = overlay.querySelector('#glossary-q');
-  const empty = overlay.querySelector('#glossary-empty');
-
-  function render(query) {
-    const q = (query || '').trim().toLowerCase();
-    const matches = TERMS
-      .map((t, i) => ({ t, i }))
-      .filter(({ t }) => !q || t.term.toLowerCase().includes(q) || t.text.toLowerCase().includes(q));
-    list.innerHTML = matches.map(({ t, i }) => `
-      <li>
-        <button class="glossary-term" data-i="${i}" aria-expanded="false">
-          <strong>${escapeHtml(t.term)}</strong>
-          <span class="glossary-chev" aria-hidden="true">+</span>
-        </button>
-        <div class="glossary-text" hidden>${escapeHtml(t.text)}</div>
-      </li>
-    `).join('');
-    empty.hidden = matches.length > 0;
-    list.querySelectorAll('.glossary-term').forEach(b => {
-      b.onclick = () => {
-        const txt = b.nextElementSibling;
-        const open = txt.hidden;
-        txt.hidden = !open;
-        b.setAttribute('aria-expanded', open ? 'true' : 'false');
-        b.querySelector('.glossary-chev').textContent = open ? '−' : '+';
-      };
-    });
-  }
-
-  if (initialTerm) {
-    search.value = initialTerm;
-    render(initialTerm);
-    // Den ersten Match direkt aufklappen.
-    setTimeout(() => {
-      const first = overlay.querySelector('.glossary-term');
-      if (first) first.click();
-    }, 50);
-  } else {
-    render('');
-  }
-  search.addEventListener('input', () => render(search.value));
-}
-
-function escapeHtml(s) {
-  if (s === null || s === undefined) return '';
-  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-}
-
-  __M.openGlossary = openGlossary;
-})();
-
 // ===== main.js =====
 (function(){
   var Store = __M.Store;
@@ -5287,7 +5691,11 @@ function escapeHtml(s) {
   var showConcept = __M.showConcept;
   var attachModal = __M.attachModal;
   var openGlossary = __M.openGlossary;
+  var maybeShowPreQuiz = __M.maybeShowPreQuiz;
+  var showPostQuiz = __M.showPostQuiz;
+  var buildSelfcheckCompareHtml = __M.buildSelfcheckCompareHtml;
 // main.js — Einstieg, Routing, Orchestrierung aller Module.
+
 
 
 
@@ -5471,6 +5879,8 @@ function bindGlobal() {
   };
   const reportBtn = document.getElementById('btn-export-report');
   if (reportBtn) reportBtn.onclick = exportReport;
+  const csvBtn = document.getElementById('btn-export-csv');
+  if (csvBtn) csvBtn.onclick = exportCsv;
   document.getElementById('btn-show-wrapped-now').onclick = () => {
     showScreen('screen-wrapped');
     renderWrapped(
@@ -5481,6 +5891,9 @@ function bindGlobal() {
   document.getElementById('btn-show-sandbox-now').onclick = () => {
     showScreen('screen-sandbox');
     renderSandbox(() => showScreen('screen-main'));
+    if (!Store.data.conceptsSeen?.recommender) {
+      setTimeout(() => showConcept('recommender'), 500);
+    }
   };
 
   // Profile Button (klein)
@@ -5684,8 +6097,10 @@ function startGame() {
     Store.data.initialProfileSnapshot = structuredClone(Store.data.userProfile);
     Store.save();
   }
-  enterMain();
-  toast('Willkommen bei Streem!', { long: true });
+  maybeShowPreQuiz(() => {
+    enterMain();
+    toast('Willkommen bei Streem!', { long: true });
+  });
 }
 
 // ===== Main-Loop =====
@@ -6072,11 +6487,14 @@ function advanceWeek() {
       openReflection('final');
       return;
     }
-    showScreen('screen-wrapped');
-    renderWrapped(
-      () => { showScreen('screen-sandbox'); renderSandbox(() => { showScreen('screen-main'); renderFeed('feed'); }); },
-      () => { showScreen('screen-manifest'); renderManifestForm(); }
-    );
+    // Post-Quiz vor Wrapped — Vergleich landet im Wrapped-Slide.
+    showPostQuiz(() => {
+      showScreen('screen-wrapped');
+      renderWrapped(
+        () => { showScreen('screen-sandbox'); renderSandbox(() => { showScreen('screen-main'); renderFeed('feed'); }); },
+        () => { showScreen('screen-manifest'); renderManifestForm(); }
+      );
+    });
     return;
   }
   if (pendingReflection) {
@@ -6538,6 +6956,30 @@ function showElectionResult() {
 }
 
 // ===== Profile-Modal (kleine Variante) =====
+// Vollständige Liste aller Achievements aus events.js. Wird hier
+// gespiegelt, damit die Profil-Anzeige auch noch nicht freigeschaltete
+// Abzeichen mit Beschreibung zeigen kann.
+const ACHIEVEMENTS_CATALOG = [
+  { title: 'Early Adopter',         desc: '20 Likes in der ersten Phase' },
+  { title: 'Flammenwerfer',         desc: 'Du hast wütend kommentiert' },
+  { title: 'Stiller Beobachter',    desc: 'Lesen statt Schreiben' },
+  { title: 'Netzwerker',            desc: 'Du folgst 10+ Accounts' },
+  { title: 'Tief im Loch',          desc: 'Rabbit-Hole betreten' },
+  { title: 'Bücherwurm',            desc: 'Der Leserunde beigetreten' },
+  { title: 'Türsteher:in',          desc: '5+ Accounts stummgeschaltet — bewusst kuratiert' },
+  { title: 'Reichweiten-Bauer:in',  desc: '10+ Beiträge geteilt' },
+  { title: 'Selbstschutz',          desc: 'Mehrfach Inhalte bewusst übersprungen' },
+  { title: 'Hinschauen',            desc: 'Mehrfach durch die Warnung gegangen — bewusst informiert' },
+  { title: 'Stimme',                desc: '5+ eigene Posts geschrieben' },
+  { title: 'Sticker-Bro',           desc: 'Drei eigene Posts mit Sticker' },
+  { title: 'Sammler:in',            desc: '3+ Posts für die Reflexion gemerkt' },
+  { title: 'Antworter:in',          desc: 'Vier DMs persönlich beantwortet' },
+  { title: 'Spurensucher:in',       desc: 'Greifshafen durchgeklickt' },
+  { title: 'Beste Freundin',        desc: 'Lea sieht dich an guten Tagen.' },
+  { title: 'Wachposten',            desc: 'Finn vor der Gilde gewarnt.' },
+  { title: 'Verbündete:r',          desc: 'Mira hat dir vertraut.' }
+];
+
 function openProfileModal() {
   const c = Store.data.character;
   const profile = Store.data.userProfile;
@@ -6556,6 +6998,19 @@ function openProfileModal() {
       <div class="stat"><div class="num">${Store.data.ownPosts.length}</div><div class="lbl">Posts</div></div>
       <div class="stat"><div class="num">${Store.data.badges.length}</div><div class="lbl">Badges</div></div>
     </div>
+    <details class="profile-badges">
+      <summary>Alle Abzeichen <span class="muted small">(${Store.data.badges.length}/${ACHIEVEMENTS_CATALOG.length})</span></summary>
+      <div class="badges-grid">
+        ${ACHIEVEMENTS_CATALOG.map(a => {
+          const earned = Store.data.badges.find(b => b.title === a.title);
+          return `<div class="badge-item ${earned ? 'earned' : 'locked'}" title="${escapeHtml(a.desc)}">
+            <div class="badge-emoji" aria-hidden="true">${earned ? '🏅' : '🔒'}</div>
+            <div class="badge-name">${escapeHtml(a.title)}</div>
+            <div class="badge-desc muted small">${escapeHtml(a.desc)}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </details>
     <button class="btn btn-primary" id="profile-close">Schließen</button>
   `;
   const overlay = document.createElement('div');
@@ -6680,7 +7135,17 @@ function exportReport() {
   .teacher-aside strong { display: block; color: #92520a; margin-bottom: 8px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; }
   .teacher-aside ol { margin: .5rem 0 .8rem 1.2rem; padding: 0; }
   .teacher-aside ol li { margin: .3rem 0; font-size: 14px; }
-  @media print { .teacher-aside { page-break-inside: avoid; } }
+  @media print {
+    body { max-width: none; margin: 0; padding: 1.5cm; font-size: 11pt; color: #000; }
+    h1 { color: #4338ca; page-break-after: avoid; }
+    h2 { color: #4338ca; page-break-after: avoid; margin-top: 1.5cm; }
+    section, .stats, .qa, .teacher-aside, ol.disc, ol, ul.interests { page-break-inside: avoid; }
+    .teacher-aside { background: #fffbe6; border: 1px solid #c0a040; color: #000; }
+    .stat { background: #f4f4f4; border-left-color: #6c2bd9; }
+    a { color: #000; text-decoration: underline; }
+    .foot { font-size: 9pt; }
+  }
+  @page { margin: 1.5cm; }
 </style></head>
 <body>
   <h1>Streem-Bericht</h1>
@@ -6874,6 +7339,76 @@ function buildContextualDiscussionQuestions(d) {
   }
 
   return out.slice(0, 8);
+}
+
+// CSV-Export: kompakte Tabelle mit den Feldern, die Lehrkräfte in Excel
+// oder Google Sheets analysieren wollen.
+function exportCsv() {
+  const d = Store.data;
+  if (!d || !d.character) { alert('Noch kein Spielstand.'); return; }
+  const c = d.character;
+  const p = d.userProfile || {};
+  const actions = (d.history || []).flatMap(h => h.actions || []);
+  const likes = actions.filter(a => a.type === 'like').length;
+  const comments = actions.filter(a => a.type === 'comment').length;
+  const angry = actions.filter(a => a.type === 'angry_comment').length;
+  const shares = actions.filter(a => a.type === 'share').length;
+  const mutes = actions.filter(a => a.type === 'mute').length;
+  const tws = d.contentWarningsAccepted || {};
+  const twSkip = Object.values(tws).reduce((a, b) => a + (b.skipped || 0), 0);
+  const twShown = Object.values(tws).reduce((a, b) => a + (b.shown || 0), 0);
+  const dm = d.dmReplies || {};
+  const arcs = d.npcArcs || {};
+  const guilds = d.guildMemberships || [];
+  const interestTop = Object.entries(p.interests || {}).sort((a, b) => b[1] - a[1])[0] || ['', 0];
+  const rows = [
+    ['Feld', 'Wert'],
+    ['Name', c.name],
+    ['Protagonist:in', c.protagonist || 'alex'],
+    ['Pronomen', c.pronoun || ''],
+    ['Bio', c.bio || ''],
+    ['Wochen gespielt', d.currentWeek],
+    ['Lean', (p.political_lean_estimated ?? 0).toFixed(3)],
+    ['Top-Interesse', interestTop[0]],
+    ['Top-Interesse Wert', (interestTop[1] || 0).toFixed(3)],
+    ['Likes', likes],
+    ['Kommentare', comments],
+    ['Wütende Kommentare', angry],
+    ['Geteilt', shares],
+    ['Stummgeschaltet', mutes],
+    ['Folgt', (p.followed || []).length],
+    ['Eigene Posts', (d.ownPosts || []).length],
+    ['Lesezeichen', Object.keys(d.bookmarks || {}).length],
+    ['TW angesehen', twShown],
+    ['TW übersprungen', twSkip],
+    ['Gilden', guilds.join('; ')],
+    ['In Rabbit Hole', guilds.includes('echte_werte') ? 'ja' : 'nein'],
+    ['Wahl', d.electionVote || ''],
+    ['Ending', d.ending || ''],
+    ['Marc-DM', dm.dm_marc?.[11]?.id || ''],
+    ['Finn-W8', dm.dm_finn?.[8]?.id || ''],
+    ['Finn-W17', dm.dm_finn?.[17]?.id || ''],
+    ['Lara-W24', dm.dm_lara?.[24]?.id || ''],
+    ['Mira-W15', dm.dm_mira?.[15]?.id || ''],
+    ['Lea-W14', dm.dm_lea?.[14]?.id || ''],
+    ['Lea-Nähe', (arcs.lea_close || 0).toFixed(2)],
+    ['Finn-Pfad', (arcs.finn_path || 0).toFixed(2)],
+    ['Mira-Nähe', (arcs.mira_close || 0).toFixed(2)],
+    ['Self-Aware', arcs.self_aware || 0],
+    ['Bot-Quiz', d.minigameResults?.bot_or_human ? `${d.minigameResults.bot_or_human.score}/${d.minigameResults.bot_or_human.total}` : ''],
+    ['Selfcheck-Pre', d.selfcheck?.pre?.answers ? Object.values(d.selfcheck.pre.answers).join('-') : (d.selfcheck?.pre?.skipped ? 'skipped' : '')],
+    ['Selfcheck-Post', d.selfcheck?.post?.answers ? Object.values(d.selfcheck.post.answers).join('-') : (d.selfcheck?.post?.skipped ? 'skipped' : '')]
+  ];
+  function escCsv(v) {
+    const s = String(v ?? '');
+    if (/[",\n;]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
+  // BOM, damit Excel UTF-8 sauber erkennt.
+  const csv = '﻿' + rows.map(r => r.map(escCsv).join(';')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  downloadBlob(blob, `streem-stats-${(c.name||'spieler').toLowerCase().replace(/[^a-z0-9]/g,'_')}.csv`);
+  toast('CSV exportiert.', { long: true });
 }
 
 function downloadBlob(blob, filename) {
