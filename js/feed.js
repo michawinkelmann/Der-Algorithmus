@@ -647,9 +647,46 @@ function renderNotifications() {
   const wrap = document.createElement('div');
   wrap.className = 'feed-list';
 
-  // NPC-Antworten auf eigene Posts
   const postReplies = getRepliesForInbox();
-  if (postReplies.length) {
+  const badges = Store.data.badges || [];
+  const shitstorms = Store.data.shitstormHistory || [];
+  const allCount = postReplies.length + badges.length + shitstorms.length;
+  if (!allCount) {
+    wrap.innerHTML = '<p class="muted">Noch keine Benachrichtigungen. Spiele weiter.</p>';
+    return wrap;
+  }
+
+  // Filter-Tabs nur einblenden, wenn überhaupt zwei Sorten vorhanden.
+  const have = {
+    replies: postReplies.length > 0,
+    badges: badges.length > 0,
+    shitstorms: shitstorms.length > 0
+  };
+  const haveCount = Object.values(have).filter(Boolean).length;
+  let active = Store.data.notificationsFilter || 'all';
+  if (active !== 'all' && !have[active]) active = 'all';
+
+  if (haveCount >= 2) {
+    const tabs = document.createElement('div');
+    tabs.className = 'notif-tabs';
+    const tabDefs = [
+      { key: 'all',        label: `Alle (${allCount})` },
+      have.replies     && { key: 'replies',    label: `Antworten (${postReplies.length})` },
+      have.badges      && { key: 'badges',     label: `Abzeichen (${badges.length})` },
+      have.shitstorms  && { key: 'shitstorms', label: `Viral (${shitstorms.length})` }
+    ].filter(Boolean);
+    tabs.innerHTML = tabDefs.map(t => `<button type="button" class="notif-tab${active === t.key ? ' active' : ''}" data-tab="${t.key}">${escapeHtml(t.label)}</button>`).join('');
+    tabs.querySelectorAll('.notif-tab').forEach(b => {
+      b.onclick = () => {
+        Store.data.notificationsFilter = b.dataset.tab;
+        Store.save();
+        renderFeed('notifications');
+      };
+    });
+    wrap.appendChild(tabs);
+  }
+
+  if ((active === 'all' || active === 'replies') && postReplies.length) {
     const h = document.createElement('div');
     h.className = 'feed-header';
     h.innerHTML = '<h3>Antworten auf deine Posts</h3>';
@@ -673,13 +710,12 @@ function renderNotifications() {
     }
   }
 
-  // Badges
-  if (Store.data.badges.length) {
+  if ((active === 'all' || active === 'badges') && badges.length) {
     const h = document.createElement('div');
     h.className = 'feed-header';
     h.innerHTML = '<h3>Erreichte Abzeichen</h3>';
     wrap.appendChild(h);
-    for (const b of Store.data.badges) {
+    for (const b of badges) {
       const card = document.createElement('div');
       card.className = 'badge-card';
       card.innerHTML = `🏅 <strong>${escapeHtml(b.title)}</strong><br/><span class="small">${escapeHtml(b.desc)} · W${b.week}</span>`;
@@ -687,16 +723,19 @@ function renderNotifications() {
     }
   }
 
-  // Shitstorms
-  for (const s of Store.data.shitstormHistory) {
-    const card = document.createElement('div');
-    card.className = 'viral-card ' + (s.kind?.startsWith('positive') ? 'positive' : '');
-    card.innerHTML = `<h4>${escapeHtml(s.title)}</h4><p>${escapeHtml(s.body)}</p><span class="small muted">Woche ${s.week}</span>`;
-    wrap.appendChild(card);
-  }
-
-  if (!postReplies.length && !Store.data.badges.length && !Store.data.shitstormHistory.length) {
-    wrap.innerHTML = '<p class="muted">Noch keine Benachrichtigungen. Spiele weiter.</p>';
+  if ((active === 'all' || active === 'shitstorms') && shitstorms.length) {
+    if (active !== 'shitstorms') {
+      const h = document.createElement('div');
+      h.className = 'feed-header';
+      h.innerHTML = '<h3>Virale Momente</h3>';
+      wrap.appendChild(h);
+    }
+    for (const s of shitstorms) {
+      const card = document.createElement('div');
+      card.className = 'viral-card ' + (s.kind?.startsWith('positive') ? 'positive' : '');
+      card.innerHTML = `<h4>${escapeHtml(s.title)}</h4><p>${escapeHtml(s.body)}</p><span class="small muted">Woche ${s.week}</span>`;
+      wrap.appendChild(card);
+    }
   }
   return wrap;
 }

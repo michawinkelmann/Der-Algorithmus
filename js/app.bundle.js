@@ -3070,9 +3070,46 @@ function renderNotifications() {
   const wrap = document.createElement('div');
   wrap.className = 'feed-list';
 
-  // NPC-Antworten auf eigene Posts
   const postReplies = getRepliesForInbox();
-  if (postReplies.length) {
+  const badges = Store.data.badges || [];
+  const shitstorms = Store.data.shitstormHistory || [];
+  const allCount = postReplies.length + badges.length + shitstorms.length;
+  if (!allCount) {
+    wrap.innerHTML = '<p class="muted">Noch keine Benachrichtigungen. Spiele weiter.</p>';
+    return wrap;
+  }
+
+  // Filter-Tabs nur einblenden, wenn überhaupt zwei Sorten vorhanden.
+  const have = {
+    replies: postReplies.length > 0,
+    badges: badges.length > 0,
+    shitstorms: shitstorms.length > 0
+  };
+  const haveCount = Object.values(have).filter(Boolean).length;
+  let active = Store.data.notificationsFilter || 'all';
+  if (active !== 'all' && !have[active]) active = 'all';
+
+  if (haveCount >= 2) {
+    const tabs = document.createElement('div');
+    tabs.className = 'notif-tabs';
+    const tabDefs = [
+      { key: 'all',        label: `Alle (${allCount})` },
+      have.replies     && { key: 'replies',    label: `Antworten (${postReplies.length})` },
+      have.badges      && { key: 'badges',     label: `Abzeichen (${badges.length})` },
+      have.shitstorms  && { key: 'shitstorms', label: `Viral (${shitstorms.length})` }
+    ].filter(Boolean);
+    tabs.innerHTML = tabDefs.map(t => `<button type="button" class="notif-tab${active === t.key ? ' active' : ''}" data-tab="${t.key}">${escapeHtml(t.label)}</button>`).join('');
+    tabs.querySelectorAll('.notif-tab').forEach(b => {
+      b.onclick = () => {
+        Store.data.notificationsFilter = b.dataset.tab;
+        Store.save();
+        renderFeed('notifications');
+      };
+    });
+    wrap.appendChild(tabs);
+  }
+
+  if ((active === 'all' || active === 'replies') && postReplies.length) {
     const h = document.createElement('div');
     h.className = 'feed-header';
     h.innerHTML = '<h3>Antworten auf deine Posts</h3>';
@@ -3096,13 +3133,12 @@ function renderNotifications() {
     }
   }
 
-  // Badges
-  if (Store.data.badges.length) {
+  if ((active === 'all' || active === 'badges') && badges.length) {
     const h = document.createElement('div');
     h.className = 'feed-header';
     h.innerHTML = '<h3>Erreichte Abzeichen</h3>';
     wrap.appendChild(h);
-    for (const b of Store.data.badges) {
+    for (const b of badges) {
       const card = document.createElement('div');
       card.className = 'badge-card';
       card.innerHTML = `🏅 <strong>${escapeHtml(b.title)}</strong><br/><span class="small">${escapeHtml(b.desc)} · W${b.week}</span>`;
@@ -3110,16 +3146,19 @@ function renderNotifications() {
     }
   }
 
-  // Shitstorms
-  for (const s of Store.data.shitstormHistory) {
-    const card = document.createElement('div');
-    card.className = 'viral-card ' + (s.kind?.startsWith('positive') ? 'positive' : '');
-    card.innerHTML = `<h4>${escapeHtml(s.title)}</h4><p>${escapeHtml(s.body)}</p><span class="small muted">Woche ${s.week}</span>`;
-    wrap.appendChild(card);
-  }
-
-  if (!postReplies.length && !Store.data.badges.length && !Store.data.shitstormHistory.length) {
-    wrap.innerHTML = '<p class="muted">Noch keine Benachrichtigungen. Spiele weiter.</p>';
+  if ((active === 'all' || active === 'shitstorms') && shitstorms.length) {
+    if (active !== 'shitstorms') {
+      const h = document.createElement('div');
+      h.className = 'feed-header';
+      h.innerHTML = '<h3>Virale Momente</h3>';
+      wrap.appendChild(h);
+    }
+    for (const s of shitstorms) {
+      const card = document.createElement('div');
+      card.className = 'viral-card ' + (s.kind?.startsWith('positive') ? 'positive' : '');
+      card.innerHTML = `<h4>${escapeHtml(s.title)}</h4><p>${escapeHtml(s.body)}</p><span class="small muted">Woche ${s.week}</span>`;
+      wrap.appendChild(card);
+    }
   }
   return wrap;
 }
@@ -4340,6 +4379,7 @@ function buildWrapped() {
     },
     buildEndingSlide(d),
     buildWhatIfSlide(d),
+    buildNpcPerspectivesSlide(d),
     {
       id: 's9',
       html: `
@@ -4531,6 +4571,67 @@ const WHATIF_PIVOTS = [
 function endingForArcs(d, arcOverrides) {
   const fake = { ...d, npcArcs: { ...(d.npcArcs || {}), ...arcOverrides } };
   return computeEnding(fake);
+}
+
+// NPC-Reflexionen: was würde Lea / Finn / Mira / Tariq / Lara / Marc über
+// den User sagen, basierend auf seinen Arc-Werten und DM-Antworten? Macht
+// die NPC-Beziehungen am Ende emotional fassbar.
+function buildNpcPerspectivesSlide(d) {
+  const arcs = d.npcArcs || {};
+  const dm = d.dmReplies || {};
+  const lines = [];
+
+  // Lea
+  const leaClose = arcs.lea_close || 0;
+  if (leaClose >= 0.5) lines.push({ name: 'Lea', text: '„Du warst ehrlich, als ich gefragt hab. Das ist mehr, als die meisten machen."' });
+  else if (leaClose <= -0.1) lines.push({ name: 'Lea', text: '„Du bist irgendwie verschwunden. Schade."' });
+  else lines.push({ name: 'Lea', text: '„Wir haben uns ein paar Mal getroffen. Schön gewesen."' });
+
+  // Finn
+  const finnPath = arcs.finn_path || 0;
+  if (finnPath >= 3) lines.push({ name: 'Finn', text: '„Ich hab jetzt Leute, die mir zuhören. Du gehörtest nie dazu."' });
+  else if (finnPath <= -2) lines.push({ name: 'Finn', text: '„Du hast mir mal gesagt, das sei Quatsch. Ich war wütend. Jetzt bin ich dankbar."' });
+  else lines.push({ name: 'Finn', text: '„Du warst da. Manchmal. Was hätte ich mir noch wünschen sollen."' });
+
+  // Mira
+  const miraClose = arcs.mira_close || 0;
+  if (miraClose >= 0.4) lines.push({ name: 'Mira', text: '„Ich hab nicht viele gefragt. Dass du da warst, hab ich gemerkt."' });
+  else if (miraClose <= -0.2) lines.push({ name: 'Mira', text: '„Du fandest, ich übertreibe. Vielleicht hast du recht. Vielleicht auch nicht."' });
+
+  // Marc
+  const marcChoice = dm.dm_marc?.[11]?.id;
+  if (marcChoice === 'marc_join') lines.push({ name: 'Marc Stay-Based', text: '„Du bist dabei. Das vergisst man nicht."' });
+  else if (marcChoice === 'marc_block') lines.push({ name: 'Marc Stay-Based', text: '„Wieder einer, der nicht versteht. Stark, dass du blockierst."' });
+  else if (marcChoice === 'marc_curious') lines.push({ name: 'Marc Stay-Based', text: '„Du hast nachgefragt. Halb dabei ist halb nicht dabei. Schwach."' });
+
+  // Lara
+  const laraChoice = dm.dm_lara?.[24]?.id;
+  if (laraChoice === 'lara_24_solidarity') lines.push({ name: 'Lara Weiss', text: '„Du hast mir geschrieben. Danke. Das hat in der Woche gereicht."' });
+  else if (laraChoice === 'lara_24_silence') lines.push({ name: 'Lara Weiss', text: '„Schweigen war gerade das Lauteste. Ich nehm das nicht persönlich, aber ich merk es."' });
+
+  // Tariq (wenn DM beantwortet)
+  const tariqChoice = dm.dm_tariq?.[13]?.id;
+  if (tariqChoice === 'tariq_13_check') lines.push({ name: 'Tariq', text: '„Du hast aufgehört, vor dem Teilen zu klicken. Hat mir was über dich gesagt."' });
+
+  if (!lines.length) {
+    return {
+      id: 's_npcperspect',
+      html: `
+        <h2>Was die anderen sagen würden</h2>
+        <p>Du hast die Nähe zu wenigen aufgebaut. Vielleicht ein Spielzug fürs nächste Mal: in Streem ist das Teurer als gedacht — und gibt mehr zurück, als man denkt.</p>
+      `
+    };
+  }
+  return {
+    id: 's_npcperspect',
+    html: `
+      <h2>Was die anderen sagen würden</h2>
+      <p>Wenn man Lea, Finn, Mira (und andere) am Spielende fragen würde — so käme es vielleicht zurück:</p>
+      <div class="npc-quotes">
+        ${lines.map(l => `<div class="npc-quote"><div class="npc-quote-name">${escapeHtml(l.name)}</div><div class="npc-quote-text">${escapeHtml(l.text)}</div></div>`).join('')}
+      </div>
+    `
+  };
 }
 
 function buildWhatIfSlide(d) {
@@ -5621,6 +5722,120 @@ function escapeHtml(s) {
   __M.runFactcheck = runFactcheck;
 })();
 
+// ===== headline.js =====
+(function(){
+  var Store = __M.Store;
+  var SFX = __M.SFX;
+// headline.js — Mini-Game: derselbe Befund, drei Schlagzeilen. Welche
+// stimmt zur Originalstudie? Übt das Lesen von Pressetexten gegenüber
+// dem Studienabstract.
+
+
+const ROUNDS = [
+  {
+    abstract: 'Eine deutsche Längsschnittstudie (N=3 200, 14–18 Jahre) untersucht den Zusammenhang von Bildschirmzeit und Schlafqualität. Ergebnis: Pro Stunde zusätzlicher Bildschirmzeit nach 21 Uhr sinkt die selbst-eingeschätzte Schlafqualität um durchschnittlich 0,18 Punkte auf einer 5er-Skala. Effekt verschwindet bei kontrolliertem Faktor „Smartphone aus dem Schlafzimmer".',
+    headlines: [
+      { text: 'Studie: Jede Stunde Handy macht müder.',                                 fair: false, why: 'Verzerrend: „macht müder" suggeriert Kausalität, der Effekt ist klein und kontextabhängig.' },
+      { text: 'Forschung zeigt: Handy gehört aus dem Schlafzimmer.',                    fair: true,  why: 'Holt den entscheidenden Befund hervor — Effekt verschwindet bei Smartphone-Verbannung.' },
+      { text: 'Schock-Studie: 5er-Skala-Schlafqualität halbiert sich durch Smartphone.', fair: false, why: 'Falsch: 0,18 Punkte ≠ Halbierung. Pure Klick-Bait.' }
+    ]
+  },
+  {
+    abstract: 'Eine Studie der ETH Zürich (N=1 800 Twitter-Nutzer) untersucht, wie sich Inhalte mit hoher Empörung im Feed verbreiten. Befund: Tweets mit moralisch aufgeladenen Begriffen werden 17 % öfter retweetet als neutrale — der Effekt wurde innerhalb politisch gleichgesinnter Cluster gemessen, nicht plattformübergreifend.',
+    headlines: [
+      { text: 'Empörung viraler als alles andere — Studie zeigt Algorithmus-Versagen.',  fair: false, why: '„Alles andere" überzogen; „Algorithmus-Versagen" wertet, was die Studie deskriptiv beschreibt.' },
+      { text: 'Empörung pusht Reichweite leicht — vor allem im eigenen Lager.',          fair: true,  why: 'Spiegelt 17 % („leicht") und den In-Group-Kontext exakt.' },
+      { text: 'Twitter lebt von Hass — neue Studie.',                                    fair: false, why: '„Hass" ist nicht „moralisch aufgeladene Begriffe"; „lebt von" hat keinen Beleg.' }
+    ]
+  },
+  {
+    abstract: 'Meta-Analyse aus 47 Studien zu Filter-Bubbles (2015–2023): Der durchschnittliche Effekt algorithmischer Personalisierung auf politische Polarisierung ist statistisch signifikant, aber **kleiner** als der Effekt selbstgewählter Mediennutzung (TV, Zeitungen) — der Algorithmus verstärkt, schafft aber nicht.',
+    headlines: [
+      { text: 'Filterblasen sind ein Mythos — Studie räumt auf.',                       fair: false, why: '„Mythos" ist die Gegenseite, ebenso überzogen. Die Studie sagt: kleiner Effekt, aber real.' },
+      { text: 'Algorithmen verstärken Polarisierung — schaffen sie aber nicht.',         fair: true,  why: 'Trifft die Differenzierung der Meta-Analyse präzise.' },
+      { text: 'Studie: Polarisierung passiert vor allem im TV.',                          fair: false, why: 'Vergleichsaussage, aber „passiert vor allem" verzerrt — relativiert, was der Algorithmus tut.' }
+    ]
+  }
+];
+
+function runHeadline(root, onClose) {
+  let idx = 0;
+  let score = 0;
+  function renderRound() {
+    if (idx >= ROUNDS.length) { finish(); return; }
+    const r = ROUNDS[idx];
+    root.innerHTML = `
+      <div class="minigame-header">
+        <h2>Schlagzeile zur Studie</h2>
+        <div class="minigame-progress">Runde ${idx + 1} / ${ROUNDS.length} · Punkte: ${score}</div>
+      </div>
+      <p class="muted">Du liest das Abstract. Welche der drei Schlagzeilen gibt es fair wieder?</p>
+      <div class="headline-abstract">${escapeHtml(r.abstract)}</div>
+      <div class="headline-choices">
+        ${r.headlines.map((h, i) => `<button class="headline-btn" data-i="${i}">${escapeHtml(h.text)}</button>`).join('')}
+      </div>
+      <div id="hl-resolve" class="fc-resolve" hidden></div>
+    `;
+    root.querySelectorAll('.headline-btn').forEach(b => {
+      b.onclick = () => {
+        const i = parseInt(b.dataset.i, 10);
+        const correctIdx = r.headlines.findIndex(h => h.fair);
+        const correct = i === correctIdx;
+        if (correct) score++;
+        const fb = root.querySelector('#hl-resolve');
+        fb.hidden = false;
+        fb.innerHTML = `
+          <div class="fc-verdict color-${correct ? 'ok' : 'bad'}">
+            <strong>${correct ? '✓ Richtig.' : '✗ Faire Wiedergabe wäre: „' + escapeHtml(r.headlines[correctIdx].text) + '"'}</strong>
+          </div>
+          <div class="headline-analysis">
+            ${r.headlines.map((h, j) => `
+              <div class="headline-analysis-row ${j === correctIdx ? 'fair' : 'unfair'} ${j === i ? 'chosen' : ''}">
+                <strong>${escapeHtml(h.text)}</strong>
+                <span class="muted small">${escapeHtml(h.why)}</span>
+              </div>
+            `).join('')}
+          </div>
+          <button class="btn btn-primary" id="hl-next">${idx < ROUNDS.length - 1 ? 'Nächste Runde' : 'Ergebnis'}</button>
+        `;
+        fb.querySelector('#hl-next').onclick = () => { idx++; renderRound(); };
+        SFX.swipe();
+      };
+    });
+  }
+  function finish() {
+    if (!Store.data.minigameResults) Store.data.minigameResults = {};
+    Store.data.minigameResults.headline = { score, total: ROUNDS.length, ts: Date.now() };
+    Store.save();
+    SFX.badge();
+    const verdict = score === ROUNDS.length
+      ? 'Sehr gut. Du hast die Übersetzung von Studie zu Schlagzeile drauf.'
+      : score >= ROUNDS.length - 1
+      ? 'Stark. Die Mitte zwischen „Mythos" und „Schock" ist genau die schwierige Stelle.'
+      : score >= ROUNDS.length / 2
+      ? 'Solide. Tipp: Schlagzeilen, die zu klar wirken, übersetzen oft schlecht.'
+      : 'Schwierig. Echte Studien sind selten so klar, wie die Schlagzeile suggeriert.';
+    root.innerHTML = `
+      <div class="minigame-finish">
+        <h2>${score} / ${ROUNDS.length}</h2>
+        <p>${escapeHtml(verdict)}</p>
+        <p class="muted small">Prüf bei echten Studien immer: Stichprobengröße, gemessen vs. kausal, Vergleichsgruppe — und ob die Schlagzeile das alles auch trifft.</p>
+        <button class="btn btn-primary" id="hl-close">Zurück</button>
+      </div>
+    `;
+    root.querySelector('#hl-close').onclick = onClose;
+  }
+  renderRound();
+}
+
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+  __M.runHeadline = runHeadline;
+})();
+
 // ===== classcompare.js =====
 (function(){
 // classcompare.js — Mehrere Streem-Saves laden und anonymisiert vergleichen.
@@ -5756,7 +5971,8 @@ function extractRow(item, idx, anonymize) {
     selfcheck: {
       pre:  s.selfcheck?.pre?.answers || null,
       post: s.selfcheck?.post?.answers || null
-    }
+    },
+    manifest: (s.reflections?.manifest && Object.values(s.reflections.manifest).filter(x => x && String(x).trim())) || []
   };
 }
 
@@ -5806,6 +6022,51 @@ function buildReportHtml(rows) {
     ${buildClassBookmarks(rows)}
 
     ${buildClassSelfcheck(rows)}
+
+    ${buildClassManifest(rows)}
+  `;
+}
+
+// Klassen-Manifest-Aggregator: sammelt alle Manifest-Sätze, gruppiert nach
+// Schlüsselwort-Häufigkeit. Soll als Diskussionsgrundlage für ein gemeinsames
+// Klassenmanifest dienen.
+function buildClassManifest(rows) {
+  const allSentences = [];
+  for (const r of rows) {
+    for (const s of r.manifest || []) {
+      const t = String(s).trim();
+      if (t.length >= 6) allSentences.push({ author: r.label, text: t });
+    }
+  }
+  if (!allSentences.length) return '';
+
+  // Wort-Häufigkeit als grobe Thematik-Heuristik.
+  const stop = new Set(['ich','mich','du','wir','sie','ein','eine','der','die','das','und','oder','aber','nicht','mit','von','für','auf','zu','in','an','als','wie','was','wenn','dass','ist','sind','sein','bin','hat','haben','hatte','wird','werden','würde','würden','soll','sollte','kann','könnte','mein','dein','dem','den','des','am','im','beim','vom','zur','zum','etc','keine','kein','ohne','immer','nie','mal','schon','nur','auch','sehr','mehr','also','hier','dort','dabei','daran','darauf','dadurch','denn','dann','noch','dies','diese','dieser','jeden','jede','jeder','jedem','war']);
+  const counts = new Map();
+  for (const s of allSentences) {
+    const words = (s.text.toLowerCase().match(/[a-zäöüß][a-zäöüß-]{3,}/g) || []);
+    const uniq = new Set(words);
+    for (const w of uniq) {
+      if (stop.has(w)) continue;
+      counts.set(w, (counts.get(w) || 0) + 1);
+    }
+  }
+  const topWords = [...counts.entries()]
+    .filter(([, c]) => c >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([w, c]) => ({ w, c }));
+
+  return `
+    <h3>Klassen-Manifest (Werkstattmaterial)</h3>
+    <p class="muted small">Alle Manifest-Sätze aus den hochgeladenen Spielständen, plus die Schlüsselwörter, die in mehreren Sätzen vorkommen. Material für ein gemeinsames Klassenmanifest — keine Auto-Synthese, das macht ihr selbst.</p>
+    ${topWords.length ? `<div class="cc-manifest-words">
+      <span class="muted small">Wiederkehrende Wörter:</span>
+      ${topWords.map(t => `<span class="cc-manifest-word">${escapeHtml(t.w)} <span class="muted small">×${t.c}</span></span>`).join('')}
+    </div>` : ''}
+    <ul class="cc-manifest-list">
+      ${allSentences.map(s => `<li><span class="cc-manifest-author muted small">${escapeHtml(s.author)}:</span> „${escapeHtml(s.text)}"</li>`).join('')}
+    </ul>
   `;
 }
 
@@ -6295,7 +6556,9 @@ function escapeHtml(s) {
   var buildSelfcheckCompareHtml = __M.buildSelfcheckCompareHtml;
   var openWahlomat = __M.openWahlomat;
   var runFactcheck = __M.runFactcheck;
+  var runHeadline = __M.runHeadline;
 // main.js — Einstieg, Routing, Orchestrierung aller Module.
+
 
 
 
@@ -6568,6 +6831,8 @@ function bindGlobal() {
   if (mgBtn) mgBtn.onclick = () => { showScreen('screen-main'); openBotMinigame(); };
   const fcBtn = document.getElementById('btn-factcheck');
   if (fcBtn) fcBtn.onclick = () => { showScreen('screen-main'); openFactcheckMinigame(); };
+  const hlBtn = document.getElementById('btn-headline');
+  if (hlBtn) hlBtn.onclick = () => { showScreen('screen-main'); openHeadlineMinigame(); };
 
   // Glossar
   const gloBtn = document.getElementById('btn-glossary');
@@ -6936,6 +7201,18 @@ function openFactcheckMinigame() {
   runFactcheck(box, () => handle.close());
 }
 
+function openHeadlineMinigame() {
+  SFX.swipe();
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  const box = document.createElement('div');
+  box.className = 'tw-box big';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  const handle = attachModal(overlay);
+  runHeadline(box, () => handle.close());
+}
+
 function maybeUnlockForWeek() {
   const w = Store.data.currentWeek;
   const weekDef = DATA.weeks.weeks[w];
@@ -7193,6 +7470,48 @@ function openAlgoPanel() {
     .filter(([,v])=>v>0.02)
     .slice(0,8);
 
+  // Verlaufs-Daten: Top-3 Tags über die Wochen für die Bias-Visualisierung.
+  const history = Store.data.history || [];
+  const topKeys = tags.slice(0, 3).map(([k]) => k);
+  const trajectory = topKeys.map(k => {
+    const points = history.map(h => h.profileSnapshot?.interests?.[k] || 0);
+    points.push(p.interests[k] || 0); // Aktueller Stand
+    return { key: k, points };
+  });
+  const maxY = Math.max(0.2, ...trajectory.flatMap(t => t.points));
+  const trajectoryHtml = trajectory.length && history.length >= 2 ? (() => {
+    const colors = { 0: 'var(--accent)', 1: 'var(--accent-2)', 2: 'var(--ok)' };
+    const W = 320, H = 80, padding = 6;
+    const xStep = (W - 2 * padding) / Math.max(1, trajectory[0].points.length - 1);
+    return `
+      <div class="algo-section">
+        <h3>Verlauf deiner Top-3-Themen</h3>
+        <p class="muted small">So hat der Algorithmus seine Einschätzung über die Wochen verschoben — die Linien sind dein Profil im Zeitverlauf.</p>
+        <svg viewBox="0 0 ${W} ${H + 20}" class="bias-chart" aria-label="Verlauf der Top-Themen">
+          <line x1="${padding}" x2="${W - padding}" y1="${H + 0.5}" y2="${H + 0.5}" stroke="var(--line)" stroke-width="1"/>
+          ${trajectory.map((t, i) => {
+            const color = colors[i] || 'var(--text-dim)';
+            const points = t.points.map((v, j) => {
+              const x = padding + xStep * j;
+              const y = H - (v / maxY) * (H - padding);
+              return `${x.toFixed(1)},${y.toFixed(1)}`;
+            }).join(' ');
+            return `<polyline points="${points}" fill="none" stroke="${color}" stroke-width="2.4" stroke-linejoin="round"/>`;
+          }).join('')}
+          ${trajectory.map((t, i) => {
+            const x = padding + xStep * (t.points.length - 1);
+            const y = H - ((t.points[t.points.length - 1]) / maxY) * (H - padding);
+            const color = colors[i] || 'var(--text-dim)';
+            return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="${color}"/>`;
+          }).join('')}
+        </svg>
+        <div class="bias-legend">
+          ${trajectory.map((t, i) => `<span class="bias-legend-item"><span class="bias-dot" style="background:${colors[i] || 'var(--text-dim)'}"></span>${escapeHtml(tagLabel(t.key))}</span>`).join('')}
+        </div>
+      </div>
+    `;
+  })() : '';
+
   let html = `
     <div class="algo-section">
       <h3>Deine 3 wichtigsten Interessen laut System</h3>
@@ -7206,6 +7525,7 @@ function openAlgoPanel() {
         `).join('')}
       </div>
     </div>
+    ${trajectoryHtml}
     <div class="algo-section">
       <h3>Politische Einschätzung</h3>
       <div class="algo-lean">
@@ -7731,6 +8051,9 @@ function openProfileModal() {
     <h2 style="text-align:center;margin:0">${escapeHtml(c.name)}</h2>
     <p class="muted small" style="text-align:center">${pronounLine}${escapeHtml(c.city)}</p>
     ${bioBlock}
+    <div style="text-align:center;margin:8px 0">
+      <button type="button" class="btn btn-ghost btn-small" id="profile-edit-btn">Profil bearbeiten</button>
+    </div>
     <p class="muted small" style="text-align:center">Woche ${Store.data.currentWeek} · Tag ${Store.getDay()}</p>
     <div class="stat-row" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0">
       <div class="stat"><div class="num">${profile.followed.length}</div><div class="lbl">folgst du</div></div>
@@ -7778,6 +8101,50 @@ function openProfileModal() {
   overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
   document.addEventListener('keydown', onKey);
   body.querySelector('#profile-close').onclick = close;
+  body.querySelector('#profile-edit-btn').onclick = () => { close(); openProfileEdit(); };
+}
+
+function openProfileEdit() {
+  const c = Store.data.character;
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  overlay.innerHTML = `
+    <div class="tw-box" style="max-width:460px">
+      <h3>Profil bearbeiten</h3>
+      <p class="muted small">Name lässt sich nicht ändern (es ist dein Spielstand-Schlüssel). Bio und Pronomen schon.</p>
+      <label class="profile-edit-row">
+        <span>Pronomen</span>
+        <select id="edit-pronoun">
+          <option value="sie/ihr">sie / ihr</option>
+          <option value="er/ihn">er / ihn</option>
+          <option value="they/them">they / them</option>
+          <option value="keine">keine Angabe</option>
+        </select>
+      </label>
+      <label class="profile-edit-row">
+        <span>Bio <span class="muted small">(max 180 Zeichen)</span></span>
+        <textarea id="edit-bio" maxlength="180" rows="3"></textarea>
+      </label>
+      <div class="tw-actions">
+        <button class="btn btn-ghost" id="edit-cancel">Abbrechen</button>
+        <button class="btn btn-primary" id="edit-save">Speichern</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const handle = attachModal(overlay);
+  const sel = overlay.querySelector('#edit-pronoun');
+  const ta = overlay.querySelector('#edit-bio');
+  sel.value = c.pronoun || 'keine';
+  ta.value = c.bio || '';
+  overlay.querySelector('#edit-cancel').onclick = () => handle.close();
+  overlay.querySelector('#edit-save').onclick = () => {
+    Store.data.character.pronoun = sel.value;
+    Store.data.character.bio = ta.value.trim().slice(0, 180);
+    Store.save();
+    handle.close();
+    toast('Profil aktualisiert.');
+  };
 }
 
 // ===== Manifest =====

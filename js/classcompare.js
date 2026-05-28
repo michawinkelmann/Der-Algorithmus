@@ -131,7 +131,8 @@ function extractRow(item, idx, anonymize) {
     selfcheck: {
       pre:  s.selfcheck?.pre?.answers || null,
       post: s.selfcheck?.post?.answers || null
-    }
+    },
+    manifest: (s.reflections?.manifest && Object.values(s.reflections.manifest).filter(x => x && String(x).trim())) || []
   };
 }
 
@@ -181,6 +182,51 @@ function buildReportHtml(rows) {
     ${buildClassBookmarks(rows)}
 
     ${buildClassSelfcheck(rows)}
+
+    ${buildClassManifest(rows)}
+  `;
+}
+
+// Klassen-Manifest-Aggregator: sammelt alle Manifest-Sätze, gruppiert nach
+// Schlüsselwort-Häufigkeit. Soll als Diskussionsgrundlage für ein gemeinsames
+// Klassenmanifest dienen.
+function buildClassManifest(rows) {
+  const allSentences = [];
+  for (const r of rows) {
+    for (const s of r.manifest || []) {
+      const t = String(s).trim();
+      if (t.length >= 6) allSentences.push({ author: r.label, text: t });
+    }
+  }
+  if (!allSentences.length) return '';
+
+  // Wort-Häufigkeit als grobe Thematik-Heuristik.
+  const stop = new Set(['ich','mich','du','wir','sie','ein','eine','der','die','das','und','oder','aber','nicht','mit','von','für','auf','zu','in','an','als','wie','was','wenn','dass','ist','sind','sein','bin','hat','haben','hatte','wird','werden','würde','würden','soll','sollte','kann','könnte','mein','dein','dem','den','des','am','im','beim','vom','zur','zum','etc','keine','kein','ohne','immer','nie','mal','schon','nur','auch','sehr','mehr','also','hier','dort','dabei','daran','darauf','dadurch','denn','dann','noch','dies','diese','dieser','jeden','jede','jeder','jedem','war']);
+  const counts = new Map();
+  for (const s of allSentences) {
+    const words = (s.text.toLowerCase().match(/[a-zäöüß][a-zäöüß-]{3,}/g) || []);
+    const uniq = new Set(words);
+    for (const w of uniq) {
+      if (stop.has(w)) continue;
+      counts.set(w, (counts.get(w) || 0) + 1);
+    }
+  }
+  const topWords = [...counts.entries()]
+    .filter(([, c]) => c >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([w, c]) => ({ w, c }));
+
+  return `
+    <h3>Klassen-Manifest (Werkstattmaterial)</h3>
+    <p class="muted small">Alle Manifest-Sätze aus den hochgeladenen Spielständen, plus die Schlüsselwörter, die in mehreren Sätzen vorkommen. Material für ein gemeinsames Klassenmanifest — keine Auto-Synthese, das macht ihr selbst.</p>
+    ${topWords.length ? `<div class="cc-manifest-words">
+      <span class="muted small">Wiederkehrende Wörter:</span>
+      ${topWords.map(t => `<span class="cc-manifest-word">${escapeHtml(t.w)} <span class="muted small">×${t.c}</span></span>`).join('')}
+    </div>` : ''}
+    <ul class="cc-manifest-list">
+      ${allSentences.map(s => `<li><span class="cc-manifest-author muted small">${escapeHtml(s.author)}:</span> „${escapeHtml(s.text)}"</li>`).join('')}
+    </ul>
   `;
 }
 
