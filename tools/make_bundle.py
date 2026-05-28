@@ -18,6 +18,8 @@ ORDER = [
     "warnings.js",
     "characters.js",
     "sound.js",
+    "modals.js",
+    "microreflect.js",
     "feed.js",
     "events.js",
     "sandbox.js",

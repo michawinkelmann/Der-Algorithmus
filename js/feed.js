@@ -22,11 +22,36 @@ export function initFeed(data) {
   STORIES = data.stories || [];
 }
 
+// Fallback-Stories für Wochen ohne kuratierten Inhalt. Charaktere sind ihre
+// üblichen Stamm-Themen, Texte sind generisch genug, dass sie zu jeder Woche passen.
+const FALLBACK_STORIES = [
+  { authorId: 'char_lea',    emoji: '☕', text: 'morgens. erstmal kaffee. wie immer.' },
+  { authorId: 'char_finn',   emoji: '🎮', text: 'queue läuft. wenn ihr mich braucht: nicht.' },
+  { authorId: 'char_jule',   emoji: '🎧', text: 'auf repeat seit gestern.' },
+  { authorId: 'char_moritz', emoji: '🏃', text: 'training morgen. wer mit?' },
+  { authorId: 'char_sara',   emoji: '🤖', text: 'kleiner code-fortschritt. großer schritt fürs werkzeug.' },
+  { authorId: 'char_ana',    emoji: '🌊', text: 'hafen. fähre raus. ruhig.' },
+  { authorId: 'char_noah',   emoji: '📖', text: 'gerade gelesen. denke nach.' },
+  { authorId: 'char_tariq',  emoji: '🧪', text: 'die zahlen sagen was anderes als die schlagzeile.' }
+];
+
 // Stories-Bar: Stories aus den letzten 1-2 Wochen, deren Autor:in der User folgt
-// oder die durch Wochenfortschritt freigeschaltet sind.
+// oder die durch Wochenfortschritt freigeschaltet sind. Wenn keine kuratierten
+// Stories existieren, füllen wir mit deterministischen Fallback-Stories auf,
+// damit die Bar nie ganz leer ist.
 function getActiveStories() {
   const w = Store.data.currentWeek;
-  return STORIES.filter(s => s.week <= w && s.week >= w - 1);
+  const curated = STORIES.filter(s => s.week <= w && s.week >= w - 1);
+  if (curated.length >= 3) return curated;
+  // Fallback: deterministisch über Wochen-Index 3 aus FALLBACK_STORIES wählen.
+  const seed = w * 2654435761 >>> 0;
+  const picks = [];
+  for (let i = 0; i < 3 - curated.length; i++) {
+    const idx = (seed + i * 134775813) % FALLBACK_STORIES.length;
+    const f = FALLBACK_STORIES[idx];
+    picks.push({ id: `fb_${w}_${i}`, author: f.authorId, week: w, text: f.text, emoji: f.emoji, _fallback: true });
+  }
+  return [...curated, ...picks];
 }
 
 export function setCallbacks({ onWeekEnd: wEnd, onOpenCompose: oc, onOpenStory: os }) {

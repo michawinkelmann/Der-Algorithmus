@@ -104,6 +104,81 @@
       ]
     },
     {
+      "id": "dm_tariq",
+      "with": "char_tariq",
+      "title": "Tariq",
+      "messages": [
+        { "week": 6,  "from": "char_tariq", "text": "hey, ich hab dir was geschickt: die studie zu social-media und schlaf. lies das abstract, nicht die schlagzeile." },
+        { "week": 13, "from": "char_tariq", "text": "die debatte um die deepfake-aufnahme nervt. selbst hier in der uni teilen leute den clip, ohne ihn zu prüfen. einmal rückwärtsbildersuche reicht." },
+        { "week": 20, "from": "char_tariq", "text": "wahlomat ist online. ich hab gemacht, was ich keinem empfehle: erst meine meinung, dann den test. das ergebnis hat mich überrascht." }
+      ],
+      "replies": [
+        {
+          "after_week": 13,
+          "choices": [
+            { "id": "tariq_13_check",  "text": "Stimmt. Werd ich machen, bevor ich was teile.",  "effect": { "tags": { "wissenschaft": 0.08 } } },
+            { "id": "tariq_13_curious","text": "Wie geht das mit der Rückwärtsbildersuche?",      "effect": { "tags": { "wissenschaft": 0.05 } } },
+            { "id": "tariq_13_lazy",   "text": "Ehrlich? Dafür hab ich keine Zeit.",              "effect": {} }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dm_sophia",
+      "with": "char_sophia",
+      "title": "Sophia",
+      "messages": [
+        { "week": 8,  "from": "char_sophia", "text": "Schön, dass du meinem Account folgst. Drei Sätze fürs Erste: prüfe immer die Primärquelle. Frag dich, wer profitiert. Misstrau Empörung." },
+        { "week": 17, "from": "char_sophia", "text": "Ich plane eine Schul-Reihe zu Plattform-Logiken. Hättest du Lust, ein paar Sätze beizutragen — anonym, falls du willst?" }
+      ],
+      "replies": [
+        {
+          "after_week": 17,
+          "choices": [
+            { "id": "sophia_17_yes",  "text": "Ja gerne. Ich schicke dir was.",                   "effect": { "tags": { "wissenschaft": 0.08, "politik-mitte": 0.05 } } },
+            { "id": "sophia_17_no",   "text": "Lieber nicht, danke fürs Fragen.",                 "effect": {} }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dm_sara",
+      "with": "char_sara",
+      "title": "Sara",
+      "messages": [
+        { "week": 7,  "from": "char_sara", "text": "der zweite arm vom roboter ist jetzt auch dran. er winkt synchron. mein leben." },
+        { "week": 15, "from": "char_sara", "text": "du, kurzes ding: ich bin in einer modding-gilde gelandet, da sind ein paar typen mit komischen sprüchen über mädchen, die programmieren. ich weiß noch nicht, ob ich bleibe." }
+      ],
+      "replies": [
+        {
+          "after_week": 15,
+          "choices": [
+            { "id": "sara_15_leave",  "text": "Geh raus. Du brauchst die nicht.",                 "effect": { "tags": { "feminismus": 0.05 } } },
+            { "id": "sara_15_stay",   "text": "Vielleicht änderst du dort was.",                   "effect": {} },
+            { "id": "sara_15_advice", "text": "Wenn du bleibst, dann aber konsequent widersprechen. Sonst gewöhnt man sich.", "effect": { "tags": { "feminismus": 0.05, "wissenschaft": 0.03 } } }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dm_noah",
+      "with": "char_noah",
+      "title": "Noah",
+      "messages": [
+        { "week": 10, "from": "char_noah", "text": "ich glaub, ich verstehe langsam, warum mein algorithmus mir bestimmte sachen zeigt. nicht weil ich sie mag — sondern weil ich sie nicht ignorieren kann." },
+        { "week": 23, "from": "char_noah", "text": "interessante woche. die wahl ist durch, der lärm bleibt. wer von uns hatte eigentlich recht?" }
+      ],
+      "replies": [
+        {
+          "after_week": 10,
+          "choices": [
+            { "id": "noah_10_agree",    "text": "Ja. Empörung ist die einfachste Sortier-Logik.",   "effect": { "tags": { "politik-mitte": 0.05, "wissenschaft": 0.03 } } },
+            { "id": "noah_10_dismiss",  "text": "Algorithmus ist nur Mathematik. Übertreib nicht.", "effect": {} }
+          ]
+        }
+      ]
+    },
+    {
       "id": "dm_streem",
       "with": "char_stream",
       "title": "Streem",
