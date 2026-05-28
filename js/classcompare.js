@@ -71,6 +71,32 @@ export function renderClassCompare(root, onClose) {
   };
 }
 
+// Extrahiert die markanten Entscheidungen pro Spielstand — die Dinge,
+// über die sich in der Klassen-Diskussion am ehesten reden lässt.
+function extractDecisions(s) {
+  const dm = s.dmReplies || {};
+  const ending = s.ending || null;
+  const guilds = s.guildMemberships || [];
+  const marc = dm.dm_marc?.[11]?.id || null;
+  const finnW8  = dm.dm_finn?.[8]?.id  || null;
+  const finnW17 = dm.dm_finn?.[17]?.id || null;
+  const lara = dm.dm_lara?.[24]?.id || null;
+  const mira = dm.dm_mira?.[15]?.id || null;
+  const lea14 = dm.dm_lea?.[14]?.id || null;
+  return {
+    ending,
+    inRabbit: guilds.includes('echte_werte'),
+    inReading: guilds.includes('lese_runde'),
+    inGaming: guilds.includes('gaming_nord'),
+    marc:    marc    ? marc.replace('marc_', '')    : 'keine Antwort',
+    finn8:   finnW8  ? finnW8.replace('finn_8_', '')  : '—',
+    finn17:  finnW17 ? finnW17.replace('finn_17_', '') : '—',
+    lara:    lara    ? lara.replace('lara_24_', '')    : '—',
+    mira:    mira    ? mira.replace('mira_15_', '')    : '—',
+    lea14:   lea14   ? lea14.replace('lea_14_', '')    : '—'
+  };
+}
+
 function extractRow(item, idx, anonymize) {
   const s = item.save;
   const c = s.character || {};
@@ -99,7 +125,8 @@ function extractRow(item, idx, anonymize) {
     inRabbitHole,
     guilds: guilds.length,
     voted: s.electionVote || null,
-    interests: p.interests || {}
+    interests: p.interests || {},
+    decisions: extractDecisions(s)
   };
 }
 
@@ -139,7 +166,80 @@ function buildReportHtml(rows) {
         </tr>`).join('')}
       </tbody>
     </table>
+
+    <h3>Entscheidungen an Wendepunkten</h3>
+    <p class="muted small">Die markanten Punkte, an denen sich Klassen am ehesten unterhalten: Marc-Anwerbung, Finn auf seiner Bahn, Lara nach Hate-Incident, Mira nach Hate-Kommentaren, Lea in W14. Die Verteilung verrät am meisten.</p>
+    ${buildDecisionDiffs(rows)}
   `;
+}
+
+const DECISION_DEFS = [
+  { key: 'marc', title: 'Marc Stay-Based (W11) — Anwerbung',
+    options: {
+      block:   { label: 'Blockiert',          color: 'ok' },
+      ignore:  { label: 'Ignoriert',          color: 'neutral' },
+      curious: { label: 'Was ist im Discord?', color: 'warn' },
+      join:    { label: 'Beigetreten',        color: 'bad' },
+      'keine Antwort': { label: 'Nicht reagiert', color: 'neutral' }
+    }},
+  { key: 'finn8', title: 'Finn (W8) — „Clout-Chaser-Mädels"',
+    options: {
+      pushback: { label: 'Widersprochen',   color: 'ok' },
+      curious:  { label: 'Nachgefragt',     color: 'neutral' },
+      agree:    { label: 'Zugestimmt',      color: 'bad' }
+    }},
+  { key: 'finn17', title: 'Finn (W17) — Discord-Treffen',
+    options: {
+      warn:     { label: 'Warnung',          color: 'ok' },
+      neutral:  { label: 'Vorsicht',         color: 'neutral' },
+      join:     { label: '„Erzähl mehr"',    color: 'bad' }
+    }},
+  { key: 'lara', title: 'Lara Weiss (W24) — Hate-Welle',
+    options: {
+      solidarity: { label: 'Solidarität',  color: 'ok' },
+      advice:     { label: 'Praktischer Rat', color: 'neutral' },
+      silence:    { label: 'Geschwiegen',  color: 'warn' }
+    }},
+  { key: 'mira', title: 'Mira (W15) — Reality-Check',
+    options: {
+      support:  { label: 'Empathie',         color: 'ok' },
+      advice:   { label: 'Praktischer Rat',  color: 'neutral' },
+      distance: { label: '„Weniger provozieren"', color: 'bad' }
+    }},
+  { key: 'lea14', title: 'Lea (W14) — „Du wirkst anders"',
+    options: {
+      open:      { label: '„Der Feed macht was mit mir"', color: 'ok' },
+      deflect:   { label: '„Stress halt"',                color: 'neutral' },
+      defensive: { label: '„Wie meinst du das?"',         color: 'neutral' }
+    }}
+];
+
+function buildDecisionDiffs(rows) {
+  return `<div class="cc-decisions">${DECISION_DEFS.map(def => {
+    const counts = {};
+    for (const r of rows) {
+      const v = r.decisions[def.key];
+      counts[v] = (counts[v] || 0) + 1;
+    }
+    const total = rows.length;
+    const items = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    return `
+      <div class="cc-decision">
+        <h4>${escapeHtml(def.title)}</h4>
+        <div class="cc-decision-bars">
+          ${items.map(([key, count]) => {
+            const opt = def.options[key] || { label: key, color: 'neutral' };
+            const pct = Math.round(count / total * 100);
+            return `<div class="cc-decision-row">
+              <span class="cc-decision-label">${escapeHtml(opt.label)}</span>
+              <div class="cc-decision-bar"><div class="cc-decision-fill color-${opt.color}" style="width:${pct}%"></div></div>
+              <span class="cc-decision-count">${count} · ${pct}%</span>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }).join('')}</div>`;
 }
 
 function buildStandaloneHtml(rows, anonymize) {

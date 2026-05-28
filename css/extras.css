@@ -782,3 +782,144 @@
 .diff { display: inline-flex; align-items: center; gap: 2px; font-style: normal; }
 .diff.pos { color: var(--ok); }
 .diff.neg { color: var(--danger); }
+
+/* ===== Filter-Box im Feed bei aktivem Hashtag-Filter ===== */
+.filter-box {
+  margin: 12px 0 10px;
+  padding: 14px;
+  background: linear-gradient(135deg, rgba(34,211,238,0.10), rgba(255,46,136,0.08));
+  border: 1px solid var(--accent-2);
+  border-radius: var(--radius);
+}
+.filter-box-head { display: flex; align-items: center; gap: 8px; font-size: 14px; margin-bottom: 6px; }
+.filter-icon { font-size: 20px; }
+.filter-box p { font-size: 13px; margin: 6px 0 10px; color: var(--text-dim); line-height: 1.5; }
+.filter-empty { text-align: center; padding: 20px; }
+.filter-empty .muted { color: var(--text-dim); }
+.trending-tag.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* ===== Compose-Vorschau ===== */
+.compose-preview-wrap {
+  margin: 12px 0;
+  padding: 10px;
+  background: var(--bg-elev-2);
+  border-radius: var(--radius);
+  border: 1px dashed var(--line);
+}
+.compose-preview-wrap > .muted { display: block; margin-bottom: 8px; }
+.compose-preview {
+  pointer-events: none;
+  opacity: 0.92;
+}
+
+/* ===== Settings: Lautstärke-Slider ===== */
+.settings-slider {
+  display: grid; grid-template-columns: 1fr 2fr auto; gap: 10px; align-items: center;
+  padding: 12px; background: var(--bg-elev-2);
+  border-radius: var(--radius-sm); border: 1px solid var(--line);
+  font-size: 14px;
+}
+.settings-slider input[type=range] { width: 100%; }
+.settings-slider output { font-variant-numeric: tabular-nums; min-width: 48px; text-align: right; color: var(--text-dim); }
+
+/* ===== Sandbox-Actions ===== */
+.sandbox-actions {
+  display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px;
+}
+
+/* ===== Algorithm-Battle ===== */
+.battle-box { max-width: 1000px; }
+.battle-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.battle-head h2 { margin: 0; }
+.battle-grid {
+  display: grid; grid-template-columns: 1fr; gap: 16px;
+  margin: 14px 0;
+}
+@media (min-width: 780px) {
+  .battle-grid { grid-template-columns: 1fr 1fr; }
+}
+.battle-side {
+  background: var(--bg-elev-2);
+  border-radius: var(--radius);
+  padding: 12px;
+  border: 1px solid var(--line);
+}
+.battle-side h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.battle-preset {
+  width: 100%; padding: 8px;
+  background: var(--bg-elev); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  font-family: inherit; font-size: 14px;
+  margin-bottom: 10px;
+}
+.battle-feed { display: flex; flex-direction: column; gap: 8px; }
+.battle-card { font-size: 13px; padding: 10px; }
+.battle-card .post-body { font-size: 13px; }
+
+/* ===== Class-Compare Decision-Diffs ===== */
+.cc-decisions { display: flex; flex-direction: column; gap: 16px; margin-top: 12px; }
+.cc-decision {
+  background: var(--bg-elev);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  border: 1px solid var(--line);
+}
+.cc-decision h4 { margin: 0 0 10px; font-size: 14px; color: var(--accent-2); }
+.cc-decision-bars { display: flex; flex-direction: column; gap: 6px; }
+.cc-decision-row {
+  display: grid; grid-template-columns: 130px 1fr 80px; gap: 10px;
+  align-items: center; font-size: 13px;
+}
+.cc-decision-label { color: var(--text-dim); }
+.cc-decision-bar {
+  height: 16px; background: var(--bg-elev-2); border-radius: 8px; overflow: hidden;
+}
+.cc-decision-fill {
+  height: 100%;
+  transition: width 600ms cubic-bezier(.2,.8,.2,1);
+}
+.cc-decision-fill.color-ok      { background: var(--ok); }
+.cc-decision-fill.color-warn    { background: var(--warn); }
+.cc-decision-fill.color-bad     { background: var(--danger); }
+.cc-decision-fill.color-neutral { background: var(--text-dim); }
+.cc-decision-count { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ===== Light-Mode-Polish ===== */
+html[data-theme="light"] .story-box {
+  background: linear-gradient(180deg, #1a0a2a 0%, #2a0b3c 100%);
+  /* Story bewusst dunkel halten — Instagram-Vibe. Text bleibt hell. */
+}
+html[data-theme="light"] .push-banner {
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.18);
+}
+html[data-theme="light"] .push-text { color: var(--text); }
+html[data-theme="light"] .dm-bubble.from-me {
+  /* Akzent bleibt; Schrift weiß auf Magenta funktioniert auch im Light-Mode. */
+  background: linear-gradient(135deg, var(--accent), #9333ea);
+}
+html[data-theme="light"] .guild-chat { background: var(--bg-elev-2); }
+html[data-theme="light"] .chat-msg .who { color: var(--accent); }
+html[data-theme="light"] .badge-card { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; }
+html[data-theme="light"] .toast { background: var(--bg-elev-2); }
+html[data-theme="light"] .viral-card { background: linear-gradient(135deg, #fde4ea, #fcd9d0); color: #7a1f3a; border-color: var(--danger); }
+html[data-theme="light"] .viral-card.positive { background: linear-gradient(135deg, #d6f5e0, #d9ecdc); color: #1a4a2b; border-color: var(--ok); }
+html[data-theme="light"] .heart-floater { color: var(--accent); text-shadow: 0 2px 12px rgba(192, 38, 211, 0.4); }
+html[data-theme="light"] .ending-card { background: #fff; }
+html[data-theme="light"] .ending-title { background-clip: text; -webkit-background-clip: text; }
+html[data-theme="light"] #wrapped-root { background: radial-gradient(ellipse at top, #faf2fc 0%, var(--bg) 55%); }
+html[data-theme="light"] .wrapped-slide h1, html[data-theme="light"] .wrapped-slide h2 { color: var(--text); }
+html[data-theme="light"] .wrapped-slide .big-num,
+html[data-theme="light"] .wrapped-slide .big-word,
+html[data-theme="light"] .wrapped-slide h1 {
+  /* Gradient text in Light-Mode hat oft Kontrast-Probleme — fester Akzent. */
+  background: none; -webkit-text-fill-color: var(--accent); color: var(--accent);
+}
+html[data-theme="light"] .pathway-node.radical { background: rgba(202, 138, 4, 0.12); color: #92520a; border-color: var(--warn); }

@@ -83,6 +83,9 @@ function freshSave() {
     tutorialDone: false,
     trendingViewed: {},
     conceptsSeen: {},
+    bookmarks: {},
+    hashtagFilters: {},
+    soundVolume: 0.6,
     random_seed: Math.floor(Math.random() * 1e9)
   };
 }
@@ -1121,6 +1124,13 @@ function enabled() {
   return Store.data.soundEnabled !== false;
 }
 
+function volumeScale() {
+  // 0..1 mit Default 0.6 — multiplikativ auf den per-Effekt-Volume.
+  const v = Store.data?.soundVolume;
+  if (typeof v === 'number' && v >= 0 && v <= 1) return v;
+  return 0.6;
+}
+
 function beep({ freq = 440, duration = 0.08, type = 'sine', volume = 0.15, attack = 0.005, release = 0.05 } = {}) {
   if (!enabled()) return;
   const c = ensureCtx();
@@ -1128,10 +1138,11 @@ function beep({ freq = 440, duration = 0.08, type = 'sine', volume = 0.15, attac
   const t = c.currentTime;
   const osc = c.createOscillator();
   const gain = c.createGain();
+  const v = volume * volumeScale();
   osc.type = type;
   osc.frequency.setValueAtTime(freq, t);
   gain.gain.setValueAtTime(0, t);
-  gain.gain.linearRampToValueAtTime(volume, t + attack);
+  gain.gain.linearRampToValueAtTime(v, t + attack);
   gain.gain.exponentialRampToValueAtTime(0.0001, t + duration + release);
   osc.connect(gain).connect(c.destination);
   osc.start(t);
@@ -1157,8 +1168,16 @@ function setSoundEnabled(enabled) {
   Store.save();
 }
 
+function setSoundVolume(v) {
+  if (!Store.data) return;
+  const num = Math.max(0, Math.min(1, parseFloat(v)));
+  Store.data.soundVolume = Number.isFinite(num) ? num : 0.6;
+  Store.save();
+}
+
   __M.SFX = SFX;
   __M.setSoundEnabled = setSoundEnabled;
+  __M.setSoundVolume = setSoundVolume;
 })();
 
 // ===== modals.js =====
@@ -1709,24 +1728,50 @@ async function renderFeed(view = 'feed') {
     root.appendChild(header);
 
     // Trending-Bar (ab W3, wenn der Feed Inhalt hat).
+    const activeFilter = Store.data.activeHashtagFilter || null;
     if (d.currentWeek >= 3) {
       const trending = getTrendingHashtags();
       if (trending.length) {
         const tb = document.createElement('div');
         tb.className = 'trending-bar';
         tb.innerHTML = `<span class="trending-label muted small">Trending in Greifshafen:</span>` +
-          trending.map(t => `<button class="trending-tag" data-tag="${escapeHtml(t.tag)}">${escapeHtml(t.tag)}</button>`).join('');
+          trending.map(t => `<button class="trending-tag${activeFilter === t.tag.toLowerCase() ? ' active' : ''}" data-tag="${escapeHtml(t.tag)}">${escapeHtml(t.tag)}</button>`).join('');
         tb.querySelectorAll('.trending-tag').forEach(b => {
           b.onclick = () => {
             const tag = b.dataset.tag.toLowerCase();
-            if (!Store.data.trendingViewed) Store.data.trendingViewed = {};
-            Store.data.trendingViewed[tag] = Store.data.currentWeek;
+            if (Store.data.activeHashtagFilter === tag) {
+              Store.data.activeHashtagFilter = null;
+            } else {
+              Store.data.activeHashtagFilter = tag;
+              if (!Store.data.hashtagFilters) Store.data.hashtagFilters = {};
+              Store.data.hashtagFilters[tag] = (Store.data.hashtagFilters[tag] || 0) + 1;
+            }
             Store.save();
-            toast(`Stell dir vor, du klickst ${b.dataset.tag} und siehst nur noch diese Posts. Was würde das mit deinem Feed machen?`, { long: true });
+            renderFeed('feed');
           };
         });
         root.appendChild(tb);
       }
+    }
+
+    // Wenn ein Hashtag-Filter aktiv ist: didaktische Info-Box vor dem Feed.
+    if (activeFilter) {
+      const box = document.createElement('div');
+      box.className = 'filter-box';
+      box.innerHTML = `
+        <div class="filter-box-head">
+          <span class="filter-icon" aria-hidden="true">🫧</span>
+          <strong>Filter aktiv: ${escapeHtml(activeFilter)}</strong>
+        </div>
+        <p>Du siehst gerade nur Posts mit diesem Tag. So fühlt sich eine Filterblase an: scheinbar passt alles zusammen — weil du selbst die Auswahl eng gemacht hast.</p>
+        <button class="btn btn-ghost btn-small" id="filter-clear">Filter entfernen</button>
+      `;
+      box.querySelector('#filter-clear').onclick = () => {
+        Store.data.activeHashtagFilter = null;
+        Store.save();
+        renderFeed('feed');
+      };
+      root.appendChild(box);
     }
 
     const list = document.createElement('div');
@@ -1737,7 +1782,26 @@ async function renderFeed(view = 'feed') {
     const ownThisWeek = [...Store.data.ownPosts].reverse().find(p => p.week === d.currentWeek);
     if (ownThisWeek) list.appendChild(renderOwnPost(ownThisWeek, { pinned: true }));
 
-    const feed = computeCurrentFeed();
+    let feed = computeCurrentFeed();
+    if (activeFilter) {
+      const tagWithoutHash = activeFilter.replace(/^#/, '');
+      feed = feed.filter(p => {
+        const text = (p.text || '').toLowerCase();
+        if (text.includes(activeFilter)) return true;
+        return (p.tags || []).some(t => t.toLowerCase().includes(tagWithoutHash));
+      });
+      if (!feed.length) {
+        const empty = document.createElement('div');
+        empty.className = 'filter-empty';
+        empty.innerHTML = `<p class="muted small">Keine Posts mit diesem Filter in dieser Woche. <button class="btn btn-ghost btn-small" id="filter-clear-2">Filter entfernen</button></p>`;
+        list.appendChild(empty);
+        empty.querySelector('#filter-clear-2').onclick = () => {
+          Store.data.activeHashtagFilter = null;
+          Store.save();
+          renderFeed('feed');
+        };
+      }
+    }
     for (const post of feed) {
       list.appendChild(renderPost(post));
     }
@@ -1829,6 +1893,7 @@ function renderPost(post) {
       (post.article ? renderArticleCard(post.article) : '') +
       (hasMedia ? `<div class="post-media">${memeSvg(post.id, post.tags, post.text)}</div>` : '');
 
+  const bookmarked = !!Store.data.bookmarks?.[post.id];
   const actions = `
     <div class="actions">
       <button class="action-btn like-btn ${liked ? 'active' : ''}" data-act="like" aria-pressed="${liked ? 'true' : 'false'}">
@@ -1837,6 +1902,7 @@ function renderPost(post) {
       <button class="action-btn" data-act="comment" aria-label="Antworten"><span class="action-icon">💬</span><span class="action-label">Antworten</span></button>
       <button class="action-btn ${shared ? 'active' : ''}" data-act="share" aria-label="Teilen"><span class="action-icon">↗</span><span class="action-label">${shared ? 'Geteilt' : 'Teilen'}</span></button>
       <button class="action-btn ${followed ? 'active' : ''}" data-act="follow">${followed ? '✓ Folgst du' : '+ Folgen'}</button>
+      <button class="action-btn ${bookmarked ? 'active' : ''}" data-act="bookmark" aria-pressed="${bookmarked ? 'true' : 'false'}" aria-label="Für später merken"><span class="action-icon">${bookmarked ? '🔖' : '📑'}</span></button>
       <button class="action-btn dislike" data-act="mute" aria-label="Stummschalten">🚫</button>
     </div>
   `;
@@ -1947,6 +2013,10 @@ function buildComposeBox() {
       <span class="muted small">Sticker (optional):</span>
       ${STICKERS.map(s => `<button type="button" class="compose-sticker" data-s="${s}" aria-label="Sticker ${s}">${s}</button>`).join('')}
     </div>
+    <div class="compose-preview-wrap" id="compose-preview-wrap" hidden>
+      <span class="muted small">Vorschau — so sieht dein Post im Feed aus:</span>
+      <article class="post-card own-post compose-preview" id="compose-preview"></article>
+    </div>
     <div class="compose-row">
       <span class="muted small" id="compose-status"></span>
       <button class="btn btn-primary" id="btn-publish">Posten</button>
@@ -1962,6 +2032,8 @@ function buildComposeBox() {
         chosenSticker = b.dataset.s;
         b.classList.add('selected');
       }
+      // updatePreview wird nach der Funktionsdefinition aufgerufen.
+      if (typeof updatePreview === 'function') updatePreview();
     };
   });
   const grid = wrap.querySelector('#compose-topics');
@@ -1972,6 +2044,7 @@ function buildComposeBox() {
     b.onclick = () => {
       if (chosen.has(t)) { chosen.delete(t); b.classList.remove('selected'); }
       else if (chosen.size < 3) { chosen.add(t); b.classList.add('selected'); }
+      if (typeof updatePreview === 'function') updatePreview();
     };
     grid.appendChild(b);
   }
@@ -1987,11 +2060,34 @@ function buildComposeBox() {
       txt.focus();
     };
   });
+  function updatePreview() {
+    const text = txt.value;
+    const previewWrap = wrap.querySelector('#compose-preview-wrap');
+    const preview = wrap.querySelector('#compose-preview');
+    const hasContent = !!text.trim() || chosen.size > 0 || chosenSticker;
+    previewWrap.hidden = !hasContent;
+    if (!hasContent) return;
+    const stickerBlock = chosenSticker ? `<div class="own-post-sticker" aria-hidden="true">${chosenSticker}</div>` : '';
+    const tagLine = chosen.size ? `<div class="muted small" style="padding-top:8px">Tags: ${[...chosen].join(', ')}</div>` : '';
+    preview.innerHTML = `
+      <div class="post-head">
+        <div class="avatar" aria-hidden="true">${avatarSvg(Store.data.character.avatar || 0)}</div>
+        <div class="name-block">
+          <div class="name">${escapeHtml(Store.data.character.name)} <span class="verified">· du</span></div>
+          <div class="meta">Woche ${Store.data.currentWeek} · gleich live</div>
+        </div>
+      </div>
+      <div class="post-body">${escapeHtml(text || '(noch nichts geschrieben)')}</div>
+      ${stickerBlock}
+      ${tagLine}
+    `;
+  }
   txt.addEventListener('input', () => {
     const n = txt.value.length;
     counter.textContent = `${n} / ${MAX}`;
     counter.classList.toggle('warn', n > MAX - 30);
     counter.classList.toggle('over', n >= MAX);
+    updatePreview();
   });
   // iPad: bei Fokus in den sichtbaren Bereich scrollen.
   txt.addEventListener('focus', () => {
@@ -2124,6 +2220,28 @@ async function handleAction(act, post, btn, card) {
     toast(`${char.name} stummgeschaltet.`);
   } else if (act === 'comment') {
     showCommentOptions(post, card);
+  } else if (act === 'bookmark') {
+    if (!Store.data.bookmarks) Store.data.bookmarks = {};
+    if (Store.data.bookmarks[post.id]) {
+      delete Store.data.bookmarks[post.id];
+      btn.classList.remove('active');
+      btn.setAttribute('aria-pressed', 'false');
+      const icon = btn.querySelector('.action-icon'); if (icon) icon.textContent = '📑';
+      toast('Lesezeichen entfernt.');
+    } else {
+      Store.data.bookmarks[post.id] = {
+        week: Store.data.currentWeek,
+        text: post.text,
+        author: post.author,
+        tags: post.tags || [],
+        ts: Date.now()
+      };
+      btn.classList.add('active');
+      btn.setAttribute('aria-pressed', 'true');
+      const icon = btn.querySelector('.action-icon'); if (icon) icon.textContent = '🔖';
+      toast('Gemerkt — taucht im Lehr-Bericht auf.');
+    }
+    Store.save();
   }
 }
 
@@ -2568,6 +2686,17 @@ function checkBadges() {
   const comments = actions.filter(a => a.type === 'comment' || a.type === 'angry_comment').length;
   const follows = actions.filter(a => a.type === 'follow').length;
   const angry = actions.filter(a => a.type === 'angry_comment').length;
+  const mutes = actions.filter(a => a.type === 'mute').length;
+  const shares = actions.filter(a => a.type === 'share').length;
+  const tws = Store.data.contentWarningsAccepted || {};
+  const twSkip = Object.values(tws).reduce((a, b) => a + (b.skipped || 0), 0);
+  const twShown = Object.values(tws).reduce((a, b) => a + (b.shown || 0), 0);
+  const ownPostCount = (Store.data.ownPosts || []).length;
+  const ownPostStickers = (Store.data.ownPosts || []).filter(p => p.sticker).length;
+  const bookmarks = Object.keys(Store.data.bookmarks || {}).length;
+  const dmReplies = Object.keys(Store.data.dmReplies || {}).length;
+  const placeVisits = Object.values(Store.data.placesVisited || {}).reduce((a, b) => a + b, 0);
+  const arcs = Store.data.npcArcs || {};
 
   if (likes >= 20 && Store.addBadge('Early Adopter', '20 Likes in der ersten Phase')) awarded.push('Early Adopter');
   if (angry >= 5 && Store.addBadge('Flammenwerfer', 'Du hast wütend kommentiert')) awarded.push('Flammenwerfer');
@@ -2575,6 +2704,21 @@ function checkBadges() {
   if (follows >= 10 && Store.addBadge('Netzwerker', 'Du folgst 10+ Accounts')) awarded.push('Netzwerker');
   if (Store.data.guildMemberships.includes('echte_werte') && Store.addBadge('Tief im Loch', 'Rabbit-Hole betreten')) awarded.push('Tief im Loch');
   if (Store.data.guildMemberships.includes('lese_runde') && Store.addBadge('Bücherwurm', 'Der Leserunde beigetreten')) awarded.push('Bücherwurm');
+
+  // Neue Achievements — nuanciert nach Spielstil.
+  if (mutes >= 5 && Store.addBadge('Türsteher:in', '5+ Accounts stummgeschaltet — bewusst kuratiert')) awarded.push('Türsteher:in');
+  if (shares >= 10 && Store.addBadge('Reichweiten-Bauer:in', '10+ Beiträge geteilt')) awarded.push('Reichweiten-Bauer:in');
+  if (twSkip >= 4 && Store.addBadge('Selbstschutz', 'Mehrfach Inhalte bewusst übersprungen')) awarded.push('Selbstschutz');
+  if (twShown >= 3 && Store.addBadge('Hinschauen', 'Mehrfach durch die Warnung gegangen — bewusst informiert')) awarded.push('Hinschauen');
+  if (ownPostCount >= 5 && Store.addBadge('Stimme', '5+ eigene Posts geschrieben')) awarded.push('Stimme');
+  if (ownPostStickers >= 3 && Store.addBadge('Sticker-Bro', 'Drei eigene Posts mit Sticker')) awarded.push('Sticker-Bro');
+  if (bookmarks >= 3 && Store.addBadge('Sammler:in', '3+ Posts für die Reflexion gemerkt')) awarded.push('Sammler:in');
+  if (dmReplies >= 4 && Store.addBadge('Antworter:in', 'Vier DMs persönlich beantwortet')) awarded.push('Antworter:in');
+  if (placeVisits >= 6 && Store.addBadge('Spurensucher:in', 'Greifshafen durchgeklickt')) awarded.push('Spurensucher:in');
+  if ((arcs.lea_close || 0) >= 0.5 && Store.addBadge('Beste Freundin', 'Lea sieht dich an guten Tagen.')) awarded.push('Beste Freundin');
+  if ((arcs.finn_path || 0) <= -2 && Store.addBadge('Wachposten', 'Finn vor der Gilde gewarnt.')) awarded.push('Wachposten');
+  if ((arcs.mira_close || 0) >= 0.4 && Store.addBadge('Verbündete:r', 'Mira hat dir vertraut.')) awarded.push('Verbündete:r');
+
   return awarded;
 }
 
@@ -2681,6 +2825,8 @@ function renderSandbox(onClose) {
 
   document.getElementById('btn-sim').onclick = () => simulate(rules);
   document.getElementById('btn-sandbox-close').onclick = () => onClose && onClose();
+  const battleBtn = document.getElementById('btn-battle');
+  if (battleBtn) battleBtn.onclick = () => openAlgorithmBattle(rules);
   // Reset-Toggle: simulieren wir auf dem Start-Profil oder dem aktuellen Profil?
   const simModeRow = document.querySelector('#sandbox-sim-mode');
   if (simModeRow) {
@@ -2688,6 +2834,100 @@ function renderSandbox(onClose) {
       r.onchange = () => previewFeed(rules);
     });
   }
+}
+
+// Algorithm-Battle: zwei Slider-Setups side-by-side, ihre Feeds gleichzeitig
+// sichtbar. Zeigt drastisch, wie unterschiedlich „derselbe Pool" wirken kann.
+function openAlgorithmBattle(currentRules) {
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  overlay.innerHTML = `
+    <div class="tw-box big battle-box">
+      <header class="battle-head">
+        <h2>Algorithmus-Battle</h2>
+        <button class="btn btn-ghost btn-small" id="battle-close">Schließen</button>
+      </header>
+      <p class="muted small">Zwei Algorithmen, derselbe Post-Pool, dein Profil. So unterschiedlich kann derselbe Feed aussehen.</p>
+      <div class="battle-grid">
+        <section class="battle-side" data-side="left">
+          <h3>A — Engagement-getrieben</h3>
+          <select class="battle-preset" data-side="left" aria-label="Voreinstellung A">
+            <option value="empoerung">Empörungs-Booster</option>
+            <option value="default" selected>Streem-Default</option>
+            <option value="chrono">Chronologisch</option>
+            <option value="quality">Qualität</option>
+            <option value="calm">Ruhe-Modus</option>
+            <option value="balance">Ausgleich</option>
+          </select>
+          <div class="battle-feed" id="battle-feed-left"></div>
+        </section>
+        <section class="battle-side" data-side="right">
+          <h3>B — Qualitätsorientiert</h3>
+          <select class="battle-preset" data-side="right" aria-label="Voreinstellung B">
+            <option value="empoerung">Empörungs-Booster</option>
+            <option value="default">Streem-Default</option>
+            <option value="chrono">Chronologisch</option>
+            <option value="quality" selected>Qualität</option>
+            <option value="calm">Ruhe-Modus</option>
+            <option value="balance">Ausgleich</option>
+          </select>
+          <div class="battle-feed" id="battle-feed-right"></div>
+        </section>
+      </div>
+      <p class="muted small">Die Karten sind die Top-5 jedes Setups. Beobachte: welcher Mensch redet wie viel? Welche Tonlagen verschwinden?</p>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('#battle-close').onclick = close;
+  const presets = battlePresets(currentRules);
+  function render(side) {
+    const sel = overlay.querySelector(`.battle-preset[data-side="${side}"]`);
+    const target = overlay.querySelector(`#battle-feed-${side}`);
+    const weights = presets[sel.value] || currentRules;
+    const feed = buildFeed(POSTS, ADS, Store.data.userProfile, weights, {
+      limit: 5, unlocked: ['ads'], muted: Store.data.userProfile.muted
+    });
+    target.innerHTML = '';
+    for (const p of feed) {
+      const c = getCharacter(p.author);
+      const card = document.createElement('div');
+      card.className = 'post-card battle-card';
+      card.innerHTML = `
+        <div class="post-head">
+          <div class="name-block">
+            <div class="name">${escapeHtml(c?.name || p.author)}</div>
+            <div class="meta muted small">${escapeHtml(c?.handle || '')}</div>
+          </div>
+        </div>
+        <div class="post-body">${escapeHtml(truncate(p.text || '', 140))}</div>
+      `;
+      target.appendChild(card);
+    }
+  }
+  overlay.querySelectorAll('.battle-preset').forEach(sel => {
+    sel.onchange = () => render(sel.dataset.side);
+  });
+  render('left');
+  render('right');
+}
+
+function battlePresets(current) {
+  return {
+    default:   { ...Store.data.weights },
+    quality:   { affinity: 0.3, engagement: 0.2, recency: 0.5, social: 0.3, ads: 0.2, diversity: 0.7, quality: 1.5, outragePenalty: 1.0, balance: 0.5 },
+    chrono:    { affinity: 0.0, engagement: 0.0, recency: 1.8, social: 1.0, ads: 0.2, diversity: 0.0, quality: 0.2, outragePenalty: 0.0, balance: 0.0 },
+    balance:   { affinity: 0.3, engagement: 0.2, recency: 0.5, social: 0.5, ads: 0.2, diversity: 0.8, quality: 0.8, outragePenalty: 0.8, balance: 1.5 },
+    empoerung: { affinity: 0.4, engagement: 2.0, recency: 0.3, social: 0.4, ads: 0.6, diversity: 0.0, quality: 0.0, outragePenalty: 0.0, balance: 0.0 },
+    calm:      { affinity: 0.6, engagement: 0.1, recency: 0.4, social: 0.7, ads: 0.1, diversity: 1.0, quality: 1.2, outragePenalty: 1.8, balance: 0.8 },
+    custom:    current
+  };
 }
 
 function applyPreset(name, rules, container) {
@@ -4022,6 +4262,32 @@ function renderClassCompare(root, onClose) {
   };
 }
 
+// Extrahiert die markanten Entscheidungen pro Spielstand — die Dinge,
+// über die sich in der Klassen-Diskussion am ehesten reden lässt.
+function extractDecisions(s) {
+  const dm = s.dmReplies || {};
+  const ending = s.ending || null;
+  const guilds = s.guildMemberships || [];
+  const marc = dm.dm_marc?.[11]?.id || null;
+  const finnW8  = dm.dm_finn?.[8]?.id  || null;
+  const finnW17 = dm.dm_finn?.[17]?.id || null;
+  const lara = dm.dm_lara?.[24]?.id || null;
+  const mira = dm.dm_mira?.[15]?.id || null;
+  const lea14 = dm.dm_lea?.[14]?.id || null;
+  return {
+    ending,
+    inRabbit: guilds.includes('echte_werte'),
+    inReading: guilds.includes('lese_runde'),
+    inGaming: guilds.includes('gaming_nord'),
+    marc:    marc    ? marc.replace('marc_', '')    : 'keine Antwort',
+    finn8:   finnW8  ? finnW8.replace('finn_8_', '')  : '—',
+    finn17:  finnW17 ? finnW17.replace('finn_17_', '') : '—',
+    lara:    lara    ? lara.replace('lara_24_', '')    : '—',
+    mira:    mira    ? mira.replace('mira_15_', '')    : '—',
+    lea14:   lea14   ? lea14.replace('lea_14_', '')    : '—'
+  };
+}
+
 function extractRow(item, idx, anonymize) {
   const s = item.save;
   const c = s.character || {};
@@ -4050,7 +4316,8 @@ function extractRow(item, idx, anonymize) {
     inRabbitHole,
     guilds: guilds.length,
     voted: s.electionVote || null,
-    interests: p.interests || {}
+    interests: p.interests || {},
+    decisions: extractDecisions(s)
   };
 }
 
@@ -4090,7 +4357,80 @@ function buildReportHtml(rows) {
         </tr>`).join('')}
       </tbody>
     </table>
+
+    <h3>Entscheidungen an Wendepunkten</h3>
+    <p class="muted small">Die markanten Punkte, an denen sich Klassen am ehesten unterhalten: Marc-Anwerbung, Finn auf seiner Bahn, Lara nach Hate-Incident, Mira nach Hate-Kommentaren, Lea in W14. Die Verteilung verrät am meisten.</p>
+    ${buildDecisionDiffs(rows)}
   `;
+}
+
+const DECISION_DEFS = [
+  { key: 'marc', title: 'Marc Stay-Based (W11) — Anwerbung',
+    options: {
+      block:   { label: 'Blockiert',          color: 'ok' },
+      ignore:  { label: 'Ignoriert',          color: 'neutral' },
+      curious: { label: 'Was ist im Discord?', color: 'warn' },
+      join:    { label: 'Beigetreten',        color: 'bad' },
+      'keine Antwort': { label: 'Nicht reagiert', color: 'neutral' }
+    }},
+  { key: 'finn8', title: 'Finn (W8) — „Clout-Chaser-Mädels"',
+    options: {
+      pushback: { label: 'Widersprochen',   color: 'ok' },
+      curious:  { label: 'Nachgefragt',     color: 'neutral' },
+      agree:    { label: 'Zugestimmt',      color: 'bad' }
+    }},
+  { key: 'finn17', title: 'Finn (W17) — Discord-Treffen',
+    options: {
+      warn:     { label: 'Warnung',          color: 'ok' },
+      neutral:  { label: 'Vorsicht',         color: 'neutral' },
+      join:     { label: '„Erzähl mehr"',    color: 'bad' }
+    }},
+  { key: 'lara', title: 'Lara Weiss (W24) — Hate-Welle',
+    options: {
+      solidarity: { label: 'Solidarität',  color: 'ok' },
+      advice:     { label: 'Praktischer Rat', color: 'neutral' },
+      silence:    { label: 'Geschwiegen',  color: 'warn' }
+    }},
+  { key: 'mira', title: 'Mira (W15) — Reality-Check',
+    options: {
+      support:  { label: 'Empathie',         color: 'ok' },
+      advice:   { label: 'Praktischer Rat',  color: 'neutral' },
+      distance: { label: '„Weniger provozieren"', color: 'bad' }
+    }},
+  { key: 'lea14', title: 'Lea (W14) — „Du wirkst anders"',
+    options: {
+      open:      { label: '„Der Feed macht was mit mir"', color: 'ok' },
+      deflect:   { label: '„Stress halt"',                color: 'neutral' },
+      defensive: { label: '„Wie meinst du das?"',         color: 'neutral' }
+    }}
+];
+
+function buildDecisionDiffs(rows) {
+  return `<div class="cc-decisions">${DECISION_DEFS.map(def => {
+    const counts = {};
+    for (const r of rows) {
+      const v = r.decisions[def.key];
+      counts[v] = (counts[v] || 0) + 1;
+    }
+    const total = rows.length;
+    const items = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    return `
+      <div class="cc-decision">
+        <h4>${escapeHtml(def.title)}</h4>
+        <div class="cc-decision-bars">
+          ${items.map(([key, count]) => {
+            const opt = def.options[key] || { label: key, color: 'neutral' };
+            const pct = Math.round(count / total * 100);
+            return `<div class="cc-decision-row">
+              <span class="cc-decision-label">${escapeHtml(opt.label)}</span>
+              <div class="cc-decision-bar"><div class="cc-decision-fill color-${opt.color}" style="width:${pct}%"></div></div>
+              <span class="cc-decision-count">${count} · ${pct}%</span>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }).join('')}</div>`;
 }
 
 function buildStandaloneHtml(rows, anonymize) {
@@ -4568,6 +4908,7 @@ function escapeHtml(s) {
   var renderClassCompare = __M.renderClassCompare;
   var SFX = __M.SFX;
   var setSoundEnabled = __M.setSoundEnabled;
+  var setSoundVolume = __M.setSoundVolume;
   var maybeQueueMicroReflection = __M.maybeQueueMicroReflection;
   var generateRepliesForJustEndedWeek = __M.generateRepliesForJustEndedWeek;
   var maybeShowPush = __M.maybeShowPush;
@@ -4797,6 +5138,21 @@ function bindGlobal() {
       setSoundEnabled(soundChk.checked);
       if (soundChk.checked) SFX.toast();
     };
+  }
+
+  // Lautstärke-Slider
+  const volRng = document.getElementById('rng-volume');
+  const volOut = document.getElementById('rng-volume-val');
+  if (volRng) {
+    const cur = typeof Store.data?.soundVolume === 'number' ? Store.data.soundVolume : 0.6;
+    volRng.value = String(Math.round(cur * 100));
+    if (volOut) volOut.textContent = `${Math.round(cur * 100)} %`;
+    volRng.oninput = () => {
+      const pct = parseInt(volRng.value, 10);
+      setSoundVolume(pct / 100);
+      if (volOut) volOut.textContent = `${pct} %`;
+    };
+    volRng.onchange = () => { if (Store.data?.soundEnabled) SFX.toast(); };
   }
 
   // Light-Mode-Toggle
@@ -5819,6 +6175,7 @@ function exportReport() {
   ul.interests { list-style: none; padding: 0; }
   ul.interests li { display: inline-block; background: #eef; padding: 2px 8px; border-radius: 10px; margin: 2px; font-size: 13px; }
   .profile-bio { font-style: italic; color: #555; border-left: 3px solid #c026d3; padding: 6px 12px; margin: 1rem 0; background: #faf7fb; }
+  ol.disc li { margin: .8rem 0; font-size: 14px; }
 </style></head>
 <body>
   <h1>Streem-Bericht</h1>
@@ -5856,6 +6213,27 @@ function exportReport() {
 
   <h2>Medien-Manifest</h2>
   <ol>${manifestList}</ol>
+
+  ${(() => {
+    const bm = d.bookmarks || {};
+    const entries = Object.entries(bm);
+    if (!entries.length) return '';
+    return `<section><h2>Lesezeichen</h2><p class="muted">Beiträge, die du dir gemerkt hast — z.B. weil du sie in der Reflexion ansprechen wolltest.</p>
+      ${entries.map(([id, b]) => `<div class="qa"><div class="q">W${b.week} · ${escapeHtml(b.author || '')}</div><div class="a">${escapeHtml(b.text || '')}</div></div>`).join('')}
+    </section>`;
+  })()}
+
+  <h2>Diskussionsfragen für die Klasse</h2>
+  <p class="muted">Gedacht für die Reflexionsphase nach dem Spiel. Frei zu kürzen, zu ergänzen, zu ignorieren.</p>
+  <ol class="disc">
+    <li>Welche eine Entscheidung im Spiel würdest du heute anders treffen — und warum?</li>
+    <li>Ab welcher Woche hast du das Gefühl gehabt, der Algorithmus „lernt dich"?</li>
+    <li>Wo war der Unterschied zwischen Empörung und Engagement für dich am ehesten spürbar?</li>
+    <li>Welche Push-Notification hat dich am ehesten zurückgeholt — und wie real ist das im echten Leben?</li>
+    <li>Wenn du Lehrkraft wärst: was würdest du an „Streem" anders bauen, damit es weniger süchtig macht?</li>
+    <li>Was war das Beste, was dir auf der Plattform passiert ist? Was das Schlimmste?</li>
+    <li>Welche Rolle haben die NPCs (Lea, Finn, Mira, Lara) gespielt, und welche Stimmen hast du im echten Netz?</li>
+  </ol>
 
   <div class="foot">
     Erstellt mit dem Lernspiel „Der Algorithmus". Dokument zur Vorlage in der Projektwoche.<br/>

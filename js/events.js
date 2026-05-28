@@ -157,6 +157,17 @@ export function checkBadges() {
   const comments = actions.filter(a => a.type === 'comment' || a.type === 'angry_comment').length;
   const follows = actions.filter(a => a.type === 'follow').length;
   const angry = actions.filter(a => a.type === 'angry_comment').length;
+  const mutes = actions.filter(a => a.type === 'mute').length;
+  const shares = actions.filter(a => a.type === 'share').length;
+  const tws = Store.data.contentWarningsAccepted || {};
+  const twSkip = Object.values(tws).reduce((a, b) => a + (b.skipped || 0), 0);
+  const twShown = Object.values(tws).reduce((a, b) => a + (b.shown || 0), 0);
+  const ownPostCount = (Store.data.ownPosts || []).length;
+  const ownPostStickers = (Store.data.ownPosts || []).filter(p => p.sticker).length;
+  const bookmarks = Object.keys(Store.data.bookmarks || {}).length;
+  const dmReplies = Object.keys(Store.data.dmReplies || {}).length;
+  const placeVisits = Object.values(Store.data.placesVisited || {}).reduce((a, b) => a + b, 0);
+  const arcs = Store.data.npcArcs || {};
 
   if (likes >= 20 && Store.addBadge('Early Adopter', '20 Likes in der ersten Phase')) awarded.push('Early Adopter');
   if (angry >= 5 && Store.addBadge('Flammenwerfer', 'Du hast wütend kommentiert')) awarded.push('Flammenwerfer');
@@ -164,5 +175,20 @@ export function checkBadges() {
   if (follows >= 10 && Store.addBadge('Netzwerker', 'Du folgst 10+ Accounts')) awarded.push('Netzwerker');
   if (Store.data.guildMemberships.includes('echte_werte') && Store.addBadge('Tief im Loch', 'Rabbit-Hole betreten')) awarded.push('Tief im Loch');
   if (Store.data.guildMemberships.includes('lese_runde') && Store.addBadge('Bücherwurm', 'Der Leserunde beigetreten')) awarded.push('Bücherwurm');
+
+  // Neue Achievements — nuanciert nach Spielstil.
+  if (mutes >= 5 && Store.addBadge('Türsteher:in', '5+ Accounts stummgeschaltet — bewusst kuratiert')) awarded.push('Türsteher:in');
+  if (shares >= 10 && Store.addBadge('Reichweiten-Bauer:in', '10+ Beiträge geteilt')) awarded.push('Reichweiten-Bauer:in');
+  if (twSkip >= 4 && Store.addBadge('Selbstschutz', 'Mehrfach Inhalte bewusst übersprungen')) awarded.push('Selbstschutz');
+  if (twShown >= 3 && Store.addBadge('Hinschauen', 'Mehrfach durch die Warnung gegangen — bewusst informiert')) awarded.push('Hinschauen');
+  if (ownPostCount >= 5 && Store.addBadge('Stimme', '5+ eigene Posts geschrieben')) awarded.push('Stimme');
+  if (ownPostStickers >= 3 && Store.addBadge('Sticker-Bro', 'Drei eigene Posts mit Sticker')) awarded.push('Sticker-Bro');
+  if (bookmarks >= 3 && Store.addBadge('Sammler:in', '3+ Posts für die Reflexion gemerkt')) awarded.push('Sammler:in');
+  if (dmReplies >= 4 && Store.addBadge('Antworter:in', 'Vier DMs persönlich beantwortet')) awarded.push('Antworter:in');
+  if (placeVisits >= 6 && Store.addBadge('Spurensucher:in', 'Greifshafen durchgeklickt')) awarded.push('Spurensucher:in');
+  if ((arcs.lea_close || 0) >= 0.5 && Store.addBadge('Beste Freundin', 'Lea sieht dich an guten Tagen.')) awarded.push('Beste Freundin');
+  if ((arcs.finn_path || 0) <= -2 && Store.addBadge('Wachposten', 'Finn vor der Gilde gewarnt.')) awarded.push('Wachposten');
+  if ((arcs.mira_close || 0) >= 0.4 && Store.addBadge('Verbündete:r', 'Mira hat dir vertraut.')) awarded.push('Verbündete:r');
+
   return awarded;
 }
