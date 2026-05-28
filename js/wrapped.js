@@ -198,6 +198,7 @@ export function buildWrapped() {
           <button class="btn btn-primary" id="btn-go-sandbox">Dein eigener Algorithmus →</button>
           <button class="btn btn-ghost" id="btn-go-manifest">Medien-Manifest →</button>
           <button class="btn btn-ghost" id="btn-share-card">Als Bild teilen 📸</button>
+          <button class="btn btn-ghost" id="btn-wrapped-html">Wrapped als HTML speichern</button>
         </div>
         <p class="muted small" style="margin-top:14px">„Teilen" lädt eine PNG-Datei zum Speichern. Ob du sie in einer echten App postest — entscheidet dein Algorithmus.</p>
       `
@@ -765,6 +766,76 @@ function escapeHtml(s) {
   }[c]));
 }
 
+// Wrapped als standalone HTML-Datei exportieren. Enthält alle Slides
+// flach untereinander, mit Print-CSS und der Möglichkeit, das Dokument
+// auch im echten Browser zu öffnen, ohne die App.
+function downloadWrappedHtml(slides) {
+  const character = Store.data.character || {};
+  const date = new Date().toLocaleDateString('de-DE');
+  const html = `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8">
+<title>Streem-Wrapped · ${escapeHtml(character.name || '')}</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: #0b0d12; color: #e8ebf3; margin: 0; padding: 2rem 1rem; line-height: 1.5; }
+  .wrapped-doc { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 42px; margin: 0 0 .5rem; background: linear-gradient(135deg, #ff2e88, #22d3ee); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .meta { color: #9aa3b8; font-size: 13px; margin-bottom: 3rem; }
+  .slide { padding: 2rem; margin: 1.5rem 0; border-radius: 14px; background: linear-gradient(135deg, #1a0a2a, #06070b); border: 1px solid #262b3a; }
+  .slide h1, .slide h2 { color: #fff; margin: 0 0 1rem; }
+  .slide h1 { font-size: 32px; background: linear-gradient(135deg, #ff2e88, #22d3ee); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .slide h2 { font-size: 24px; }
+  .slide p { color: #d8dce6; margin: .5rem 0; }
+  .slide .muted, .slide .small { color: #9aa3b8; font-size: 13px; }
+  .big-num, .big-word { font-size: clamp(48px, 12vw, 120px); font-weight: 900; line-height: 1; margin: 1rem 0; background: linear-gradient(135deg, #ff2e88, #22d3ee); -webkit-background-clip: text; background-clip: text; color: transparent; text-align: center; }
+  .wrapped-bars { display: flex; flex-direction: column; gap: 8px; margin: 1rem 0; }
+  .row { display: grid; grid-template-columns: 130px 1fr 50px; gap: 10px; align-items: center; font-size: 14px; }
+  .lbl { color: #9aa3b8; text-align: right; }
+  .bar { height: 20px; background: #1d2130; border-radius: 10px; overflow: hidden; }
+  .fill { height: 100%; background: linear-gradient(90deg, #22d3ee, #ff2e88); }
+  .ending-card { background: #151822; border-radius: 14px; padding: 1.5rem; margin: 1.5rem auto; max-width: 480px; border: 2px solid #ff2e88; text-align: center; }
+  .ending-emoji { font-size: 64px; margin-bottom: 8px; }
+  .ending-title { font-size: 28px; font-weight: 900; margin-bottom: 12px; background: linear-gradient(135deg, #ff2e88, #22d3ee); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .ending-sources { margin-top: 14px; padding-top: 12px; border-top: 1px dashed #262b3a; text-align: left; }
+  .ending-sources ul { list-style: none; padding: 0; }
+  .ending-sources li { padding: 8px 12px; background: #1d2130; border-left: 3px solid #ff2e88; border-radius: 4px; margin: 6px 0; font-size: 13px; }
+  .pathway-line, .npc-quotes, .selfcheck-compare, .whatif-grid, .beat-map, .missed-stories { display: flex; flex-wrap: wrap; gap: 8px; margin: 1rem 0; }
+  .pathway-node { background: #1d2130; padding: 6px 10px; border-radius: 16px; font-size: 13px; }
+  .pathway-node.radical { background: rgba(250,204,21,0.15); color: #facc15; }
+  .pathway-arrow { color: #6b7388; }
+  .foot { color: #6b7388; font-size: 12px; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #262b3a; }
+  @media print {
+    body { background: #fff; color: #1f2230; }
+    .slide { background: #f4f5fa; border: 1px solid #d8dce6; page-break-inside: avoid; }
+    .slide h1, .slide h2, .big-num, .big-word, h1 { background: none; -webkit-text-fill-color: #c026d3; color: #c026d3; }
+    .ending-card { background: #fff; border-color: #c026d3; }
+    .lbl { color: #555; }
+    .bar { background: #ddd; }
+    .fill { background: #c026d3; }
+    .pathway-node { background: #eee; color: #1f2230; }
+    .foot { color: #777; border-color: #ccc; }
+    @page { margin: 1.5cm; }
+  }
+</style></head>
+<body>
+  <div class="wrapped-doc">
+    <h1>Streem-Wrapped</h1>
+    <div class="meta">${escapeHtml(character.name || 'unbekannt')}${character.protagonist ? ` · ${escapeHtml(character.protagonist)}` : ''} · gespeichert am ${date}</div>
+    ${slides.map(s => `<section class="slide">${s.html}</section>`).join('')}
+    <div class="foot">
+      Gespeichert aus „Der Algorithmus" — ein fiktiver Spielverlauf.<br/>
+      Anlaufstellen: bpb.de · klicksafe.de · hateaid.org · Telefonseelsorge 0800 111 0 111.
+    </div>
+  </div>
+</body></html>`;
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `streem-wrapped-${(character.name || 'spieler').toLowerCase().replace(/[^a-z0-9]/g, '_')}.html`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 500);
+}
+
 /**
  * Rendert alle Slides und steuert die Navigation.
  */
@@ -813,6 +884,8 @@ export function renderWrapped(onSandbox, onManifest) {
         if (mf) mf.onclick = () => onManifest && onManifest();
         const sh = root.querySelector('#btn-share-card');
         if (sh) sh.onclick = () => downloadShareCard();
+        const wh = root.querySelector('#btn-wrapped-html');
+        if (wh) wh.onclick = () => downloadWrappedHtml(slides);
       }, 20);
     }
   };

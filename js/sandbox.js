@@ -155,6 +155,12 @@ export function renderSandbox(onClose) {
   if (battleBtn) battleBtn.onclick = () => openAlgorithmBattle(rules);
   const exportBtn = document.getElementById('btn-export-rules');
   if (exportBtn) exportBtn.onclick = () => showPseudoCode(rules);
+  const tourBtn = document.getElementById('btn-sandbox-tour');
+  if (tourBtn) tourBtn.onclick = () => runSandboxTour(rules, sliders);
+  // Beim ersten Mal automatisch einsteigen.
+  if (!Store.data.sandboxTourDone) {
+    setTimeout(() => runSandboxTour(rules, sliders), 600);
+  }
   // Reset-Toggle: simulieren wir auf dem Start-Profil oder dem aktuellen Profil?
   const simModeRow = document.querySelector('#sandbox-sim-mode');
   if (simModeRow) {
@@ -309,6 +315,102 @@ const feed = sortByScoreDescending(allPosts).slice(0, 10);`;
       }).catch(() => {});
     }
   };
+}
+
+// Geführte Mini-Tour durch die Sandbox: 4 Stationen, jede mit einer
+// kleinen Aufgabe und einer Reflexionsfrage. Macht aus „hier sind Slider"
+// eine angeleitete Lerneinheit.
+function runSandboxTour(rules, container) {
+  Store.data.sandboxTourDone = true;
+  Store.save();
+  const stations = [
+    {
+      title: 'Station 1: Engagement maximieren',
+      task: 'Schiebe den Engagement-Slider auf den Anschlag, alle anderen auf 0.',
+      reflection: 'Was siehst du im Vorschau-Feed? Welche Posts kommen oben?',
+      preset: { affinity: 0, engagement: 2, recency: 0, social: 0, ads: 0, diversity: 0, quality: 0, outragePenalty: 0, balance: 0 }
+    },
+    {
+      title: 'Station 2: Chronologisch',
+      task: 'Nur Aktualität zählt — der Rest ist 0.',
+      reflection: 'Was fehlt am chronologischen Feed? Was gewinnst du, was verlierst du?',
+      preset: { affinity: 0, engagement: 0, recency: 2, social: 0, ads: 0, diversity: 0, quality: 0, outragePenalty: 0, balance: 0 }
+    },
+    {
+      title: 'Station 3: Qualität & Vielfalt',
+      task: 'Schiebe Qualität und Vielfalt-Strafe nach oben, Empörungs-Strafe auch.',
+      reflection: 'Wer redet jetzt? Wer redet weniger? Würdest du diesen Feed nutzen?',
+      preset: { affinity: 0.3, engagement: 0.2, recency: 0.5, social: 0.3, ads: 0.2, diversity: 0.7, quality: 1.5, outragePenalty: 1.0, balance: 0.5 }
+    },
+    {
+      title: 'Station 4: Gegen-Perspektive',
+      task: 'Balance-Slider hoch. Das System belohnt Posts, die deiner Neigung entgegenstehen.',
+      reflection: 'Was passiert mit deiner politischen Position über die simulierten 10 Wochen?',
+      preset: { affinity: 0.3, engagement: 0.2, recency: 0.5, social: 0.5, ads: 0.2, diversity: 0.8, quality: 0.8, outragePenalty: 0.8, balance: 1.8 }
+    }
+  ];
+  let idx = 0;
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  document.body.appendChild(overlay);
+  const handle = attachModalLite(overlay);
+
+  function render() {
+    if (idx >= stations.length) {
+      overlay.innerHTML = `
+        <div class="tw-box" style="max-width:480px">
+          <h3>Tour beendet.</h3>
+          <p>Du hast vier Setups kennengelernt. Jetzt: schiebe selbst, kombiniere, speichere ein Preset, das du anderen vorschlagen würdest.</p>
+          <p class="muted small">Jederzeit über „Geführte Tour starten" wiederholbar.</p>
+          <button class="btn btn-primary" id="tour-finish">Verstanden</button>
+        </div>
+      `;
+      overlay.querySelector('#tour-finish').onclick = () => handle.close();
+      return;
+    }
+    const s = stations[idx];
+    overlay.innerHTML = `
+      <div class="tw-box" style="max-width:520px">
+        <div class="muted small">Station ${idx + 1} / ${stations.length}</div>
+        <h3>${escapeHtml(s.title)}</h3>
+        <p><strong>Aufgabe:</strong> ${escapeHtml(s.task)}</p>
+        <p class="muted small"><strong>Frag dich:</strong> ${escapeHtml(s.reflection)}</p>
+        <div class="tw-actions">
+          <button class="btn btn-ghost" id="tour-apply">Setup automatisch setzen</button>
+          <button class="btn btn-primary" id="tour-next">Weiter</button>
+        </div>
+        <button class="btn btn-ghost btn-small" id="tour-skip" style="margin-top:8px">Tour überspringen</button>
+      </div>
+    `;
+    overlay.querySelector('#tour-apply').onclick = () => {
+      for (const [k, v] of Object.entries(s.preset)) {
+        rules[k] = v;
+        const slider = container.querySelector(`[data-slider="${k}"]`);
+        const lbl = container.querySelector(`[data-key="${k}"]`);
+        if (slider) slider.value = v;
+        if (lbl) lbl.textContent = (+v).toFixed(2);
+      }
+      Store.data.sandboxRules = { ...rules };
+      Store.save();
+      previewFeed(rules);
+    };
+    overlay.querySelector('#tour-next').onclick = () => { idx++; render(); };
+    overlay.querySelector('#tour-skip').onclick = () => handle.close();
+  }
+  render();
+}
+
+// Kleiner Lite-Modal-Helper, der nicht die volle Focus-Trap-Logik braucht
+// (wir verlassen die Tour eh per Klick, nicht via Tab-Zyklus).
+function attachModalLite(overlay) {
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  return { close };
 }
 
 function applyPreset(name, rules, container) {

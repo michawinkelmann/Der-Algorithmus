@@ -1757,3 +1757,55 @@ ul.welcome-back li {
 .tw-box details > summary::after { content: '▾'; color: var(--text-dim); transition: transform 200ms ease; }
 .tw-box details[open] > summary::after { transform: rotate(180deg); }
 .tw-box details > p, .tw-box details > div { padding: 0 12px 12px; }
+
+/* ===== Skip-Link für Tastatur-Navigation ===== */
+.skip-link {
+  position: absolute; left: -9999px;
+  top: 0;
+  background: var(--accent); color: #fff;
+  padding: 10px 16px;
+  border-radius: 0 0 var(--radius-sm) 0;
+  z-index: 1000;
+  text-decoration: none;
+  font-weight: 600;
+}
+.skip-link:focus {
+  left: 0;
+}
+
+/* ===== Story-Reactions ===== */
+.story-reactions {
+  display: flex; gap: 8px; justify-content: center;
+  margin-top: 14px; padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.1);
+}
+.story-react {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 50%;
+  width: 44px; height: 44px;
+  display: grid; place-items: center;
+  font-size: 22px;
+  cursor: pointer;
+  transition: transform 120ms ease;
+}
+.story-react:hover { transform: scale(1.1); }
+.story-react.selected {
+  background: rgba(255,46,136,0.25);
+  border-color: var(--accent);
+}
+.story-react-float {
+  position: absolute;
+  top: 30%; left: 50%;
+  font-size: 64px;
+  pointer-events: none;
+  animation: story-react-fly 900ms ease-out forwards;
+}
+@keyframes story-react-fly {
+  0% { opacity: 0; transform: translate(-50%, 0) scale(0.5); }
+  30% { opacity: 1; transform: translate(-50%, -50px) scale(1.4); }
+  100% { opacity: 0; transform: translate(-50%, -150px) scale(0.9); }
+}
+
+/* ===== Sandbox-Tour ===== */
+.sandbox-actions .btn { font-size: 13px; }

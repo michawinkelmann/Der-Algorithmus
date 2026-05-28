@@ -87,6 +87,8 @@ function freshSave() {
     highContrast: false,
     ttsEnabled: false,
     helpSeen: false,
+    storyReactions: {},
+    sandboxTourDone: false,
     random_seed: Math.floor(Math.random() * 1e9)
   };
 }
