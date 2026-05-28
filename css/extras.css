@@ -1712,3 +1712,48 @@ ul.welcome-back li {
 @media (max-width: 480px) {
   .glossquiz-options { grid-template-columns: 1fr; }
 }
+
+/* ===== Save-Inspector ===== */
+.inspector-size {
+  background: var(--bg-elev-2);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 13px;
+  margin: 10px 0;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.inspector-table {
+  width: 100%; border-collapse: collapse;
+  font-size: 13px;
+}
+.inspector-table th, .inspector-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+.inspector-table th { background: var(--bg-elev); font-weight: 600; }
+
+/* ===== Schmalere Bottombar bei 5 Buttons auf engen Screens ===== */
+@media (max-width: 380px) {
+  .navbtn { font-size: 10px; }
+  .navicon { font-size: 18px; }
+  .navbtn { min-height: 56px; }
+}
+
+/* ===== Hilfe-Modal: details/summary styling ===== */
+.tw-box details {
+  background: var(--bg-elev-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  margin: 8px 0;
+}
+.tw-box details > summary {
+  cursor: pointer; padding: 10px 12px;
+  font-weight: 600; font-size: 14px;
+  list-style: none;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.tw-box details > summary::-webkit-details-marker { display: none; }
+.tw-box details > summary::after { content: '▾'; color: var(--text-dim); transition: transform 200ms ease; }
+.tw-box details[open] > summary::after { transform: rotate(180deg); }
+.tw-box details > p, .tw-box details > div { padding: 0 12px 12px; }

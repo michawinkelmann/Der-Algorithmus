@@ -3,7 +3,7 @@
 
 const SAVE_KEY = 'algo_save_v1';
 const BACKUP_KEY = 'algo_save_backup_v1';
-const BACKUP_MAX = 200000; // ~200 KB Soft-Limit für Backup-Slot.
+const BACKUP_MAX = 500000; // ~500 KB Soft-Limit für Backup-Slot (lange Spielstände möglich).
 
 const INITIAL_PROFILE = {
   interests: {
@@ -85,6 +85,8 @@ function freshSave() {
     selfcheck: { pre: null, post: null },
     fontScale: 1.0,
     highContrast: false,
+    ttsEnabled: false,
+    helpSeen: false,
     random_seed: Math.floor(Math.random() * 1e9)
   };
 }
