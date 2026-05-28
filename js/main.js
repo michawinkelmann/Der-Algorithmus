@@ -631,6 +631,9 @@ function openStory(story) {
       </header>
       <div class="story-emoji-big">${story.emoji || '·'}</div>
       <div class="story-text">${escapeHtml(story.text)}</div>
+      <div class="story-reactions" role="group" aria-label="Reaktion senden">
+        ${['❤️', '👏', '🙄', '🤔', '😂'].map(e => `<button type="button" class="story-react" data-r="${e}" aria-label="Mit ${e} reagieren">${e}</button>`).join('')}
+      </div>
     </div>
   `;
   document.body.appendChild(overlay);
@@ -664,6 +667,23 @@ function openStory(story) {
     }
   });
   overlay.querySelector('.story-close').onclick = () => handle.close();
+  overlay.querySelectorAll('.story-react').forEach(b => {
+    b.onclick = (e) => {
+      e.stopPropagation();
+      if (!Store.data.storyReactions) Store.data.storyReactions = {};
+      Store.data.storyReactions[story.id] = b.dataset.r;
+      Store.save();
+      overlay.querySelectorAll('.story-react').forEach(x => x.classList.remove('selected'));
+      b.classList.add('selected');
+      // Mini-Effekt: Emoji als kurzer Floater oben.
+      const float = document.createElement('div');
+      float.className = 'story-react-float';
+      float.textContent = b.dataset.r;
+      overlay.appendChild(float);
+      setTimeout(() => float.remove(), 900);
+    };
+    if (Store.data.storyReactions?.[story.id] === b.dataset.r) b.classList.add('selected');
+  });
 }
 
 function openMap() {

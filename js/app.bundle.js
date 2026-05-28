@@ -93,6 +93,8 @@ function freshSave() {
     highContrast: false,
     ttsEnabled: false,
     helpSeen: false,
+    storyReactions: {},
+    sandboxTourDone: false,
     random_seed: Math.floor(Math.random() * 1e9)
   };
 }
@@ -4020,6 +4022,12 @@ function renderSandbox(onClose) {
   if (battleBtn) battleBtn.onclick = () => openAlgorithmBattle(rules);
   const exportBtn = document.getElementById('btn-export-rules');
   if (exportBtn) exportBtn.onclick = () => showPseudoCode(rules);
+  const tourBtn = document.getElementById('btn-sandbox-tour');
+  if (tourBtn) tourBtn.onclick = () => runSandboxTour(rules, sliders);
+  // Beim ersten Mal automatisch einsteigen.
+  if (!Store.data.sandboxTourDone) {
+    setTimeout(() => runSandboxTour(rules, sliders), 600);
+  }
   // Reset-Toggle: simulieren wir auf dem Start-Profil oder dem aktuellen Profil?
   const simModeRow = document.querySelector('#sandbox-sim-mode');
   if (simModeRow) {
@@ -4174,6 +4182,102 @@ const feed = sortByScoreDescending(allPosts).slice(0, 10);`;
       }).catch(() => {});
     }
   };
+}
+
+// Geführte Mini-Tour durch die Sandbox: 4 Stationen, jede mit einer
+// kleinen Aufgabe und einer Reflexionsfrage. Macht aus „hier sind Slider"
+// eine angeleitete Lerneinheit.
+function runSandboxTour(rules, container) {
+  Store.data.sandboxTourDone = true;
+  Store.save();
+  const stations = [
+    {
+      title: 'Station 1: Engagement maximieren',
+      task: 'Schiebe den Engagement-Slider auf den Anschlag, alle anderen auf 0.',
+      reflection: 'Was siehst du im Vorschau-Feed? Welche Posts kommen oben?',
+      preset: { affinity: 0, engagement: 2, recency: 0, social: 0, ads: 0, diversity: 0, quality: 0, outragePenalty: 0, balance: 0 }
+    },
+    {
+      title: 'Station 2: Chronologisch',
+      task: 'Nur Aktualität zählt — der Rest ist 0.',
+      reflection: 'Was fehlt am chronologischen Feed? Was gewinnst du, was verlierst du?',
+      preset: { affinity: 0, engagement: 0, recency: 2, social: 0, ads: 0, diversity: 0, quality: 0, outragePenalty: 0, balance: 0 }
+    },
+    {
+      title: 'Station 3: Qualität & Vielfalt',
+      task: 'Schiebe Qualität und Vielfalt-Strafe nach oben, Empörungs-Strafe auch.',
+      reflection: 'Wer redet jetzt? Wer redet weniger? Würdest du diesen Feed nutzen?',
+      preset: { affinity: 0.3, engagement: 0.2, recency: 0.5, social: 0.3, ads: 0.2, diversity: 0.7, quality: 1.5, outragePenalty: 1.0, balance: 0.5 }
+    },
+    {
+      title: 'Station 4: Gegen-Perspektive',
+      task: 'Balance-Slider hoch. Das System belohnt Posts, die deiner Neigung entgegenstehen.',
+      reflection: 'Was passiert mit deiner politischen Position über die simulierten 10 Wochen?',
+      preset: { affinity: 0.3, engagement: 0.2, recency: 0.5, social: 0.5, ads: 0.2, diversity: 0.8, quality: 0.8, outragePenalty: 0.8, balance: 1.8 }
+    }
+  ];
+  let idx = 0;
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  document.body.appendChild(overlay);
+  const handle = attachModalLite(overlay);
+
+  function render() {
+    if (idx >= stations.length) {
+      overlay.innerHTML = `
+        <div class="tw-box" style="max-width:480px">
+          <h3>Tour beendet.</h3>
+          <p>Du hast vier Setups kennengelernt. Jetzt: schiebe selbst, kombiniere, speichere ein Preset, das du anderen vorschlagen würdest.</p>
+          <p class="muted small">Jederzeit über „Geführte Tour starten" wiederholbar.</p>
+          <button class="btn btn-primary" id="tour-finish">Verstanden</button>
+        </div>
+      `;
+      overlay.querySelector('#tour-finish').onclick = () => handle.close();
+      return;
+    }
+    const s = stations[idx];
+    overlay.innerHTML = `
+      <div class="tw-box" style="max-width:520px">
+        <div class="muted small">Station ${idx + 1} / ${stations.length}</div>
+        <h3>${escapeHtml(s.title)}</h3>
+        <p><strong>Aufgabe:</strong> ${escapeHtml(s.task)}</p>
+        <p class="muted small"><strong>Frag dich:</strong> ${escapeHtml(s.reflection)}</p>
+        <div class="tw-actions">
+          <button class="btn btn-ghost" id="tour-apply">Setup automatisch setzen</button>
+          <button class="btn btn-primary" id="tour-next">Weiter</button>
+        </div>
+        <button class="btn btn-ghost btn-small" id="tour-skip" style="margin-top:8px">Tour überspringen</button>
+      </div>
+    `;
+    overlay.querySelector('#tour-apply').onclick = () => {
+      for (const [k, v] of Object.entries(s.preset)) {
+        rules[k] = v;
+        const slider = container.querySelector(`[data-slider="${k}"]`);
+        const lbl = container.querySelector(`[data-key="${k}"]`);
+        if (slider) slider.value = v;
+        if (lbl) lbl.textContent = (+v).toFixed(2);
+      }
+      Store.data.sandboxRules = { ...rules };
+      Store.save();
+      previewFeed(rules);
+    };
+    overlay.querySelector('#tour-next').onclick = () => { idx++; render(); };
+    overlay.querySelector('#tour-skip').onclick = () => handle.close();
+  }
+  render();
+}
+
+// Kleiner Lite-Modal-Helper, der nicht die volle Focus-Trap-Logik braucht
+// (wir verlassen die Tour eh per Klick, nicht via Tab-Zyklus).
+function attachModalLite(overlay) {
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  return { close };
 }
 
 function applyPreset(name, rules, container) {
@@ -4526,6 +4630,7 @@ function buildWrapped() {
           <button class="btn btn-primary" id="btn-go-sandbox">Dein eigener Algorithmus →</button>
           <button class="btn btn-ghost" id="btn-go-manifest">Medien-Manifest →</button>
           <button class="btn btn-ghost" id="btn-share-card">Als Bild teilen 📸</button>
+          <button class="btn btn-ghost" id="btn-wrapped-html">Wrapped als HTML speichern</button>
         </div>
         <p class="muted small" style="margin-top:14px">„Teilen" lädt eine PNG-Datei zum Speichern. Ob du sie in einer echten App postest — entscheidet dein Algorithmus.</p>
       `
@@ -5093,6 +5198,76 @@ function escapeHtml(s) {
   }[c]));
 }
 
+// Wrapped als standalone HTML-Datei exportieren. Enthält alle Slides
+// flach untereinander, mit Print-CSS und der Möglichkeit, das Dokument
+// auch im echten Browser zu öffnen, ohne die App.
+function downloadWrappedHtml(slides) {
+  const character = Store.data.character || {};
+  const date = new Date().toLocaleDateString('de-DE');
+  const html = `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8">
+<title>Streem-Wrapped · ${escapeHtml(character.name || '')}</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: #0b0d12; color: #e8ebf3; margin: 0; padding: 2rem 1rem; line-height: 1.5; }
+  .wrapped-doc { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 42px; margin: 0 0 .5rem; background: linear-gradient(135deg, #ff2e88, #22d3ee); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .meta { color: #9aa3b8; font-size: 13px; margin-bottom: 3rem; }
+  .slide { padding: 2rem; margin: 1.5rem 0; border-radius: 14px; background: linear-gradient(135deg, #1a0a2a, #06070b); border: 1px solid #262b3a; }
+  .slide h1, .slide h2 { color: #fff; margin: 0 0 1rem; }
+  .slide h1 { font-size: 32px; background: linear-gradient(135deg, #ff2e88, #22d3ee); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .slide h2 { font-size: 24px; }
+  .slide p { color: #d8dce6; margin: .5rem 0; }
+  .slide .muted, .slide .small { color: #9aa3b8; font-size: 13px; }
+  .big-num, .big-word { font-size: clamp(48px, 12vw, 120px); font-weight: 900; line-height: 1; margin: 1rem 0; background: linear-gradient(135deg, #ff2e88, #22d3ee); -webkit-background-clip: text; background-clip: text; color: transparent; text-align: center; }
+  .wrapped-bars { display: flex; flex-direction: column; gap: 8px; margin: 1rem 0; }
+  .row { display: grid; grid-template-columns: 130px 1fr 50px; gap: 10px; align-items: center; font-size: 14px; }
+  .lbl { color: #9aa3b8; text-align: right; }
+  .bar { height: 20px; background: #1d2130; border-radius: 10px; overflow: hidden; }
+  .fill { height: 100%; background: linear-gradient(90deg, #22d3ee, #ff2e88); }
+  .ending-card { background: #151822; border-radius: 14px; padding: 1.5rem; margin: 1.5rem auto; max-width: 480px; border: 2px solid #ff2e88; text-align: center; }
+  .ending-emoji { font-size: 64px; margin-bottom: 8px; }
+  .ending-title { font-size: 28px; font-weight: 900; margin-bottom: 12px; background: linear-gradient(135deg, #ff2e88, #22d3ee); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .ending-sources { margin-top: 14px; padding-top: 12px; border-top: 1px dashed #262b3a; text-align: left; }
+  .ending-sources ul { list-style: none; padding: 0; }
+  .ending-sources li { padding: 8px 12px; background: #1d2130; border-left: 3px solid #ff2e88; border-radius: 4px; margin: 6px 0; font-size: 13px; }
+  .pathway-line, .npc-quotes, .selfcheck-compare, .whatif-grid, .beat-map, .missed-stories { display: flex; flex-wrap: wrap; gap: 8px; margin: 1rem 0; }
+  .pathway-node { background: #1d2130; padding: 6px 10px; border-radius: 16px; font-size: 13px; }
+  .pathway-node.radical { background: rgba(250,204,21,0.15); color: #facc15; }
+  .pathway-arrow { color: #6b7388; }
+  .foot { color: #6b7388; font-size: 12px; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #262b3a; }
+  @media print {
+    body { background: #fff; color: #1f2230; }
+    .slide { background: #f4f5fa; border: 1px solid #d8dce6; page-break-inside: avoid; }
+    .slide h1, .slide h2, .big-num, .big-word, h1 { background: none; -webkit-text-fill-color: #c026d3; color: #c026d3; }
+    .ending-card { background: #fff; border-color: #c026d3; }
+    .lbl { color: #555; }
+    .bar { background: #ddd; }
+    .fill { background: #c026d3; }
+    .pathway-node { background: #eee; color: #1f2230; }
+    .foot { color: #777; border-color: #ccc; }
+    @page { margin: 1.5cm; }
+  }
+</style></head>
+<body>
+  <div class="wrapped-doc">
+    <h1>Streem-Wrapped</h1>
+    <div class="meta">${escapeHtml(character.name || 'unbekannt')}${character.protagonist ? ` · ${escapeHtml(character.protagonist)}` : ''} · gespeichert am ${date}</div>
+    ${slides.map(s => `<section class="slide">${s.html}</section>`).join('')}
+    <div class="foot">
+      Gespeichert aus „Der Algorithmus" — ein fiktiver Spielverlauf.<br/>
+      Anlaufstellen: bpb.de · klicksafe.de · hateaid.org · Telefonseelsorge 0800 111 0 111.
+    </div>
+  </div>
+</body></html>`;
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `streem-wrapped-${(character.name || 'spieler').toLowerCase().replace(/[^a-z0-9]/g, '_')}.html`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 500);
+}
+
 /**
  * Rendert alle Slides und steuert die Navigation.
  */
@@ -5141,6 +5316,8 @@ function renderWrapped(onSandbox, onManifest) {
         if (mf) mf.onclick = () => onManifest && onManifest();
         const sh = root.querySelector('#btn-share-card');
         if (sh) sh.onclick = () => downloadShareCard();
+        const wh = root.querySelector('#btn-wrapped-html');
+        if (wh) wh.onclick = () => downloadWrappedHtml(slides);
       }, 20);
     }
   };
@@ -7467,6 +7644,9 @@ function openStory(story) {
       </header>
       <div class="story-emoji-big">${story.emoji || '·'}</div>
       <div class="story-text">${escapeHtml(story.text)}</div>
+      <div class="story-reactions" role="group" aria-label="Reaktion senden">
+        ${['❤️', '👏', '🙄', '🤔', '😂'].map(e => `<button type="button" class="story-react" data-r="${e}" aria-label="Mit ${e} reagieren">${e}</button>`).join('')}
+      </div>
     </div>
   `;
   document.body.appendChild(overlay);
@@ -7500,6 +7680,23 @@ function openStory(story) {
     }
   });
   overlay.querySelector('.story-close').onclick = () => handle.close();
+  overlay.querySelectorAll('.story-react').forEach(b => {
+    b.onclick = (e) => {
+      e.stopPropagation();
+      if (!Store.data.storyReactions) Store.data.storyReactions = {};
+      Store.data.storyReactions[story.id] = b.dataset.r;
+      Store.save();
+      overlay.querySelectorAll('.story-react').forEach(x => x.classList.remove('selected'));
+      b.classList.add('selected');
+      // Mini-Effekt: Emoji als kurzer Floater oben.
+      const float = document.createElement('div');
+      float.className = 'story-react-float';
+      float.textContent = b.dataset.r;
+      overlay.appendChild(float);
+      setTimeout(() => float.remove(), 900);
+    };
+    if (Store.data.storyReactions?.[story.id] === b.dataset.r) b.classList.add('selected');
+  });
 }
 
 function openMap() {
