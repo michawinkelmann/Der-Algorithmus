@@ -1,6 +1,8 @@
 // wrapped.js — Jahresrückblick im "Wrapped"-Stil.
 
 import { Store } from './state.js';
+import { buildSelfcheckCompareHtml } from './selfcheck.js';
+import { downloadShareCard } from './sharecard.js';
 
 let POSTS_LOOKUP = null;
 
@@ -175,6 +177,14 @@ export function buildWrapped() {
       `
     },
     buildMissedStoriesSlide(d),
+    {
+      id: 's8e',
+      html: `
+        <h2>Vorher und nachher — du selbst</h2>
+        <p>Wie unterschiedlich siehst du dieselben fünf Fragen am Anfang und am Ende des Spiels?</p>
+        ${buildSelfcheckCompareHtml()}
+      `
+    },
     buildEndingSlide(d),
     buildWhatIfSlide(d),
     {
@@ -186,7 +196,9 @@ export function buildWrapped() {
         <div class="wrapped-final-actions">
           <button class="btn btn-primary" id="btn-go-sandbox">Dein eigener Algorithmus →</button>
           <button class="btn btn-ghost" id="btn-go-manifest">Medien-Manifest →</button>
+          <button class="btn btn-ghost" id="btn-share-card">Als Bild teilen 📸</button>
         </div>
+        <p class="muted small" style="margin-top:14px">„Teilen" lädt eine PNG-Datei zum Speichern. Ob du sie in einer echten App postest — entscheidet dein Algorithmus.</p>
       `
     }
   ];
@@ -737,6 +749,8 @@ export function renderWrapped(onSandbox, onManifest) {
         if (sbx) sbx.onclick = () => onSandbox && onSandbox();
         const mf = root.querySelector('#btn-go-manifest');
         if (mf) mf.onclick = () => onManifest && onManifest();
+        const sh = root.querySelector('#btn-share-card');
+        if (sh) sh.onclick = () => downloadShareCard();
       }, 20);
     }
   };

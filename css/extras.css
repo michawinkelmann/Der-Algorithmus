@@ -1173,3 +1173,71 @@ html[data-theme="light"] .save-indicator {
   color: var(--text);
   box-shadow: 0 2px 6px rgba(0,0,0,0.12);
 }
+
+/* ===== Selfcheck (Pre/Post) ===== */
+.selfcheck-box { max-width: 540px; max-height: 85vh; overflow-y: auto; }
+.selfcheck-form { display: flex; flex-direction: column; gap: 14px; margin: 12px 0; }
+.selfcheck-q {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin: 0;
+}
+.selfcheck-q legend { padding: 0 6px; font-size: 13px; font-weight: 600; }
+.selfcheck-scale {
+  display: flex; gap: 8px; align-items: center;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.selfcheck-radio { display: inline-flex; flex-direction: column; align-items: center; cursor: pointer; }
+.selfcheck-radio input { margin-bottom: 2px; }
+.selfcheck-radio span { font-size: 11px; color: var(--text-dim); }
+.selfcheck-radio input:checked + span { color: var(--accent); font-weight: 700; }
+
+.selfcheck-compare {
+  max-width: 600px; margin: 14px auto; text-align: left;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.sc-row {
+  background: rgba(0,0,0,0.25);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  display: flex; flex-direction: column; gap: 4px;
+}
+.sc-q { font-size: 13px; }
+.sc-vals { display: flex; gap: 10px; align-items: center; font-size: 13px; flex-wrap: wrap; }
+.sc-pre { color: var(--text-dim); }
+.sc-arr { color: var(--accent-2); font-weight: 700; font-size: 16px; }
+.sc-post strong { color: var(--accent); }
+
+/* ===== Profile Badges-Sektion ===== */
+.profile-badges {
+  margin: 12px 0;
+  background: var(--bg-elev-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+}
+.profile-badges > summary {
+  cursor: pointer; padding: 10px 12px;
+  font-weight: 600; font-size: 14px;
+  list-style: none;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.profile-badges > summary::-webkit-details-marker { display: none; }
+.profile-badges > summary::after { content: '▾'; color: var(--text-dim); transition: transform 200ms ease; }
+.profile-badges[open] > summary::after { transform: rotate(180deg); }
+.badges-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px; padding: 0 12px 12px;
+}
+.badge-item {
+  background: var(--bg); border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  padding: 10px;
+  text-align: center;
+  font-size: 12px;
+}
+.badge-item.locked { opacity: 0.45; }
+.badge-emoji { font-size: 22px; margin-bottom: 4px; }
+.badge-name { font-weight: 700; font-size: 13px; }
+.badge-desc { font-size: 11px; line-height: 1.4; margin-top: 2px; }

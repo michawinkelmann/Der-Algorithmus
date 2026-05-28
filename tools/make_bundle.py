@@ -21,6 +21,12 @@ ORDER = [
     "modals.js",
     "microreflect.js",
     "postreplies.js",
+    "selfcheck.js",
+    "sharecard.js",
+    "glossary.js",
+    "concepts.js",
+    "push.js",
+    "tutorial.js",
     "feed.js",
     "events.js",
     "sandbox.js",
@@ -29,10 +35,6 @@ ORDER = [
     "places.js",
     "minigame.js",
     "classcompare.js",
-    "push.js",
-    "tutorial.js",
-    "concepts.js",
-    "glossary.js",
     "main.js",
 ]
 

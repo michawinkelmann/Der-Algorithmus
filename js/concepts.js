@@ -64,6 +64,26 @@ const CONCEPTS = {
       'Klick „Warum sehe ich das?" unter Anzeigen, um das Targeting zu sehen.'
     ],
     bg: 'commerce'
+  },
+  dark_patterns: {
+    title: 'Dark Patterns',
+    points: [
+      'UI-Tricks, die dich zu Klicks drängen — z.B. unauffällig platzierte „Abmelden"-Buttons, vorab angekreuzte Newsletter, künstliche Knappheit („nur noch 2 verfügbar").',
+      'Auch Push-Notifications, die so aussehen, als würde etwas passieren, sind Dark Patterns — du hast Streem-Notifications wie „Sara hat dich erwähnt" gesehen, ohne dass tatsächlich etwas war.',
+      'Streak-Anzeigen („18 Tage in Folge!"), endlose Feeds, ungelesen-Badges — alles bewusst gestaltete Engagement-Treiber.',
+      'Erkennen heißt nicht: nicht mehr nutzen. Es heißt: weniger automatisch reagieren.'
+    ],
+    bg: 'commerce'
+  },
+  recommender: {
+    title: 'Empfehlungssysteme',
+    points: [
+      'Ein Empfehlungssystem sortiert Inhalte nach einer Funktion: viele Faktoren werden gewichtet, der Top-Wert kommt zuerst.',
+      'In Streem siehst du diese Faktoren live: Affinität, Engagement, Aktualität, Soziales, Anzeigen, Vielfalt, Qualität, Empörungsstrafe, Gegen-Perspektive.',
+      'Plattformen bauen ähnliche Systeme — die Gewichte sind aber meistens nicht öffentlich.',
+      'Die Sandbox lässt dich die Gewichte selbst verschieben. Ein „guter" Algorithmus ist eine politische Entscheidung, kein technisches Detail.'
+    ],
+    bg: 'tech'
   }
 };
 

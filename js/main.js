@@ -19,6 +19,7 @@ import { maybeRunTutorial, forceRunTutorial } from './tutorial.js';
 import { showConcept } from './concepts.js';
 import { attachModal } from './modals.js';
 import { openGlossary } from './glossary.js';
+import { maybeShowPreQuiz, showPostQuiz, buildSelfcheckCompareHtml } from './selfcheck.js';
 
 // ===== Daten-Bundle (statt fetch, damit file:// funktioniert) =====
 // Die JSONs werden zur Laufzeit geladen — funktioniert per fetch() auch bei file://
@@ -184,6 +185,8 @@ function bindGlobal() {
   };
   const reportBtn = document.getElementById('btn-export-report');
   if (reportBtn) reportBtn.onclick = exportReport;
+  const csvBtn = document.getElementById('btn-export-csv');
+  if (csvBtn) csvBtn.onclick = exportCsv;
   document.getElementById('btn-show-wrapped-now').onclick = () => {
     showScreen('screen-wrapped');
     renderWrapped(
@@ -194,6 +197,9 @@ function bindGlobal() {
   document.getElementById('btn-show-sandbox-now').onclick = () => {
     showScreen('screen-sandbox');
     renderSandbox(() => showScreen('screen-main'));
+    if (!Store.data.conceptsSeen?.recommender) {
+      setTimeout(() => showConcept('recommender'), 500);
+    }
   };
 
   // Profile Button (klein)
@@ -397,8 +403,10 @@ function startGame() {
     Store.data.initialProfileSnapshot = structuredClone(Store.data.userProfile);
     Store.save();
   }
-  enterMain();
-  toast('Willkommen bei Streem!', { long: true });
+  maybeShowPreQuiz(() => {
+    enterMain();
+    toast('Willkommen bei Streem!', { long: true });
+  });
 }
 
 // ===== Main-Loop =====
@@ -785,11 +793,14 @@ function advanceWeek() {
       openReflection('final');
       return;
     }
-    showScreen('screen-wrapped');
-    renderWrapped(
-      () => { showScreen('screen-sandbox'); renderSandbox(() => { showScreen('screen-main'); renderFeed('feed'); }); },
-      () => { showScreen('screen-manifest'); renderManifestForm(); }
-    );
+    // Post-Quiz vor Wrapped — Vergleich landet im Wrapped-Slide.
+    showPostQuiz(() => {
+      showScreen('screen-wrapped');
+      renderWrapped(
+        () => { showScreen('screen-sandbox'); renderSandbox(() => { showScreen('screen-main'); renderFeed('feed'); }); },
+        () => { showScreen('screen-manifest'); renderManifestForm(); }
+      );
+    });
     return;
   }
   if (pendingReflection) {
@@ -1251,6 +1262,30 @@ function showElectionResult() {
 }
 
 // ===== Profile-Modal (kleine Variante) =====
+// Vollständige Liste aller Achievements aus events.js. Wird hier
+// gespiegelt, damit die Profil-Anzeige auch noch nicht freigeschaltete
+// Abzeichen mit Beschreibung zeigen kann.
+const ACHIEVEMENTS_CATALOG = [
+  { title: 'Early Adopter',         desc: '20 Likes in der ersten Phase' },
+  { title: 'Flammenwerfer',         desc: 'Du hast wütend kommentiert' },
+  { title: 'Stiller Beobachter',    desc: 'Lesen statt Schreiben' },
+  { title: 'Netzwerker',            desc: 'Du folgst 10+ Accounts' },
+  { title: 'Tief im Loch',          desc: 'Rabbit-Hole betreten' },
+  { title: 'Bücherwurm',            desc: 'Der Leserunde beigetreten' },
+  { title: 'Türsteher:in',          desc: '5+ Accounts stummgeschaltet — bewusst kuratiert' },
+  { title: 'Reichweiten-Bauer:in',  desc: '10+ Beiträge geteilt' },
+  { title: 'Selbstschutz',          desc: 'Mehrfach Inhalte bewusst übersprungen' },
+  { title: 'Hinschauen',            desc: 'Mehrfach durch die Warnung gegangen — bewusst informiert' },
+  { title: 'Stimme',                desc: '5+ eigene Posts geschrieben' },
+  { title: 'Sticker-Bro',           desc: 'Drei eigene Posts mit Sticker' },
+  { title: 'Sammler:in',            desc: '3+ Posts für die Reflexion gemerkt' },
+  { title: 'Antworter:in',          desc: 'Vier DMs persönlich beantwortet' },
+  { title: 'Spurensucher:in',       desc: 'Greifshafen durchgeklickt' },
+  { title: 'Beste Freundin',        desc: 'Lea sieht dich an guten Tagen.' },
+  { title: 'Wachposten',            desc: 'Finn vor der Gilde gewarnt.' },
+  { title: 'Verbündete:r',          desc: 'Mira hat dir vertraut.' }
+];
+
 function openProfileModal() {
   const c = Store.data.character;
   const profile = Store.data.userProfile;
@@ -1269,6 +1304,19 @@ function openProfileModal() {
       <div class="stat"><div class="num">${Store.data.ownPosts.length}</div><div class="lbl">Posts</div></div>
       <div class="stat"><div class="num">${Store.data.badges.length}</div><div class="lbl">Badges</div></div>
     </div>
+    <details class="profile-badges">
+      <summary>Alle Abzeichen <span class="muted small">(${Store.data.badges.length}/${ACHIEVEMENTS_CATALOG.length})</span></summary>
+      <div class="badges-grid">
+        ${ACHIEVEMENTS_CATALOG.map(a => {
+          const earned = Store.data.badges.find(b => b.title === a.title);
+          return `<div class="badge-item ${earned ? 'earned' : 'locked'}" title="${escapeHtml(a.desc)}">
+            <div class="badge-emoji" aria-hidden="true">${earned ? '🏅' : '🔒'}</div>
+            <div class="badge-name">${escapeHtml(a.title)}</div>
+            <div class="badge-desc muted small">${escapeHtml(a.desc)}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </details>
     <button class="btn btn-primary" id="profile-close">Schließen</button>
   `;
   const overlay = document.createElement('div');
@@ -1393,7 +1441,17 @@ function exportReport() {
   .teacher-aside strong { display: block; color: #92520a; margin-bottom: 8px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; }
   .teacher-aside ol { margin: .5rem 0 .8rem 1.2rem; padding: 0; }
   .teacher-aside ol li { margin: .3rem 0; font-size: 14px; }
-  @media print { .teacher-aside { page-break-inside: avoid; } }
+  @media print {
+    body { max-width: none; margin: 0; padding: 1.5cm; font-size: 11pt; color: #000; }
+    h1 { color: #4338ca; page-break-after: avoid; }
+    h2 { color: #4338ca; page-break-after: avoid; margin-top: 1.5cm; }
+    section, .stats, .qa, .teacher-aside, ol.disc, ol, ul.interests { page-break-inside: avoid; }
+    .teacher-aside { background: #fffbe6; border: 1px solid #c0a040; color: #000; }
+    .stat { background: #f4f4f4; border-left-color: #6c2bd9; }
+    a { color: #000; text-decoration: underline; }
+    .foot { font-size: 9pt; }
+  }
+  @page { margin: 1.5cm; }
 </style></head>
 <body>
   <h1>Streem-Bericht</h1>
@@ -1587,6 +1645,76 @@ function buildContextualDiscussionQuestions(d) {
   }
 
   return out.slice(0, 8);
+}
+
+// CSV-Export: kompakte Tabelle mit den Feldern, die Lehrkräfte in Excel
+// oder Google Sheets analysieren wollen.
+function exportCsv() {
+  const d = Store.data;
+  if (!d || !d.character) { alert('Noch kein Spielstand.'); return; }
+  const c = d.character;
+  const p = d.userProfile || {};
+  const actions = (d.history || []).flatMap(h => h.actions || []);
+  const likes = actions.filter(a => a.type === 'like').length;
+  const comments = actions.filter(a => a.type === 'comment').length;
+  const angry = actions.filter(a => a.type === 'angry_comment').length;
+  const shares = actions.filter(a => a.type === 'share').length;
+  const mutes = actions.filter(a => a.type === 'mute').length;
+  const tws = d.contentWarningsAccepted || {};
+  const twSkip = Object.values(tws).reduce((a, b) => a + (b.skipped || 0), 0);
+  const twShown = Object.values(tws).reduce((a, b) => a + (b.shown || 0), 0);
+  const dm = d.dmReplies || {};
+  const arcs = d.npcArcs || {};
+  const guilds = d.guildMemberships || [];
+  const interestTop = Object.entries(p.interests || {}).sort((a, b) => b[1] - a[1])[0] || ['', 0];
+  const rows = [
+    ['Feld', 'Wert'],
+    ['Name', c.name],
+    ['Protagonist:in', c.protagonist || 'alex'],
+    ['Pronomen', c.pronoun || ''],
+    ['Bio', c.bio || ''],
+    ['Wochen gespielt', d.currentWeek],
+    ['Lean', (p.political_lean_estimated ?? 0).toFixed(3)],
+    ['Top-Interesse', interestTop[0]],
+    ['Top-Interesse Wert', (interestTop[1] || 0).toFixed(3)],
+    ['Likes', likes],
+    ['Kommentare', comments],
+    ['Wütende Kommentare', angry],
+    ['Geteilt', shares],
+    ['Stummgeschaltet', mutes],
+    ['Folgt', (p.followed || []).length],
+    ['Eigene Posts', (d.ownPosts || []).length],
+    ['Lesezeichen', Object.keys(d.bookmarks || {}).length],
+    ['TW angesehen', twShown],
+    ['TW übersprungen', twSkip],
+    ['Gilden', guilds.join('; ')],
+    ['In Rabbit Hole', guilds.includes('echte_werte') ? 'ja' : 'nein'],
+    ['Wahl', d.electionVote || ''],
+    ['Ending', d.ending || ''],
+    ['Marc-DM', dm.dm_marc?.[11]?.id || ''],
+    ['Finn-W8', dm.dm_finn?.[8]?.id || ''],
+    ['Finn-W17', dm.dm_finn?.[17]?.id || ''],
+    ['Lara-W24', dm.dm_lara?.[24]?.id || ''],
+    ['Mira-W15', dm.dm_mira?.[15]?.id || ''],
+    ['Lea-W14', dm.dm_lea?.[14]?.id || ''],
+    ['Lea-Nähe', (arcs.lea_close || 0).toFixed(2)],
+    ['Finn-Pfad', (arcs.finn_path || 0).toFixed(2)],
+    ['Mira-Nähe', (arcs.mira_close || 0).toFixed(2)],
+    ['Self-Aware', arcs.self_aware || 0],
+    ['Bot-Quiz', d.minigameResults?.bot_or_human ? `${d.minigameResults.bot_or_human.score}/${d.minigameResults.bot_or_human.total}` : ''],
+    ['Selfcheck-Pre', d.selfcheck?.pre?.answers ? Object.values(d.selfcheck.pre.answers).join('-') : (d.selfcheck?.pre?.skipped ? 'skipped' : '')],
+    ['Selfcheck-Post', d.selfcheck?.post?.answers ? Object.values(d.selfcheck.post.answers).join('-') : (d.selfcheck?.post?.skipped ? 'skipped' : '')]
+  ];
+  function escCsv(v) {
+    const s = String(v ?? '');
+    if (/[",\n;]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
+  // BOM, damit Excel UTF-8 sauber erkennt.
+  const csv = '﻿' + rows.map(r => r.map(escCsv).join(';')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  downloadBlob(blob, `streem-stats-${(c.name||'spieler').toLowerCase().replace(/[^a-z0-9]/g,'_')}.csv`);
+  toast('CSV exportiert.', { long: true });
 }
 
 function downloadBlob(blob, filename) {

@@ -80,6 +80,7 @@ function freshSave() {
     bookmarks: {},
     hashtagFilters: {},
     soundVolume: 0.6,
+    selfcheck: { pre: null, post: null },
     random_seed: Math.floor(Math.random() * 1e9)
   };
 }
@@ -114,19 +115,30 @@ export const Store = {
   },
 
   _migrate() {
-    // Defensiv: fehlende Keys ergänzen, falls Save alt ist.
+    // Defensiv: fehlende Keys über die ganze Save-Struktur ergänzen.
+    // Iteration für Iteration kamen neue Felder dazu — alte Saves dürfen nicht crashen.
     const base = freshSave();
-    for (const k of Object.keys(base)) {
-      if (!(k in this.data)) this.data[k] = base[k];
-    }
-    for (const k of Object.keys(base.userProfile.interests)) {
-      if (!(k in this.data.userProfile.interests)) {
-        this.data.userProfile.interests[k] = 0;
+    function fillIn(target, src) {
+      if (!target || typeof target !== 'object' || Array.isArray(target)) return;
+      if (!src || typeof src !== 'object' || Array.isArray(src)) return;
+      for (const k of Object.keys(src)) {
+        const sv = src[k];
+        if (!(k in target)) {
+          target[k] = sv;
+        } else if (sv && typeof sv === 'object' && !Array.isArray(sv) &&
+                   target[k] && typeof target[k] === 'object' && !Array.isArray(target[k])) {
+          // Tieferes Auffüllen für verschachtelte Strukturen wie userProfile,
+          // userProfile.interests, weights, character, meta, npcArcs, selfcheck.
+          fillIn(target[k], sv);
+        }
       }
     }
-    for (const k of Object.keys(base.weights)) {
-      if (!(k in this.data.weights)) this.data.weights[k] = base.weights[k];
-    }
+    fillIn(this.data, base);
+    // Charakter-Defaults (alte Saves hatten z.B. keinen `protagonist`-Key).
+    if (!this.data.character.protagonist) this.data.character.protagonist = 'alex';
+    if (typeof this.data.character.bio !== 'string') this.data.character.bio = '';
+    // meta.version inkrementieren wäre hier ein Ort, falls künftige Saves
+    // strukturelle Brüche markieren müssen.
   },
 
   hasSave() {
