@@ -217,6 +217,67 @@
       ]
     },
     {
+      "id": "dm_jule",
+      "with": "char_jule",
+      "title": "Jule",
+      "messages": [
+        { "week": 6,  "from": "char_jule", "text": "yo, ich brauch deinen geschmack: drei tracks, die du diese woche entdeckt hast? ich kuratier was für die playlist." },
+        { "week": 14, "from": "char_jule", "text": "die playlist greifshafener spätsommer läuft. du standst in den credits. fühl dich kurz wichtig 🎧" }
+      ],
+      "replies": [
+        {
+          "after_week": 6,
+          "choices": [
+            { "id": "jule_6_engage",  "text": "Schicke dir gleich 3 Tracks.",                 "effect": { "tags": { "musik": 0.1, "lifestyle": 0.05 } } },
+            { "id": "jule_6_skip",    "text": "Hör grad nichts Neues, sorry.",                "effect": {} }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dm_ana",
+      "with": "char_ana",
+      "title": "Ana",
+      "messages": [
+        { "week": 9,  "from": "char_ana", "text": "ich bin diese woche in berlin. werk ein paar gigs. ist gut so weit weg von greifshafen. fragst du dich auch manchmal, was es bedeutet, in einer stadt zu sein, in der jeder jeden kennt?" },
+        { "week": 19, "from": "char_ana", "text": "playst du was im wahlkampf? hier in berlin haben alle eine meinung dazu. ich seh die zu hause anders." }
+      ],
+      "replies": [
+        {
+          "after_week": 9,
+          "choices": [
+            { "id": "ana_9_warm",     "text": "Manchmal, ja. Greifshafen kann eng sein.",     "effect": { "tags": { "lifestyle": 0.05, "musik": 0.05 } } },
+            { "id": "ana_9_distance", "text": "Mir passt's hier. Berlin ist nicht meins.",     "effect": {} }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dm_moritz",
+      "with": "char_moritz",
+      "title": "Moritz",
+      "messages": [
+        { "week": 5,  "from": "char_moritz", "text": "schulhof heute, 13.10? ich hab noch fragen zu mathe. außer du sitzt eh wieder in der app." },
+        { "week": 16, "from": "char_moritz", "text": "ehrlich gesagt, ich check streem nicht mehr so oft. nicht weil's mich nervt, nur weil's mich nicht mehr packt. komisch. dich noch?" }
+      ],
+      "replies": [
+        {
+          "after_week": 5,
+          "choices": [
+            { "id": "moritz_5_in",   "text": "Bin da. 13.10.",                                "effect": { "tags": { "lifestyle": 0.05 } } },
+            { "id": "moritz_5_busy", "text": "Geht nicht heute.",                               "effect": {} }
+          ]
+        },
+        {
+          "after_week": 16,
+          "choices": [
+            { "id": "moritz_16_yes",  "text": "Mich packt's halt. Auch wenn ich's eigentlich blöd find.",   "effect": { "self_aware": 1 } },
+            { "id": "moritz_16_no",   "text": "Ich check sie eh nur kurz. Kein Problem.",                  "effect": {} }
+          ]
+        }
+      ]
+    },
+    {
       "id": "dm_streem",
       "with": "char_stream",
       "title": "Streem",

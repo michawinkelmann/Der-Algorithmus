@@ -83,6 +83,8 @@ function freshSave() {
     hashtagFilters: {},
     soundVolume: 0.6,
     selfcheck: { pre: null, post: null },
+    fontScale: 1.0,
+    highContrast: false,
     random_seed: Math.floor(Math.random() * 1e9)
   };
 }

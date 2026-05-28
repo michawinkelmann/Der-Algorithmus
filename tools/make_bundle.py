@@ -36,6 +36,7 @@ ORDER = [
     "minigame.js",
     "factcheck.js",
     "headline.js",
+    "glossquiz.js",
     "classcompare.js",
     "wahlomat.js",
     "main.js",
