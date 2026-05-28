@@ -97,6 +97,20 @@ function extractDecisions(s) {
   };
 }
 
+// Würdevolle, neutrale Codenamen statt nüchterner Nummerierung. Bezug zu
+// Greifshafen — Hafen, Wetter, Stadt-Vibes. Eindeutig pro idx, deterministisch.
+const CODENAME_POOL = [
+  'Möwe', 'Anker', 'Fähre', 'Salz', 'Werft', 'Bake', 'Boje', 'Sturmflut',
+  'Kiel', 'Mole', 'Krabbe', 'Reede', 'Düne', 'Watt', 'Schiff', 'Hafen',
+  'Leuchtfeuer', 'Tau', 'Brise', 'Nordwind', 'Welle', 'Pier', 'Klüver',
+  'Klippe', 'Bug', 'Spiere', 'Fock', 'Schiet', 'Krähe', 'Heck'
+];
+function codenameFor(idx) {
+  const name = CODENAME_POOL[(idx - 1) % CODENAME_POOL.length];
+  const cycle = Math.floor((idx - 1) / CODENAME_POOL.length);
+  return cycle > 0 ? `${name} ${cycle + 1}` : name;
+}
+
 function extractRow(item, idx, anonymize) {
   const s = item.save;
   const c = s.character || {};
@@ -111,7 +125,7 @@ function extractRow(item, idx, anonymize) {
   const guilds = s.guildMemberships || [];
   const inRabbitHole = guilds.includes('echte_werte');
   return {
-    label: anonymize ? `Spieler:in ${idx}` : (c.name || `Spieler:in ${idx}`),
+    label: anonymize ? codenameFor(idx) : (c.name || codenameFor(idx)),
     protagonist: c.protagonist || 'alex',
     lean: p.political_lean_estimated || 0,
     topTag: topInterest ? topInterest[0] : '—',

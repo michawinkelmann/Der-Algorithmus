@@ -2,6 +2,8 @@
 // Ein einziger Key: algo_save_v1
 
 const SAVE_KEY = 'algo_save_v1';
+const BACKUP_KEY = 'algo_save_backup_v1';
+const BACKUP_MAX = 200000; // ~200 KB Soft-Limit für Backup-Slot.
 
 const INITIAL_PROFILE = {
   interests: {
@@ -172,8 +174,68 @@ export const Store = {
   },
 
   reset() {
+    // Vor dem Löschen: Backup anlegen, damit "Spielstand löschen" nicht
+    // versehentlich Wochen Arbeit vernichtet.
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (raw && raw.length < BACKUP_MAX) {
+        localStorage.setItem(BACKUP_KEY, JSON.stringify({
+          ts: Date.now(),
+          data: raw
+        }));
+      }
+    } catch (e) { /* ignore */ }
     try { localStorage.removeItem(SAVE_KEY); } catch {}
     this.data = null;
+  },
+
+  hasBackup() {
+    try { return !!localStorage.getItem(BACKUP_KEY); } catch { return false; }
+  },
+
+  getBackupInfo() {
+    try {
+      const raw = localStorage.getItem(BACKUP_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return { ts: parsed.ts };
+    } catch (e) { return null; }
+  },
+
+  restoreBackup() {
+    try {
+      const raw = localStorage.getItem(BACKUP_KEY);
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      if (!parsed?.data) return false;
+      localStorage.setItem(SAVE_KEY, parsed.data);
+      this.data = JSON.parse(parsed.data);
+      this._migrate();
+      return true;
+    } catch (e) { return false; }
+  },
+
+  importJson(jsonStr) {
+    // Vor dem Überschreiben: Backup des aktuellen Stands anlegen.
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (raw && raw.length < BACKUP_MAX) {
+        localStorage.setItem(BACKUP_KEY, JSON.stringify({ ts: Date.now(), data: raw }));
+      }
+    } catch (e) { /* ignore */ }
+    try {
+      const parsed = JSON.parse(jsonStr);
+      if (!parsed?.character || !parsed?.userProfile) {
+        throw new Error('Datei sieht nicht nach einem Streem-Spielstand aus.');
+      }
+      this.data = parsed;
+      this._migrate();
+      this.save();
+      return true;
+    } catch (e) {
+      console.warn('Import fehlgeschlagen:', e);
+      return false;
+    }
   },
 
   exportJson() {

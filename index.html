@@ -20,6 +20,7 @@
         <p class="tagline">Folge dem, was dich bewegt.</p>
         <div class="start-actions">
           <button class="btn btn-primary" id="btn-new-game">Neues Spiel</button>
+          <button class="btn btn-ghost" id="btn-quick-start">⚡ Schnellstart (Defaults)</button>
           <button class="btn btn-ghost" id="btn-continue" hidden>Fortsetzen</button>
           <button class="btn btn-ghost" id="btn-about">Worum geht's?</button>
           <button class="btn btn-ghost" id="btn-checklist">Vor dem Klassen-Einsatz</button>
@@ -266,6 +267,9 @@
               <button class="btn btn-ghost" id="btn-export-report">Lehr-Bericht exportieren (HTML)</button>
               <button class="btn btn-ghost" id="btn-export-csv">Stats als CSV (für Excel/Sheets)</button>
               <button class="btn btn-ghost" id="btn-save-export">Spielstand exportieren (JSON)</button>
+              <button class="btn btn-ghost" id="btn-save-import">Spielstand importieren (JSON)</button>
+              <button class="btn btn-ghost" id="btn-restore-backup">Letztes Backup wiederherstellen</button>
+              <input type="file" id="save-import-input" accept=".json,application/json" hidden />
             </div>
           </details>
 
