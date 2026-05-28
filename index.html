@@ -246,6 +246,10 @@
                 <input type="checkbox" id="chk-contrast" />
                 <span>Hoher Kontrast (für bessere Lesbarkeit)</span>
               </label>
+              <label class="settings-toggle">
+                <input type="checkbox" id="chk-tts" />
+                <span>Vorlesen aktiv (Stories und Reflexionen — sofern Browser kann)</span>
+              </label>
               <label class="settings-slider">
                 <span>Schriftgröße</span>
                 <input type="range" id="rng-fontsize" min="85" max="135" step="5" />
@@ -257,6 +261,7 @@
           <details class="settings-section" open>
             <summary>Spiel &amp; Inhalte</summary>
             <div class="settings-section-body">
+              <button class="btn btn-ghost" id="btn-help">Hilfe &amp; Tipps</button>
               <button class="btn btn-ghost" id="btn-glossary">Glossar (Algorithmus, Bot, Filterblase …)</button>
               <button class="btn btn-ghost" id="btn-concepts">Konzept-Karten (Übersicht)</button>
               <button class="btn btn-ghost" id="btn-shortcuts">Tastenkürzel anzeigen</button>
@@ -281,6 +286,7 @@
               <button class="btn btn-ghost" id="btn-save-export">Spielstand exportieren (JSON)</button>
               <button class="btn btn-ghost" id="btn-save-import">Spielstand importieren (JSON)</button>
               <button class="btn btn-ghost" id="btn-restore-backup">Letztes Backup wiederherstellen</button>
+              <button class="btn btn-ghost" id="btn-save-inspector">Save-Inspector öffnen</button>
               <input type="file" id="save-import-input" accept=".json,application/json" hidden />
             </div>
           </details>

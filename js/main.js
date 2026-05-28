@@ -24,6 +24,7 @@ import { openWahlomat } from './wahlomat.js';
 import { runFactcheck } from './factcheck.js';
 import { runHeadline } from './headline.js';
 import { runGlossquiz } from './glossquiz.js';
+import { setTtsEnabled, isSupported as ttsSupported, speak as ttsSpeak } from './tts.js';
 
 // ===== Daten-Bundle (statt fetch, damit file:// funktioniert) =====
 // Die JSONs werden zur Laufzeit geladen — funktioniert per fetch() auch bei file://
@@ -214,6 +215,8 @@ function bindGlobal() {
       importInput.value = '';
     };
   }
+  const inspectorBtn = document.getElementById('btn-save-inspector');
+  if (inspectorBtn) inspectorBtn.onclick = openSaveInspector;
   const restoreBtn = document.getElementById('btn-restore-backup');
   if (restoreBtn) {
     const info = Store.getBackupInfo();
@@ -323,6 +326,17 @@ function bindGlobal() {
       applyHighContrast(contrastChk.checked);
     };
   }
+  // TTS-Toggle (nur wenn Browser unterstützt)
+  const ttsChk = document.getElementById('chk-tts');
+  if (ttsChk) {
+    if (!ttsSupported()) {
+      ttsChk.disabled = true;
+      const label = ttsChk.closest('label');
+      if (label) label.title = 'Dein Browser unterstützt kein Vorlesen.';
+    }
+    ttsChk.checked = !!Store.data?.ttsEnabled;
+    ttsChk.onchange = () => setTtsEnabled(ttsChk.checked);
+  }
   // Schriftgröße
   const fsRng = document.getElementById('rng-fontsize');
   const fsOut = document.getElementById('rng-fontsize-val');
@@ -349,6 +363,8 @@ function bindGlobal() {
   if (gqBtn) gqBtn.onclick = () => { showScreen('screen-main'); openGlossquizMinigame(); };
 
   // Glossar
+  const helpBtn = document.getElementById('btn-help');
+  if (helpBtn) helpBtn.onclick = () => { showScreen('screen-main'); openHelp(); };
   const gloBtn = document.getElementById('btn-glossary');
   if (gloBtn) gloBtn.onclick = () => { showScreen('screen-main'); openGlossary(); };
   const conceptsBtn = document.getElementById('btn-concepts');
@@ -503,13 +519,18 @@ function quickStart() {
 }
 
 function startGame() {
-  const name = document.getElementById('inp-name').value.trim() || 'Alex';
+  const rawName = document.getElementById('inp-name').value.trim();
+  // Sanftere Validierung: leerer Name fällt auf Protagonist-Default; sehr lange
+  // oder problematische Eingaben (>20 Zeichen / nur Whitespace nach Trim) werden
+  // auf 20 Zeichen gekürzt und mit Toast quittiert.
+  const protaId = window.__introState.protagonist || 'alex';
+  const pro = (DATA.protagonists?.protagonists || []).find(p => p.id === protaId);
+  let name = rawName || pro?.name || 'Alex';
+  if (name.length > 20) { name = name.slice(0, 20); toast('Name auf 20 Zeichen gekürzt.'); }
   const pronoun = document.getElementById('inp-pronoun').value;
   const bio = (document.getElementById('inp-bio')?.value || '').trim().slice(0, 180);
   const avatar = window.__introState.avatar;
   const interests = window.__introState.interests.length ? window.__introState.interests : ['lifestyle','humor'];
-  const protaId = window.__introState.protagonist || 'alex';
-  const pro = (DATA.protagonists?.protagonists || []).find(p => p.id === protaId);
   Store.start({ name, pronoun, avatar, interests_initial: interests, city: 'Greifshafen', bio, protagonist: protaId });
   if (pro && typeof pro.start_lean === 'number') {
     Store.data.userProfile.political_lean_estimated = pro.start_lean;
@@ -593,6 +614,7 @@ function openDmInbox() {
 
 function openStory(story) {
   SFX.swipe();
+  ttsSpeak(`${(getCharacter(story.author)?.name) || ''}. ${story.text}`);
   const c = getCharacter(story.author);
   const overlay = document.createElement('div');
   overlay.className = 'tw-overlay story-overlay';
@@ -1051,6 +1073,9 @@ function openReflection(which) {
   }
   container.dataset.which = which;
   showScreen('screen-reflection');
+  // Intro + erste Frage vorlesen, wenn TTS aktiv.
+  const firstQ = (qs[which] || [])[0];
+  ttsSpeak(`${intros[which] || ''} ${firstQ || ''}`);
 }
 
 function finishReflection() {
@@ -1612,6 +1637,114 @@ function openChecklist() {
     <p class="muted small">Bei Fragen: README.md im Repo, Abschnitt „Schnellstart" und „Troubleshooting".</p>
   `;
   showScreen('screen-checklist');
+}
+
+// Save-Inspector: zeigt KB-Verbrauch, Feld-Stats, Integrität. Hilft beim
+// Debuggen, wenn ein Spielstand sich seltsam verhält, und sensibilisiert
+// SuS für den realen Daten-Footprint.
+function openSaveInspector() {
+  const data = Store.data;
+  if (!data) { alert('Kein Spielstand geladen.'); return; }
+  const json = JSON.stringify(data);
+  const bytes = new Blob([json]).size;
+  const kb = (bytes / 1024).toFixed(1);
+  const fieldStats = [
+    ['Aktuelle Woche',          data.currentWeek],
+    ['Wochen-Historie',         (data.history || []).length],
+    ['Gesehene Posts',          (data.seenPosts || []).length],
+    ['Liked',                   Object.keys(data.likedPosts || {}).length],
+    ['Geteilt',                 Object.keys(data.sharedPosts || {}).length],
+    ['Lesezeichen',             Object.keys(data.bookmarks || {}).length],
+    ['Eigene Posts',            (data.ownPosts || []).length],
+    ['Eigene Post-Antworten',   Object.keys(data.ownPostReplies || {}).length],
+    ['DM-Antworten',            Object.keys(data.dmReplies || {}).reduce((acc, t) => acc + Object.keys(data.dmReplies[t] || {}).length, 0)],
+    ['Gilden-Mitgliedschaften', (data.guildMemberships || []).length],
+    ['Badges',                  (data.badges || []).length],
+    ['Shitstorms',              (data.shitstormHistory || []).length],
+    ['Story-Klicks',            Object.keys(data.storiesViewed || {}).length],
+    ['Orte besucht',            Object.keys(data.placesVisited || {}).length],
+    ['Sandbox-Presets',         Object.keys(data.customPresets || {}).length],
+    ['Konzepte gesehen',        Object.keys(data.conceptsSeen || {}).length],
+    ['Mini-Game-Ergebnisse',    Object.keys(data.minigameResults || {}).length],
+    ['Mikro-Reflexionen',       Object.keys(data.microReflections || {}).length]
+  ];
+  let backupKb = '—';
+  try {
+    const raw = localStorage.getItem('algo_save_backup_v1');
+    if (raw) backupKb = (new Blob([raw]).size / 1024).toFixed(1);
+  } catch (e) { /* ignore */ }
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  overlay.innerHTML = `
+    <div class="tw-box" style="max-width:520px;max-height:85vh;overflow-y:auto">
+      <h3>Save-Inspector</h3>
+      <p class="muted small">So sieht dein Spielstand intern aus. Auch real: Plattformen sammeln so etwas — nur unsichtbar.</p>
+      <div class="inspector-size">
+        <div>Aktueller Spielstand: <strong>${kb} KB</strong></div>
+        <div>Backup: <strong>${backupKb} KB</strong></div>
+        <div>LocalStorage-Limit pro Origin: meist ~5 MB</div>
+      </div>
+      <table class="inspector-table">
+        <thead><tr><th>Feld</th><th>Wert / Anzahl</th></tr></thead>
+        <tbody>
+          ${fieldStats.map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(String(v))}</td></tr>`).join('')}
+        </tbody>
+      </table>
+      <p class="muted small">Tipp: bei Fragen oder Auffälligkeiten den JSON-Export anschauen — die Felder sind klar benannt.</p>
+      <button class="btn btn-primary" id="inspector-close">Schließen</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const handle = attachModal(overlay);
+  overlay.querySelector('#inspector-close').onclick = () => handle.close();
+}
+
+function openHelp() {
+  if (Store.data) { Store.data.helpSeen = true; Store.save(); }
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  overlay.innerHTML = `
+    <div class="tw-box" style="max-width:560px;max-height:85vh;overflow-y:auto">
+      <h3>Hilfe &amp; Tipps</h3>
+
+      <details open><summary>Wie spiele ich?</summary>
+        <p class="muted small">Du scrollst durch den Feed, likest oder kommentierst Posts, beantwortest DMs. Pro Woche 10 Posts, dann klickst du auf „Wochenrückblick" und gehst zur nächsten Woche. Insgesamt 27 Wochen.</p>
+      </details>
+
+      <details><summary>Was passiert, wenn ich like / kommentiere / blocke?</summary>
+        <p class="muted small">Likes und Kommentare verstärken die Themen-Tags des Posts in deinem Profil. Auch wütende Kommentare („Stell dir vor …") verstärken — das ist der Witz. Blockieren schaltet einen Account stumm.</p>
+      </details>
+
+      <details><summary>Warum sehe ich diesen Post?</summary>
+        <p class="muted small">Ab W9: Klick auf „Warum?" über jedem Post — er zeigt dir die Algorithmus-Faktoren, mit denen der Post oben gelandet ist (Affinity, Empörung, Aktualität, …).</p>
+      </details>
+
+      <details><summary>Was bedeuten die Icons oben rechts?</summary>
+        <p class="muted small">🗺️ Karte von Greifshafen. 🔍 Blick hinter den Algorithmus (zeigt dein Profil aus der App-Sicht). 💬 Gilden (Discord-artige Gruppen-Chats). 👤 Profil. ⚙️ Einstellungen.</p>
+      </details>
+
+      <details><summary>Wo finde ich Mini-Games?</summary>
+        <p class="muted small">In den Einstellungen → Spiel &amp; Inhalte. Vier Mini-Games: Bot-Quiz, Faktencheck, Schlagzeile-zu-Studie, Begriff-zur-Erklärung.</p>
+      </details>
+
+      <details><summary>Mein Spielstand ist weg / Backup wiederherstellen</summary>
+        <p class="muted small">Settings → Lehrkraft-Werkzeuge → „Letztes Backup wiederherstellen". Wenn du den Spielstand exportieren willst: „Spielstand exportieren (JSON)".</p>
+      </details>
+
+      <details><summary>Wie kann ich vergrößern / hellen Hintergrund haben?</summary>
+        <p class="muted small">Settings → Darstellung &amp; Sound: Schriftgröße-Slider, Light-Mode-Toggle, High-Contrast-Toggle. Auch Sound-Lautstärke ist dort.</p>
+      </details>
+
+      <details><summary>Was, wenn ein Inhalt mich belastet?</summary>
+        <p class="muted small">Inhaltswarnungen kannst du überspringen — keine Pflicht. Wenn dich nach dem Spielen etwas beschäftigt: bpb.de, klicksafe.de, hateaid.org, oder Telefonseelsorge 0800 111 0 111 (24/7).</p>
+      </details>
+
+      <button class="btn btn-primary" id="help-close" style="margin-top:14px">Alles klar</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const handle = attachModal(overlay);
+  overlay.querySelector('#help-close').onclick = () => handle.close();
 }
 
 function openShortcuts() {
