@@ -1,0 +1,1681 @@
+{
+  "meta": {
+    "version": 2,
+    "createdAt": 1779988966312,
+    "lastSavedAt": 1779988966312,
+    "day": 3
+  },
+  "character": {
+    "name": "Ben",
+    "pronoun": "keine",
+    "avatar": 1,
+    "interests_initial": [
+      "politik-links"
+    ],
+    "city": "Greifshafen",
+    "bio": "",
+    "protagonist": "jamal"
+  },
+  "currentWeek": 26,
+  "userProfile": {
+    "interests": {
+      "gaming": 0.182,
+      "musik": 0.009,
+      "lifestyle": 0.0,
+      "sport": 0.112,
+      "wissenschaft": 0.0,
+      "klima": 0.072,
+      "humor": 0.412,
+      "politik-links": 0.056,
+      "politik-mitte": 0.217,
+      "politik-rechts": 0.031,
+      "feminismus": 0.173,
+      "anti-feminismus": 0.104,
+      "verschwoerung": 0.146,
+      "true-crime": 0.042,
+      "hass": 0.0
+    },
+    "political_lean_estimated": 0.0,
+    "outrage_tolerance": 0.53,
+    "followed": [
+      "char_finn",
+      "char_finn",
+      "char_sara"
+    ],
+    "muted": [
+      "char_redpill",
+      "char_redpill"
+    ]
+  },
+  "weights": {
+    "affinity": 1.0,
+    "engagement": 0.9,
+    "recency": 0.3,
+    "social": 0.6,
+    "ads": 0.4,
+    "diversity": 0.08,
+    "quality": 0.1,
+    "outragePenalty": 0,
+    "balance": 0
+  },
+  "history": [
+    {
+      "week": 0,
+      "actions": [
+        {
+          "postId": "p053",
+          "type": "share",
+          "week": 0,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p016",
+          "type": "mute",
+          "week": 0,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p137",
+          "type": "follow",
+          "week": 0,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p153",
+          "type": "angry_comment",
+          "week": 0,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p083",
+          "type": "follow",
+          "week": 0,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p075",
+          "type": "follow",
+          "week": 0,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p132",
+          "type": "comment",
+          "week": 0,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p035",
+        "p193",
+        "p106",
+        "p016",
+        "p071",
+        "p168",
+        "p033",
+        "p180",
+        "p034",
+        "p064"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 1,
+      "actions": [
+        {
+          "postId": "p038",
+          "type": "mute",
+          "week": 1,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p064",
+          "type": "tw_view",
+          "week": 1,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p126",
+          "type": "angry_comment",
+          "week": 1,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p148",
+          "type": "follow",
+          "week": 1,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p161",
+          "type": "tw_view",
+          "week": 1,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p097",
+          "type": "tw_skip",
+          "week": 1,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p020",
+          "type": "comment",
+          "week": 1,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p104",
+        "p132",
+        "p192",
+        "p072",
+        "p178",
+        "p095",
+        "p117",
+        "p125",
+        "p084",
+        "p149"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 2,
+      "actions": [
+        {
+          "postId": "p188",
+          "type": "comment",
+          "week": 2,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p188",
+          "type": "tw_skip",
+          "week": 2,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p163",
+          "type": "mute",
+          "week": 2,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p017",
+          "type": "tw_view",
+          "week": 2,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p056",
+          "type": "tw_view",
+          "week": 2,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p055",
+          "type": "tw_skip",
+          "week": 2,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p069",
+          "type": "mute",
+          "week": 2,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p073",
+          "type": "mute",
+          "week": 2,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p141",
+          "type": "angry_comment",
+          "week": 2,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p145",
+          "type": "tw_skip",
+          "week": 2,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p088",
+          "type": "like",
+          "week": 2,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p012",
+        "p026",
+        "p161",
+        "p118",
+        "p005",
+        "p032",
+        "p041",
+        "p113",
+        "p117",
+        "p001"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 3,
+      "actions": [
+        {
+          "postId": "p110",
+          "type": "share",
+          "week": 3,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p177",
+          "type": "angry_comment",
+          "week": 3,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p167",
+          "type": "follow",
+          "week": 3,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p041",
+          "type": "follow",
+          "week": 3,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p024",
+          "type": "mute",
+          "week": 3,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p065",
+          "type": "comment",
+          "week": 3,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p096",
+        "p171",
+        "p167",
+        "p043",
+        "p014",
+        "p102",
+        "p161",
+        "p079",
+        "p186",
+        "p180"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 4,
+      "actions": [
+        {
+          "postId": "p024",
+          "type": "comment",
+          "week": 4,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p001",
+          "type": "share",
+          "week": 4,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p123",
+          "type": "comment",
+          "week": 4,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p034",
+          "type": "share",
+          "week": 4,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p133",
+          "type": "tw_skip",
+          "week": 4,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p003",
+          "type": "like",
+          "week": 4,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p179",
+        "p088",
+        "p031",
+        "p109",
+        "p178",
+        "p034",
+        "p123",
+        "p019",
+        "p059",
+        "p099"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 5,
+      "actions": [
+        {
+          "postId": "p023",
+          "type": "comment",
+          "week": 5,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p027",
+          "type": "mute",
+          "week": 5,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p095",
+          "type": "follow",
+          "week": 5,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p036",
+        "p098",
+        "p199",
+        "p193",
+        "p035",
+        "p165",
+        "p174",
+        "p037",
+        "p018",
+        "p136"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 6,
+      "actions": [
+        {
+          "postId": "p043",
+          "type": "tw_skip",
+          "week": 6,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p090",
+          "type": "share",
+          "week": 6,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p161",
+        "p192",
+        "p039",
+        "p106",
+        "p158",
+        "p176",
+        "p114",
+        "p056",
+        "p023",
+        "p026"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 7,
+      "actions": [
+        {
+          "postId": "p036",
+          "type": "comment",
+          "week": 7,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p151",
+          "type": "tw_view",
+          "week": 7,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p090",
+          "type": "tw_view",
+          "week": 7,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p081",
+          "type": "angry_comment",
+          "week": 7,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p064",
+        "p071",
+        "p166",
+        "p022",
+        "p064",
+        "p142",
+        "p154",
+        "p154",
+        "p185",
+        "p156"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 8,
+      "actions": [
+        {
+          "postId": "p007",
+          "type": "follow",
+          "week": 8,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p053",
+          "type": "share",
+          "week": 8,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p192",
+          "type": "tw_view",
+          "week": 8,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p076",
+          "type": "like",
+          "week": 8,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p062",
+        "p127",
+        "p099",
+        "p029",
+        "p062",
+        "p128",
+        "p164",
+        "p153",
+        "p019",
+        "p136"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 9,
+      "actions": [
+        {
+          "postId": "p004",
+          "type": "mute",
+          "week": 9,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p082",
+          "type": "angry_comment",
+          "week": 9,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p100",
+          "type": "tw_view",
+          "week": 9,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p094",
+          "type": "angry_comment",
+          "week": 9,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p196",
+          "type": "tw_skip",
+          "week": 9,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p198",
+          "type": "comment",
+          "week": 9,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p005",
+          "type": "comment",
+          "week": 9,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p004",
+          "type": "follow",
+          "week": 9,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p056",
+          "type": "like",
+          "week": 9,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p016",
+          "type": "tw_view",
+          "week": 9,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p130",
+          "type": "follow",
+          "week": 9,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p161",
+          "type": "tw_view",
+          "week": 9,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p109",
+          "type": "tw_view",
+          "week": 9,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p022",
+        "p164",
+        "p138",
+        "p138",
+        "p158",
+        "p040",
+        "p072",
+        "p022",
+        "p080",
+        "p021"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 10,
+      "actions": [
+        {
+          "postId": "p040",
+          "type": "mute",
+          "week": 10,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p101",
+          "type": "comment",
+          "week": 10,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p080",
+          "type": "tw_view",
+          "week": 10,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p187",
+          "type": "share",
+          "week": 10,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p015",
+        "p063",
+        "p023",
+        "p112",
+        "p030",
+        "p117",
+        "p157",
+        "p156",
+        "p015",
+        "p080"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 11,
+      "actions": [
+        {
+          "postId": "p171",
+          "type": "angry_comment",
+          "week": 11,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p031",
+          "type": "like",
+          "week": 11,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p182",
+          "type": "angry_comment",
+          "week": 11,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p180",
+          "type": "like",
+          "week": 11,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p042",
+          "type": "tw_skip",
+          "week": 11,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p089",
+          "type": "follow",
+          "week": 11,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p043",
+        "p096",
+        "p033",
+        "p192",
+        "p200",
+        "p069",
+        "p188",
+        "p031",
+        "p198",
+        "p008"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 12,
+      "actions": [
+        {
+          "postId": "p135",
+          "type": "comment",
+          "week": 12,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p068",
+          "type": "comment",
+          "week": 12,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p128",
+          "type": "tw_skip",
+          "week": 12,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p131",
+          "type": "mute",
+          "week": 12,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p015",
+        "p128",
+        "p146",
+        "p043",
+        "p095",
+        "p041",
+        "p066",
+        "p198",
+        "p027",
+        "p147"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 13,
+      "actions": [
+        {
+          "postId": "p173",
+          "type": "comment",
+          "week": 13,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p059",
+          "type": "like",
+          "week": 13,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p012",
+          "type": "like",
+          "week": 13,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p063",
+          "type": "like",
+          "week": 13,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p121",
+          "type": "mute",
+          "week": 13,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p099",
+          "type": "angry_comment",
+          "week": 13,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p046",
+          "type": "like",
+          "week": 13,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p142",
+          "type": "tw_view",
+          "week": 13,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p058",
+          "type": "mute",
+          "week": 13,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p064",
+        "p107",
+        "p185",
+        "p082",
+        "p070",
+        "p020",
+        "p147",
+        "p096",
+        "p031",
+        "p129"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 14,
+      "actions": [
+        {
+          "postId": "p058",
+          "type": "like",
+          "week": 14,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p103",
+          "type": "comment",
+          "week": 14,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p120",
+          "type": "follow",
+          "week": 14,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p199",
+          "type": "follow",
+          "week": 14,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p084",
+          "type": "comment",
+          "week": 14,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p142",
+          "type": "tw_skip",
+          "week": 14,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p003",
+        "p095",
+        "p052",
+        "p075",
+        "p145",
+        "p078",
+        "p190",
+        "p160",
+        "p063",
+        "p119"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 15,
+      "actions": [
+        {
+          "postId": "p095",
+          "type": "tw_skip",
+          "week": 15,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p198",
+          "type": "share",
+          "week": 15,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p188",
+          "type": "share",
+          "week": 15,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p039",
+          "type": "like",
+          "week": 15,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p105",
+          "type": "like",
+          "week": 15,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p060",
+        "p139",
+        "p089",
+        "p163",
+        "p178",
+        "p003",
+        "p086",
+        "p001",
+        "p195",
+        "p169"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 16,
+      "actions": [
+        {
+          "postId": "p079",
+          "type": "comment",
+          "week": 16,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p053",
+          "type": "share",
+          "week": 16,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p108",
+          "type": "tw_skip",
+          "week": 16,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p016",
+        "p037",
+        "p183",
+        "p072",
+        "p024",
+        "p012",
+        "p060",
+        "p134",
+        "p106",
+        "p180"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 17,
+      "actions": [
+        {
+          "postId": "p096",
+          "type": "tw_skip",
+          "week": 17,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p192",
+          "type": "comment",
+          "week": 17,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p149",
+          "type": "comment",
+          "week": 17,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p130",
+          "type": "angry_comment",
+          "week": 17,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p164",
+          "type": "tw_view",
+          "week": 17,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p020",
+          "type": "like",
+          "week": 17,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p112",
+          "type": "angry_comment",
+          "week": 17,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p061",
+          "type": "follow",
+          "week": 17,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p067",
+          "type": "mute",
+          "week": 17,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p101",
+        "p180",
+        "p189",
+        "p084",
+        "p082",
+        "p116",
+        "p070",
+        "p060",
+        "p020",
+        "p052"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 18,
+      "actions": [
+        {
+          "postId": "p028",
+          "type": "angry_comment",
+          "week": 18,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p028",
+          "type": "angry_comment",
+          "week": 18,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p116",
+          "type": "tw_skip",
+          "week": 18,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p081",
+          "type": "tw_view",
+          "week": 18,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p031",
+          "type": "mute",
+          "week": 18,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p198",
+          "type": "share",
+          "week": 18,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p116",
+          "type": "follow",
+          "week": 18,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p119",
+          "type": "follow",
+          "week": 18,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p031",
+          "type": "comment",
+          "week": 18,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p041",
+        "p176",
+        "p078",
+        "p181",
+        "p179",
+        "p155",
+        "p011",
+        "p056",
+        "p084",
+        "p038"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 19,
+      "actions": [
+        {
+          "postId": "p024",
+          "type": "share",
+          "week": 19,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p092",
+          "type": "tw_view",
+          "week": 19,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p132",
+          "type": "like",
+          "week": 19,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p174",
+          "type": "follow",
+          "week": 19,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p067",
+          "type": "angry_comment",
+          "week": 19,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p008",
+          "type": "tw_view",
+          "week": 19,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p116",
+          "type": "share",
+          "week": 19,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p025",
+          "type": "tw_skip",
+          "week": 19,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p027",
+          "type": "angry_comment",
+          "week": 19,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p032",
+          "type": "like",
+          "week": 19,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p016",
+        "p200",
+        "p057",
+        "p034",
+        "p051",
+        "p103",
+        "p096",
+        "p176",
+        "p162",
+        "p166"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 20,
+      "actions": [
+        {
+          "postId": "p020",
+          "type": "like",
+          "week": 20,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p017",
+          "type": "share",
+          "week": 20,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p166",
+          "type": "tw_skip",
+          "week": 20,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p033",
+          "type": "comment",
+          "week": 20,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p085",
+          "type": "comment",
+          "week": 20,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p011",
+          "type": "tw_skip",
+          "week": 20,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p013",
+          "type": "angry_comment",
+          "week": 20,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p147",
+          "type": "tw_view",
+          "week": 20,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p186",
+          "type": "tw_view",
+          "week": 20,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p128",
+        "p008",
+        "p098",
+        "p175",
+        "p110",
+        "p045",
+        "p091",
+        "p055",
+        "p048",
+        "p071"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 21,
+      "actions": [
+        {
+          "postId": "p072",
+          "type": "tw_skip",
+          "week": 21,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p039",
+          "type": "like",
+          "week": 21,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p158",
+          "type": "share",
+          "week": 21,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p166",
+          "type": "follow",
+          "week": 21,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p128",
+          "type": "tw_view",
+          "week": 21,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p141",
+          "type": "tw_skip",
+          "week": 21,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p016",
+          "type": "comment",
+          "week": 21,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p072",
+          "type": "tw_view",
+          "week": 21,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p036",
+        "p108",
+        "p052",
+        "p165",
+        "p135",
+        "p064",
+        "p162",
+        "p140",
+        "p005",
+        "p098"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 22,
+      "actions": [
+        {
+          "postId": "p140",
+          "type": "tw_skip",
+          "week": 22,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p089",
+          "type": "mute",
+          "week": 22,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p100",
+          "type": "follow",
+          "week": 22,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p047",
+          "type": "like",
+          "week": 22,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p082",
+          "type": "share",
+          "week": 22,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p008",
+          "type": "follow",
+          "week": 22,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p015",
+          "type": "tw_skip",
+          "week": 22,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p136",
+        "p092",
+        "p197",
+        "p150",
+        "p060",
+        "p041",
+        "p026",
+        "p064",
+        "p169",
+        "p062"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 23,
+      "actions": [
+        {
+          "postId": "p069",
+          "type": "like",
+          "week": 23,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p196",
+          "type": "share",
+          "week": 23,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p148",
+          "type": "tw_view",
+          "week": 23,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p091",
+        "p045",
+        "p046",
+        "p061",
+        "p152",
+        "p082",
+        "p189",
+        "p179",
+        "p092",
+        "p152"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 24,
+      "actions": [
+        {
+          "postId": "p146",
+          "type": "angry_comment",
+          "week": 24,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p145",
+          "type": "share",
+          "week": 24,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p127",
+          "type": "follow",
+          "week": 24,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p045",
+          "type": "tw_skip",
+          "week": 24,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p010",
+          "type": "comment",
+          "week": 24,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p015",
+          "type": "share",
+          "week": 24,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p155",
+          "type": "share",
+          "week": 24,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p006",
+          "type": "tw_skip",
+          "week": 24,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p001",
+          "type": "mute",
+          "week": 24,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p158",
+          "type": "share",
+          "week": 24,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p034",
+          "type": "mute",
+          "week": 24,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p184",
+        "p046",
+        "p083",
+        "p016",
+        "p006",
+        "p038",
+        "p151",
+        "p181",
+        "p037",
+        "p199"
+      ],
+      "profileSnapshot": {}
+    },
+    {
+      "week": 25,
+      "actions": [
+        {
+          "postId": "p029",
+          "type": "mute",
+          "week": 25,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p019",
+          "type": "mute",
+          "week": 25,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p181",
+          "type": "tw_view",
+          "week": 25,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p151",
+          "type": "comment",
+          "week": 25,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p087",
+          "type": "follow",
+          "week": 25,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p083",
+          "type": "angry_comment",
+          "week": 25,
+          "ts": 1779988966312
+        },
+        {
+          "postId": "p041",
+          "type": "tw_view",
+          "week": 25,
+          "ts": 1779988966312
+        }
+      ],
+      "feedSeen": [
+        "p164",
+        "p125",
+        "p167",
+        "p082",
+        "p045",
+        "p182",
+        "p144",
+        "p178",
+        "p158",
+        "p092"
+      ],
+      "profileSnapshot": {}
+    }
+  ],
+  "ownPosts": [
+    {
+      "week": 22,
+      "text": "Test-Post",
+      "tags": [
+        "humor"
+      ],
+      "outrage": 0.1,
+      "ts": 1779988966312
+    },
+    {
+      "week": 19,
+      "text": "Test-Post",
+      "tags": [
+        "wissenschaft"
+      ],
+      "outrage": 0.1,
+      "ts": 1779988966312
+    },
+    {
+      "week": 6,
+      "text": "Test-Post",
+      "tags": [
+        "anti-feminismus"
+      ],
+      "outrage": 0.1,
+      "ts": 1779988966312
+    }
+  ],
+  "guildMemberships": [],
+  "electionVote": null,
+  "ending": "aware",
+  "npcArcs": {
+    "lea_close": 0.7,
+    "finn_path": 0,
+    "mira_close": 0,
+    "self_aware": 1
+  },
+  "dmReplies": {
+    "dm_lea": {
+      "14": {
+        "id": "lea_14_open"
+      }
+    }
+  },
+  "badges": [],
+  "bookmarks": {
+    "p029": {
+      "week": 20,
+      "text": "Test-Lesezeichen Post p029",
+      "author": "char_lea",
+      "tags": [
+        "musik"
+      ],
+      "ts": 1779988966312
+    },
+    "p069": {
+      "week": 19,
+      "text": "Test-Lesezeichen Post p069",
+      "author": "char_lea",
+      "tags": [
+        "true-crime"
+      ],
+      "ts": 1779988966312
+    },
+    "p094": {
+      "week": 19,
+      "text": "Test-Lesezeichen Post p094",
+      "author": "char_lea",
+      "tags": [
+        "true-crime"
+      ],
+      "ts": 1779988966312
+    },
+    "p194": {
+      "week": 3,
+      "text": "Test-Lesezeichen Post p194",
+      "author": "char_lea",
+      "tags": [
+        "verschwoerung"
+      ],
+      "ts": 1779988966312
+    }
+  },
+  "reflections": {
+    "halftime": null,
+    "mid": null,
+    "final": null,
+    "manifest": null
+  },
+  "selfcheck": {
+    "pre": {
+      "answers": {
+        "source_check": 2,
+        "feed_influence": 3,
+        "comfort_disagree": 1,
+        "algo_understand": 3,
+        "pause_react": 2
+      }
+    },
+    "post": {
+      "answers": {
+        "source_check": 3,
+        "feed_influence": 3,
+        "comfort_disagree": 2,
+        "algo_understand": 4,
+        "pause_react": 3
+      }
+    }
+  },
+  "contentWarningsAccepted": {},
+  "shitstormHistory": []
+}
