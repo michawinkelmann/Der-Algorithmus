@@ -208,24 +208,50 @@ export async function renderFeed(view = 'feed') {
     root.appendChild(header);
 
     // Trending-Bar (ab W3, wenn der Feed Inhalt hat).
+    const activeFilter = Store.data.activeHashtagFilter || null;
     if (d.currentWeek >= 3) {
       const trending = getTrendingHashtags();
       if (trending.length) {
         const tb = document.createElement('div');
         tb.className = 'trending-bar';
         tb.innerHTML = `<span class="trending-label muted small">Trending in Greifshafen:</span>` +
-          trending.map(t => `<button class="trending-tag" data-tag="${escapeHtml(t.tag)}">${escapeHtml(t.tag)}</button>`).join('');
+          trending.map(t => `<button class="trending-tag${activeFilter === t.tag.toLowerCase() ? ' active' : ''}" data-tag="${escapeHtml(t.tag)}">${escapeHtml(t.tag)}</button>`).join('');
         tb.querySelectorAll('.trending-tag').forEach(b => {
           b.onclick = () => {
             const tag = b.dataset.tag.toLowerCase();
-            if (!Store.data.trendingViewed) Store.data.trendingViewed = {};
-            Store.data.trendingViewed[tag] = Store.data.currentWeek;
+            if (Store.data.activeHashtagFilter === tag) {
+              Store.data.activeHashtagFilter = null;
+            } else {
+              Store.data.activeHashtagFilter = tag;
+              if (!Store.data.hashtagFilters) Store.data.hashtagFilters = {};
+              Store.data.hashtagFilters[tag] = (Store.data.hashtagFilters[tag] || 0) + 1;
+            }
             Store.save();
-            toast(`Stell dir vor, du klickst ${b.dataset.tag} und siehst nur noch diese Posts. Was würde das mit deinem Feed machen?`, { long: true });
+            renderFeed('feed');
           };
         });
         root.appendChild(tb);
       }
+    }
+
+    // Wenn ein Hashtag-Filter aktiv ist: didaktische Info-Box vor dem Feed.
+    if (activeFilter) {
+      const box = document.createElement('div');
+      box.className = 'filter-box';
+      box.innerHTML = `
+        <div class="filter-box-head">
+          <span class="filter-icon" aria-hidden="true">🫧</span>
+          <strong>Filter aktiv: ${escapeHtml(activeFilter)}</strong>
+        </div>
+        <p>Du siehst gerade nur Posts mit diesem Tag. So fühlt sich eine Filterblase an: scheinbar passt alles zusammen — weil du selbst die Auswahl eng gemacht hast.</p>
+        <button class="btn btn-ghost btn-small" id="filter-clear">Filter entfernen</button>
+      `;
+      box.querySelector('#filter-clear').onclick = () => {
+        Store.data.activeHashtagFilter = null;
+        Store.save();
+        renderFeed('feed');
+      };
+      root.appendChild(box);
     }
 
     const list = document.createElement('div');
@@ -236,7 +262,26 @@ export async function renderFeed(view = 'feed') {
     const ownThisWeek = [...Store.data.ownPosts].reverse().find(p => p.week === d.currentWeek);
     if (ownThisWeek) list.appendChild(renderOwnPost(ownThisWeek, { pinned: true }));
 
-    const feed = computeCurrentFeed();
+    let feed = computeCurrentFeed();
+    if (activeFilter) {
+      const tagWithoutHash = activeFilter.replace(/^#/, '');
+      feed = feed.filter(p => {
+        const text = (p.text || '').toLowerCase();
+        if (text.includes(activeFilter)) return true;
+        return (p.tags || []).some(t => t.toLowerCase().includes(tagWithoutHash));
+      });
+      if (!feed.length) {
+        const empty = document.createElement('div');
+        empty.className = 'filter-empty';
+        empty.innerHTML = `<p class="muted small">Keine Posts mit diesem Filter in dieser Woche. <button class="btn btn-ghost btn-small" id="filter-clear-2">Filter entfernen</button></p>`;
+        list.appendChild(empty);
+        empty.querySelector('#filter-clear-2').onclick = () => {
+          Store.data.activeHashtagFilter = null;
+          Store.save();
+          renderFeed('feed');
+        };
+      }
+    }
     for (const post of feed) {
       list.appendChild(renderPost(post));
     }
@@ -328,6 +373,7 @@ function renderPost(post) {
       (post.article ? renderArticleCard(post.article) : '') +
       (hasMedia ? `<div class="post-media">${memeSvg(post.id, post.tags, post.text)}</div>` : '');
 
+  const bookmarked = !!Store.data.bookmarks?.[post.id];
   const actions = `
     <div class="actions">
       <button class="action-btn like-btn ${liked ? 'active' : ''}" data-act="like" aria-pressed="${liked ? 'true' : 'false'}">
@@ -336,6 +382,7 @@ function renderPost(post) {
       <button class="action-btn" data-act="comment" aria-label="Antworten"><span class="action-icon">💬</span><span class="action-label">Antworten</span></button>
       <button class="action-btn ${shared ? 'active' : ''}" data-act="share" aria-label="Teilen"><span class="action-icon">↗</span><span class="action-label">${shared ? 'Geteilt' : 'Teilen'}</span></button>
       <button class="action-btn ${followed ? 'active' : ''}" data-act="follow">${followed ? '✓ Folgst du' : '+ Folgen'}</button>
+      <button class="action-btn ${bookmarked ? 'active' : ''}" data-act="bookmark" aria-pressed="${bookmarked ? 'true' : 'false'}" aria-label="Für später merken"><span class="action-icon">${bookmarked ? '🔖' : '📑'}</span></button>
       <button class="action-btn dislike" data-act="mute" aria-label="Stummschalten">🚫</button>
     </div>
   `;
@@ -446,6 +493,10 @@ function buildComposeBox() {
       <span class="muted small">Sticker (optional):</span>
       ${STICKERS.map(s => `<button type="button" class="compose-sticker" data-s="${s}" aria-label="Sticker ${s}">${s}</button>`).join('')}
     </div>
+    <div class="compose-preview-wrap" id="compose-preview-wrap" hidden>
+      <span class="muted small">Vorschau — so sieht dein Post im Feed aus:</span>
+      <article class="post-card own-post compose-preview" id="compose-preview"></article>
+    </div>
     <div class="compose-row">
       <span class="muted small" id="compose-status"></span>
       <button class="btn btn-primary" id="btn-publish">Posten</button>
@@ -461,6 +512,8 @@ function buildComposeBox() {
         chosenSticker = b.dataset.s;
         b.classList.add('selected');
       }
+      // updatePreview wird nach der Funktionsdefinition aufgerufen.
+      if (typeof updatePreview === 'function') updatePreview();
     };
   });
   const grid = wrap.querySelector('#compose-topics');
@@ -471,6 +524,7 @@ function buildComposeBox() {
     b.onclick = () => {
       if (chosen.has(t)) { chosen.delete(t); b.classList.remove('selected'); }
       else if (chosen.size < 3) { chosen.add(t); b.classList.add('selected'); }
+      if (typeof updatePreview === 'function') updatePreview();
     };
     grid.appendChild(b);
   }
@@ -486,11 +540,34 @@ function buildComposeBox() {
       txt.focus();
     };
   });
+  function updatePreview() {
+    const text = txt.value;
+    const previewWrap = wrap.querySelector('#compose-preview-wrap');
+    const preview = wrap.querySelector('#compose-preview');
+    const hasContent = !!text.trim() || chosen.size > 0 || chosenSticker;
+    previewWrap.hidden = !hasContent;
+    if (!hasContent) return;
+    const stickerBlock = chosenSticker ? `<div class="own-post-sticker" aria-hidden="true">${chosenSticker}</div>` : '';
+    const tagLine = chosen.size ? `<div class="muted small" style="padding-top:8px">Tags: ${[...chosen].join(', ')}</div>` : '';
+    preview.innerHTML = `
+      <div class="post-head">
+        <div class="avatar" aria-hidden="true">${avatarSvg(Store.data.character.avatar || 0)}</div>
+        <div class="name-block">
+          <div class="name">${escapeHtml(Store.data.character.name)} <span class="verified">· du</span></div>
+          <div class="meta">Woche ${Store.data.currentWeek} · gleich live</div>
+        </div>
+      </div>
+      <div class="post-body">${escapeHtml(text || '(noch nichts geschrieben)')}</div>
+      ${stickerBlock}
+      ${tagLine}
+    `;
+  }
   txt.addEventListener('input', () => {
     const n = txt.value.length;
     counter.textContent = `${n} / ${MAX}`;
     counter.classList.toggle('warn', n > MAX - 30);
     counter.classList.toggle('over', n >= MAX);
+    updatePreview();
   });
   // iPad: bei Fokus in den sichtbaren Bereich scrollen.
   txt.addEventListener('focus', () => {
@@ -623,6 +700,28 @@ async function handleAction(act, post, btn, card) {
     toast(`${char.name} stummgeschaltet.`);
   } else if (act === 'comment') {
     showCommentOptions(post, card);
+  } else if (act === 'bookmark') {
+    if (!Store.data.bookmarks) Store.data.bookmarks = {};
+    if (Store.data.bookmarks[post.id]) {
+      delete Store.data.bookmarks[post.id];
+      btn.classList.remove('active');
+      btn.setAttribute('aria-pressed', 'false');
+      const icon = btn.querySelector('.action-icon'); if (icon) icon.textContent = '📑';
+      toast('Lesezeichen entfernt.');
+    } else {
+      Store.data.bookmarks[post.id] = {
+        week: Store.data.currentWeek,
+        text: post.text,
+        author: post.author,
+        tags: post.tags || [],
+        ts: Date.now()
+      };
+      btn.classList.add('active');
+      btn.setAttribute('aria-pressed', 'true');
+      const icon = btn.querySelector('.action-icon'); if (icon) icon.textContent = '🔖';
+      toast('Gemerkt — taucht im Lehr-Bericht auf.');
+    }
+    Store.save();
   }
 }
 

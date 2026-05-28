@@ -77,6 +77,9 @@ function freshSave() {
     tutorialDone: false,
     trendingViewed: {},
     conceptsSeen: {},
+    bookmarks: {},
+    hashtagFilters: {},
+    soundVolume: 0.6,
     random_seed: Math.floor(Math.random() * 1e9)
   };
 }

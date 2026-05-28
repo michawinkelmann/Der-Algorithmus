@@ -170,7 +170,10 @@
               <label><input type="radio" name="sim-mode" value="fresh" checked /> Start-Profil</label>
               <label><input type="radio" name="sim-mode" value="current" /> aktuellem Profil</label>
             </div>
-            <button class="btn btn-primary" id="btn-sim">10 Wochen simulieren</button>
+            <div class="sandbox-actions">
+              <button class="btn btn-primary" id="btn-sim">10 Wochen simulieren</button>
+              <button class="btn btn-ghost" id="btn-battle">Algorithmus-Battle ⚔</button>
+            </div>
             <div id="sim-result"></div>
           </section>
         </div>
@@ -209,6 +212,11 @@
           <label class="settings-toggle">
             <input type="checkbox" id="chk-sound" />
             <span>Sound aktiv (Like-Pop, DM-Ping etc.)</span>
+          </label>
+          <label class="settings-slider">
+            <span>Lautstärke</span>
+            <input type="range" id="rng-volume" min="0" max="100" step="5" />
+            <output id="rng-volume-val" aria-live="polite">60 %</output>
           </label>
           <label class="settings-toggle">
             <input type="checkbox" id="chk-light" />

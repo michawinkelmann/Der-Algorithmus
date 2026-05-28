@@ -11,7 +11,7 @@ import { initDms, renderDmList, renderDmThread, unreadCount as dmUnread } from '
 import { initPlaces, renderMap } from './places.js';
 import { runMinigame } from './minigame.js';
 import { renderClassCompare } from './classcompare.js';
-import { SFX, setSoundEnabled } from './sound.js';
+import { SFX, setSoundEnabled, setSoundVolume } from './sound.js';
 import { maybeQueueMicroReflection } from './microreflect.js';
 import { generateRepliesForJustEndedWeek } from './postreplies.js';
 import { maybeShowPush } from './push.js';
@@ -222,6 +222,21 @@ function bindGlobal() {
       setSoundEnabled(soundChk.checked);
       if (soundChk.checked) SFX.toast();
     };
+  }
+
+  // Lautstärke-Slider
+  const volRng = document.getElementById('rng-volume');
+  const volOut = document.getElementById('rng-volume-val');
+  if (volRng) {
+    const cur = typeof Store.data?.soundVolume === 'number' ? Store.data.soundVolume : 0.6;
+    volRng.value = String(Math.round(cur * 100));
+    if (volOut) volOut.textContent = `${Math.round(cur * 100)} %`;
+    volRng.oninput = () => {
+      const pct = parseInt(volRng.value, 10);
+      setSoundVolume(pct / 100);
+      if (volOut) volOut.textContent = `${pct} %`;
+    };
+    volRng.onchange = () => { if (Store.data?.soundEnabled) SFX.toast(); };
   }
 
   // Light-Mode-Toggle
@@ -1244,6 +1259,7 @@ function exportReport() {
   ul.interests { list-style: none; padding: 0; }
   ul.interests li { display: inline-block; background: #eef; padding: 2px 8px; border-radius: 10px; margin: 2px; font-size: 13px; }
   .profile-bio { font-style: italic; color: #555; border-left: 3px solid #c026d3; padding: 6px 12px; margin: 1rem 0; background: #faf7fb; }
+  ol.disc li { margin: .8rem 0; font-size: 14px; }
 </style></head>
 <body>
   <h1>Streem-Bericht</h1>
@@ -1281,6 +1297,27 @@ function exportReport() {
 
   <h2>Medien-Manifest</h2>
   <ol>${manifestList}</ol>
+
+  ${(() => {
+    const bm = d.bookmarks || {};
+    const entries = Object.entries(bm);
+    if (!entries.length) return '';
+    return `<section><h2>Lesezeichen</h2><p class="muted">Beiträge, die du dir gemerkt hast — z.B. weil du sie in der Reflexion ansprechen wolltest.</p>
+      ${entries.map(([id, b]) => `<div class="qa"><div class="q">W${b.week} · ${escapeHtml(b.author || '')}</div><div class="a">${escapeHtml(b.text || '')}</div></div>`).join('')}
+    </section>`;
+  })()}
+
+  <h2>Diskussionsfragen für die Klasse</h2>
+  <p class="muted">Gedacht für die Reflexionsphase nach dem Spiel. Frei zu kürzen, zu ergänzen, zu ignorieren.</p>
+  <ol class="disc">
+    <li>Welche eine Entscheidung im Spiel würdest du heute anders treffen — und warum?</li>
+    <li>Ab welcher Woche hast du das Gefühl gehabt, der Algorithmus „lernt dich"?</li>
+    <li>Wo war der Unterschied zwischen Empörung und Engagement für dich am ehesten spürbar?</li>
+    <li>Welche Push-Notification hat dich am ehesten zurückgeholt — und wie real ist das im echten Leben?</li>
+    <li>Wenn du Lehrkraft wärst: was würdest du an „Streem" anders bauen, damit es weniger süchtig macht?</li>
+    <li>Was war das Beste, was dir auf der Plattform passiert ist? Was das Schlimmste?</li>
+    <li>Welche Rolle haben die NPCs (Lea, Finn, Mira, Lara) gespielt, und welche Stimmen hast du im echten Netz?</li>
+  </ol>
 
   <div class="foot">
     Erstellt mit dem Lernspiel „Der Algorithmus". Dokument zur Vorlage in der Projektwoche.<br/>

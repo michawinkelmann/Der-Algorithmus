@@ -88,6 +88,8 @@ export function renderSandbox(onClose) {
 
   document.getElementById('btn-sim').onclick = () => simulate(rules);
   document.getElementById('btn-sandbox-close').onclick = () => onClose && onClose();
+  const battleBtn = document.getElementById('btn-battle');
+  if (battleBtn) battleBtn.onclick = () => openAlgorithmBattle(rules);
   // Reset-Toggle: simulieren wir auf dem Start-Profil oder dem aktuellen Profil?
   const simModeRow = document.querySelector('#sandbox-sim-mode');
   if (simModeRow) {
@@ -95,6 +97,100 @@ export function renderSandbox(onClose) {
       r.onchange = () => previewFeed(rules);
     });
   }
+}
+
+// Algorithm-Battle: zwei Slider-Setups side-by-side, ihre Feeds gleichzeitig
+// sichtbar. Zeigt drastisch, wie unterschiedlich „derselbe Pool" wirken kann.
+function openAlgorithmBattle(currentRules) {
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  overlay.innerHTML = `
+    <div class="tw-box big battle-box">
+      <header class="battle-head">
+        <h2>Algorithmus-Battle</h2>
+        <button class="btn btn-ghost btn-small" id="battle-close">Schließen</button>
+      </header>
+      <p class="muted small">Zwei Algorithmen, derselbe Post-Pool, dein Profil. So unterschiedlich kann derselbe Feed aussehen.</p>
+      <div class="battle-grid">
+        <section class="battle-side" data-side="left">
+          <h3>A — Engagement-getrieben</h3>
+          <select class="battle-preset" data-side="left" aria-label="Voreinstellung A">
+            <option value="empoerung">Empörungs-Booster</option>
+            <option value="default" selected>Streem-Default</option>
+            <option value="chrono">Chronologisch</option>
+            <option value="quality">Qualität</option>
+            <option value="calm">Ruhe-Modus</option>
+            <option value="balance">Ausgleich</option>
+          </select>
+          <div class="battle-feed" id="battle-feed-left"></div>
+        </section>
+        <section class="battle-side" data-side="right">
+          <h3>B — Qualitätsorientiert</h3>
+          <select class="battle-preset" data-side="right" aria-label="Voreinstellung B">
+            <option value="empoerung">Empörungs-Booster</option>
+            <option value="default">Streem-Default</option>
+            <option value="chrono">Chronologisch</option>
+            <option value="quality" selected>Qualität</option>
+            <option value="calm">Ruhe-Modus</option>
+            <option value="balance">Ausgleich</option>
+          </select>
+          <div class="battle-feed" id="battle-feed-right"></div>
+        </section>
+      </div>
+      <p class="muted small">Die Karten sind die Top-5 jedes Setups. Beobachte: welcher Mensch redet wie viel? Welche Tonlagen verschwinden?</p>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('#battle-close').onclick = close;
+  const presets = battlePresets(currentRules);
+  function render(side) {
+    const sel = overlay.querySelector(`.battle-preset[data-side="${side}"]`);
+    const target = overlay.querySelector(`#battle-feed-${side}`);
+    const weights = presets[sel.value] || currentRules;
+    const feed = buildFeed(POSTS, ADS, Store.data.userProfile, weights, {
+      limit: 5, unlocked: ['ads'], muted: Store.data.userProfile.muted
+    });
+    target.innerHTML = '';
+    for (const p of feed) {
+      const c = getCharacter(p.author);
+      const card = document.createElement('div');
+      card.className = 'post-card battle-card';
+      card.innerHTML = `
+        <div class="post-head">
+          <div class="name-block">
+            <div class="name">${escapeHtml(c?.name || p.author)}</div>
+            <div class="meta muted small">${escapeHtml(c?.handle || '')}</div>
+          </div>
+        </div>
+        <div class="post-body">${escapeHtml(truncate(p.text || '', 140))}</div>
+      `;
+      target.appendChild(card);
+    }
+  }
+  overlay.querySelectorAll('.battle-preset').forEach(sel => {
+    sel.onchange = () => render(sel.dataset.side);
+  });
+  render('left');
+  render('right');
+}
+
+function battlePresets(current) {
+  return {
+    default:   { ...Store.data.weights },
+    quality:   { affinity: 0.3, engagement: 0.2, recency: 0.5, social: 0.3, ads: 0.2, diversity: 0.7, quality: 1.5, outragePenalty: 1.0, balance: 0.5 },
+    chrono:    { affinity: 0.0, engagement: 0.0, recency: 1.8, social: 1.0, ads: 0.2, diversity: 0.0, quality: 0.2, outragePenalty: 0.0, balance: 0.0 },
+    balance:   { affinity: 0.3, engagement: 0.2, recency: 0.5, social: 0.5, ads: 0.2, diversity: 0.8, quality: 0.8, outragePenalty: 0.8, balance: 1.5 },
+    empoerung: { affinity: 0.4, engagement: 2.0, recency: 0.3, social: 0.4, ads: 0.6, diversity: 0.0, quality: 0.0, outragePenalty: 0.0, balance: 0.0 },
+    calm:      { affinity: 0.6, engagement: 0.1, recency: 0.4, social: 0.7, ads: 0.1, diversity: 1.0, quality: 1.2, outragePenalty: 1.8, balance: 0.8 },
+    custom:    current
+  };
 }
 
 function applyPreset(name, rules, container) {
