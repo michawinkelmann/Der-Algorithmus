@@ -23,6 +23,7 @@ import { maybeShowPreQuiz, showPostQuiz, buildSelfcheckCompareHtml } from './sel
 import { openWahlomat } from './wahlomat.js';
 import { runFactcheck } from './factcheck.js';
 import { runHeadline } from './headline.js';
+import { runGlossquiz } from './glossquiz.js';
 
 // ===== Daten-Bundle (statt fetch, damit file:// funktioniert) =====
 // Die JSONs werden zur Laufzeit geladen — funktioniert per fetch() auch bei file://
@@ -111,6 +112,8 @@ async function boot() {
     document.getElementById('btn-continue').hidden = false;
   }
   applyTheme(Store.data?.theme || 'dark');
+  applyHighContrast(!!Store.data?.highContrast);
+  applyFontScale(Store.data?.fontScale ?? 1);
   maybeShowTeacherBanner();
   showScreen('screen-start');
 }
@@ -147,7 +150,7 @@ function maybeShowTeacherBanner() {
 function bindGlobal() {
   document.getElementById('btn-new-game').onclick = () => openIntro();
   document.getElementById('btn-quick-start')?.addEventListener('click', quickStart);
-  document.getElementById('btn-continue').onclick = () => enterMain();
+  document.getElementById('btn-continue').onclick = () => showWelcomeBack(() => enterMain());
   document.getElementById('btn-about').onclick = () => showScreen('screen-about');
   document.getElementById('btn-about-close').onclick = () => showScreen('screen-start');
   document.getElementById('btn-checklist')?.addEventListener('click', openChecklist);
@@ -231,6 +234,8 @@ function bindGlobal() {
   }
   const reportBtn = document.getElementById('btn-export-report');
   if (reportBtn) reportBtn.onclick = exportReport;
+  const workshopBtn = document.getElementById('btn-export-workshop');
+  if (workshopBtn) workshopBtn.onclick = exportWorkshopPlan;
   const csvBtn = document.getElementById('btn-export-csv');
   if (csvBtn) csvBtn.onclick = exportCsv;
   document.getElementById('btn-show-wrapped-now').onclick = () => {
@@ -309,6 +314,29 @@ function bindGlobal() {
       applyTheme(t);
     };
   }
+  // High-Contrast-Toggle
+  const contrastChk = document.getElementById('chk-contrast');
+  if (contrastChk) {
+    contrastChk.checked = !!Store.data?.highContrast;
+    contrastChk.onchange = () => {
+      if (Store.data) { Store.data.highContrast = contrastChk.checked; Store.save(); }
+      applyHighContrast(contrastChk.checked);
+    };
+  }
+  // Schriftgröße
+  const fsRng = document.getElementById('rng-fontsize');
+  const fsOut = document.getElementById('rng-fontsize-val');
+  if (fsRng) {
+    const cur = Math.round((Store.data?.fontScale ?? 1) * 100);
+    fsRng.value = String(cur);
+    if (fsOut) fsOut.textContent = `${cur} %`;
+    fsRng.oninput = () => {
+      const pct = parseInt(fsRng.value, 10);
+      if (Store.data) { Store.data.fontScale = pct / 100; Store.save(); }
+      applyFontScale(pct / 100);
+      if (fsOut) fsOut.textContent = `${pct} %`;
+    };
+  }
 
   // Bot-Minigame jederzeit wiederholbar
   const mgBtn = document.getElementById('btn-minigame');
@@ -317,12 +345,16 @@ function bindGlobal() {
   if (fcBtn) fcBtn.onclick = () => { showScreen('screen-main'); openFactcheckMinigame(); };
   const hlBtn = document.getElementById('btn-headline');
   if (hlBtn) hlBtn.onclick = () => { showScreen('screen-main'); openHeadlineMinigame(); };
+  const gqBtn = document.getElementById('btn-glossquiz');
+  if (gqBtn) gqBtn.onclick = () => { showScreen('screen-main'); openGlossquizMinigame(); };
 
   // Glossar
   const gloBtn = document.getElementById('btn-glossary');
   if (gloBtn) gloBtn.onclick = () => { showScreen('screen-main'); openGlossary(); };
   const conceptsBtn = document.getElementById('btn-concepts');
   if (conceptsBtn) conceptsBtn.onclick = () => { showScreen('screen-main'); openConceptsList(); };
+  const shortcutsBtn = document.getElementById('btn-shortcuts');
+  if (shortcutsBtn) shortcutsBtn.onclick = () => { showScreen('screen-main'); openShortcuts(); };
 
   // Wochen-Sprung für Lehrkraft
   const jumpBtn = document.getElementById('btn-jump-week');
@@ -662,8 +694,59 @@ function showSaveIndicator() {
   }, 1300);
 }
 
+// Welcome-Back-Card: erscheint beim Continue, wenn ≥ 12 h Pause war oder
+// die letzte Woche markante Events enthielt. Fasst kurz zusammen, wo wir
+// stehen — kein Inhalt geht verloren.
+function showWelcomeBack(onClose) {
+  const d = Store.data;
+  if (!d) { onClose(); return; }
+  const last = d.meta?.lastSavedAt || Date.now();
+  const hoursSince = (Date.now() - last) / (3600 * 1000);
+  const recent = (d.history || []).slice(-1)[0];
+  const recentActions = (recent?.actions || []).length;
+  // Nur zeigen, wenn länger weg (12 h) ODER wenn letzte Woche Wendepunkte hatte
+  // und der User schon mind. 3 Wochen gespielt hat.
+  const hadStorms = (d.shitstormHistory || []).some(s => s.week === recent?.week);
+  const inMidGame = d.currentWeek >= 3;
+  const worthShowing = inMidGame && (hoursSince > 12 || hadStorms || recentActions >= 8);
+  if (!worthShowing) { onClose(); return; }
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  const lastInteresting = recent ? `In W${recent.week} hattest du ${recentActions} Interaktion${recentActions === 1 ? '' : 'en'}.` : '';
+  const topInterest = Object.entries(d.userProfile?.interests || {}).sort((a, b) => b[1] - a[1])[0];
+  const topTag = topInterest && topInterest[1] > 0.1 ? `Dein Top-Thema: ${tagLabel(topInterest[0])}.` : '';
+  const lean = d.userProfile?.political_lean_estimated ?? 0;
+  const leanLine = Math.abs(lean) > 0.1 ? `Algorithmischer Lean: ${lean.toFixed(2)} (${lean < 0 ? 'eher links' : 'eher rechts'}).` : '';
+  const stormLine = hadStorms ? 'Letzte Woche ist ein Post von dir viral gegangen — schau in die Inbox.' : '';
+  const bits = [lastInteresting, topTag, leanLine, stormLine].filter(Boolean);
+  overlay.innerHTML = `
+    <div class="tw-box" style="max-width:480px">
+      <h3>Willkommen zurück.</h3>
+      <p class="muted small">Du bist in <strong>Woche ${d.currentWeek}</strong> — hier ist, wo es war:</p>
+      <ul class="welcome-back">
+        ${bits.map(b => `<li>${escapeHtml(b)}</li>`).join('')}
+      </ul>
+      <p class="muted small">Tipp: das Algorithmus-Panel oben rechts zeigt, was der Algorithmus gerade über dich denkt.</p>
+      <button class="btn btn-primary" id="welback-go">Weiterspielen</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const handle = attachModal(overlay);
+  overlay.querySelector('#welback-go').onclick = () => { handle.close(); onClose(); };
+}
+
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
+}
+
+function applyHighContrast(on) {
+  if (on) document.documentElement.dataset.contrast = 'high';
+  else delete document.documentElement.dataset.contrast;
+}
+
+function applyFontScale(scale) {
+  const s = Math.max(0.85, Math.min(1.35, parseFloat(scale) || 1));
+  document.documentElement.style.setProperty('--font-scale', s);
 }
 
 function openWeekJump() {
@@ -724,6 +807,18 @@ function openHeadlineMinigame() {
   document.body.appendChild(overlay);
   const handle = attachModal(overlay);
   runHeadline(box, () => handle.close());
+}
+
+function openGlossquizMinigame() {
+  SFX.swipe();
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  const box = document.createElement('div');
+  box.className = 'tw-box big';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  const handle = attachModal(overlay);
+  runGlossquiz(box, () => handle.close());
 }
 
 function maybeUnlockForWeek() {
@@ -1519,6 +1614,29 @@ function openChecklist() {
   showScreen('screen-checklist');
 }
 
+function openShortcuts() {
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  overlay.innerHTML = `
+    <div class="tw-box" style="max-width:520px">
+      <h3>Tastenkürzel</h3>
+      <p class="muted small">Funktioniert auf Desktop. Auf Tablet wird gestrichen.</p>
+      <dl class="shortcuts">
+        <dt><kbd>Esc</kbd></dt><dd>Modal schließen</dd>
+        <dt><kbd>Tab</kbd> / <kbd>Shift+Tab</kbd></dt><dd>Durch Buttons in Modalen</dd>
+        <dt><kbd>←</kbd> / <kbd>→</kbd></dt><dd>Wrapped-Slide vor/zurück</dd>
+        <dt><kbd>Leertaste</kbd></dt><dd>Wrapped-Slide weiter</dd>
+        <dt><kbd>Enter</kbd></dt><dd>Fokussierten Button auslösen</dd>
+      </dl>
+      <p class="muted small">Touch: Tap auf Story pausiert den Fortschritt. Lange tippen auf einen Action-Button öffnet das Aria-Label.</p>
+      <button class="btn btn-primary" id="shortcuts-close">Verstanden</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const handle = attachModal(overlay);
+  overlay.querySelector('#shortcuts-close').onclick = () => handle.close();
+}
+
 function openConceptsList() {
   const overlay = document.createElement('div');
   overlay.className = 'tw-overlay';
@@ -2059,6 +2177,104 @@ function buildContextualDiscussionQuestions(d) {
   }
 
   return out.slice(0, 8);
+}
+
+// Workshop-Plan-Export: 3-Tage-Stundenplanung als druckbares HTML mit
+// Phasen, Material und Reflexionsfragen pro Tag. Lehrkräfte bekommen ein
+// fertiges Material in der Hand, statt aus dem README zu interpretieren.
+function exportWorkshopPlan() {
+  const html = `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8">
+<title>3-Tage-Workshop · Der Algorithmus</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", sans-serif; max-width: 820px; margin: 2rem auto; padding: 1rem; color: #1f2230; line-height: 1.55; }
+  h1 { color: #c026d3; border-bottom: 2px solid #eee; padding-bottom: .5rem; }
+  h2 { color: #4338ca; margin-top: 2rem; padding-top: .5rem; }
+  h3 { color: #6c2bd9; margin-top: 1.5rem; }
+  .day { background: #fffbe6; border: 1px solid #f0c060; border-radius: 8px; padding: 14px 18px; margin: 1.5rem 0; }
+  .day strong { color: #92520a; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; display: block; margin-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: top; }
+  th { background: #f4f5fa; font-weight: 600; }
+  .phase-time { width: 80px; font-weight: 600; color: #4338ca; }
+  ul { margin: 0.4rem 0 0.4rem 1.2rem; padding: 0; }
+  ul li { margin: .3rem 0; }
+  .foot { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #ddd; color: #777; font-size: 13px; }
+  @media print { @page { margin: 1.5cm; } .day { page-break-inside: avoid; } table { page-break-inside: auto; } tr { page-break-inside: avoid; } }
+</style></head>
+<body>
+  <h1>3-Tage-Workshop „Der Algorithmus"</h1>
+  <p>Vorschlag für eine Projektwoche „Demokratiebildung" in der 12. Klasse. Frei zu kürzen, zu ergänzen, zu ignorieren. Die App heißt im Spiel <em>Streem</em>.</p>
+
+  <div class="day"><strong>Vor dem Einsatz</strong>
+    <ul>
+      <li>App auf den iPads / Laptops installieren (oder per Link öffnen)</li>
+      <li>Checkliste in der App: Start-Bildschirm → „Vor dem Klassen-Einsatz" (lokale Checks)</li>
+      <li>Inhaltswarnungen vorab erklären (rechte/verschwörungsideologische Rhetorik, Antifeminismus, Hass — alles fiktiv, alles mit Warnhinweis)</li>
+      <li>SuS einen JSON-Spielstand-Speicherort einrichten (USB-Stick, Cloud, gemeinsame Ordner) — für den Klassen-Vergleich am Ende</li>
+    </ul>
+  </div>
+
+  <h2>Tag 1 · Onboarding und erste Wochen (W0 – W8)</h2>
+  <p><strong>Fokus:</strong> Vertrautwerden mit dem Feed. SuS spielen ihren Account, schauen Stories, posten erstmals selbst. Algorithmus arbeitet noch unsichtbar.</p>
+  <table>
+    <tr><th class="phase-time">5 Min</th><td><strong>Einstieg im Plenum.</strong> Was wisst ihr über Social-Media-Algorithmen? Welche Plattformen nutzt ihr?</td></tr>
+    <tr><th class="phase-time">10 Min</th><td><strong>App-Onboarding.</strong> Charakter wählen (Alex / Jamal / Ronja), Name, Avatar, Interessen, Bio. <em>App: Tutorial läuft beim ersten Reinkommen automatisch.</em></td></tr>
+    <tr><th class="phase-time">5 Min</th><td><strong>Pre-Quiz.</strong> Fünf Selbstreflexions-Skalen. <em>App: erscheint nach Onboarding.</em></td></tr>
+    <tr><th class="phase-time">50 Min</th><td><strong>Spielen W0 – W8.</strong> Stille Spielzeit, ca. 5 Min pro Woche. Lehrkraft beobachtet, beantwortet technische Fragen.</td></tr>
+    <tr><th class="phase-time">10 Min</th><td><strong>Halbzeit-Reflexion W4.</strong> App stellt 3 offene Fragen. SuS antworten in der App.</td></tr>
+    <tr><th class="phase-time">10 Min</th><td><strong>Pause.</strong></td></tr>
+    <tr><th class="phase-time">25 Min</th><td><strong>Reflexion im Plenum.</strong> Was ist euch im Feed zuerst aufgefallen? Welche Accounts habt ihr schon geblockt oder gemutet, welche nicht? Hat euch der Feed überrascht?</td></tr>
+  </table>
+
+  <h2>Tag 2 · Komplexität und Verschärfung (W9 – W18)</h2>
+  <p><strong>Fokus:</strong> Mechanik wird sichtbar. Anzeigen, Algorithmus-Panel, Bots, Gilden, Mini-Game, Shitstorm. Inhaltswarnungen greifen.</p>
+  <table>
+    <tr><th class="phase-time">10 Min</th><td><strong>Tagesfokus.</strong> Heute schaltet die App Anzeigen, das Algorithmus-Panel und Bots frei. Schaut mindestens einmal in „Blick hinter den Algorithmus" (🔍 oben rechts).<br/><em>App-Tipp: URL mit ?day=2 öffnen → Lehrkraft-Banner mit Schwerpunkten.</em></td></tr>
+    <tr><th class="phase-time">50 Min</th><td><strong>Spielen W9 – W18.</strong> Inkl. Bot-Quiz in W12 (in der App). Marc-DM-Anwerbung in W11 (klar gekennzeichnet, Inhaltswarnung).</td></tr>
+    <tr><th class="phase-time">10 Min</th><td><strong>Pause.</strong></td></tr>
+    <tr><th class="phase-time">10 Min</th><td><strong>Zwischenreflexion W18.</strong> In der App.</td></tr>
+    <tr><th class="phase-time">25 Min</th><td><strong>Reflexion im Plenum.</strong> Habt ihr Posts gesehen, die ihr lieber nicht gesehen hättet? Welche Gilden habt ihr betreten, welche nicht — warum? Der Algorithmus zeigt, was er über euch „weiß". Überrascht euch das? Wer hat Marc geblockt / ignoriert / angenommen?</td></tr>
+  </table>
+
+  <h2>Tag 3 · Analyse und Gestaltung (W19 – W26)</h2>
+  <p><strong>Fokus:</strong> Wahlkampf, Wahltag, Jahresrückblick (Wrapped), eigener Algorithmus (Sandbox), Medien-Manifest.</p>
+  <table>
+    <tr><th class="phase-time">10 Min</th><td><strong>Tagesfokus.</strong> Wahlkampf + Wrapped + Sandbox + Manifest. App-Tipp: ?day=3 öffnen.</td></tr>
+    <tr><th class="phase-time">40 Min</th><td><strong>Spielen W19 – W26.</strong> Inkl. Wahlomat-Quiz (im Wahl-Modal), Wahltag W22.</td></tr>
+    <tr><th class="phase-time">15 Min</th><td><strong>Wrapped durchklicken.</strong> Pre/Post-Quiz, NPC-Reflexionen, „Hätte ich anders entschieden?", Beat-Map, Quellen-Anhang pro Ending.</td></tr>
+    <tr><th class="phase-time">10 Min</th><td><strong>Pause.</strong></td></tr>
+    <tr><th class="phase-time">20 Min</th><td><strong>Sandbox.</strong> Eigene Slider-Setups, Presets vergleichen, Algorithm-Battle. Optional: „Als Pseudo-Code zeigen" — der Algorithmus als gewichtete Summe.</td></tr>
+    <tr><th class="phase-time">15 Min</th><td><strong>Medien-Manifest schreiben.</strong> Fünf Leitsätze pro Person. Export als HTML.</td></tr>
+    <tr><th class="phase-time">15 Min</th><td><strong>Klassen-Vergleich.</strong> Alle JSON-Spielstände einsammeln, Lehrkraft startet Settings → „Klassen-Vergleich" → alle Saves hochladen. Übersicht im Plenum diskutieren: Entscheidungs-Diffs, Protagonist-Vergleich, geteilte Lesezeichen, Selbsteinschätzung der Klasse vorher/nachher.</td></tr>
+    <tr><th class="phase-time">15 Min</th><td><strong>Schluss-Reflexion.</strong> Was hat der Jahresrückblick gezeigt, das euch überrascht hat? Welche Regeln habt ihr in der Sandbox gewählt — und warum? Was nehmt ihr für euer echtes Social-Media-Leben mit?</td></tr>
+  </table>
+
+  <h2>Material in der App</h2>
+  <ul>
+    <li><strong>Tutorial</strong>: erscheint automatisch beim ersten Reinkommen. „Settings → Tutorial nochmal abspielen" wenn gewünscht.</li>
+    <li><strong>Konzept-Karten</strong>: erscheinen passend zu Unlocks (Algorithmus, Anzeigen, Bots, Dark Patterns, Empfehlungssysteme).</li>
+    <li><strong>Glossar</strong>: 19 Begriffe. „Settings → Glossar".</li>
+    <li><strong>Mini-Games</strong>: Bot oder Mensch (W12, später jederzeit), Faktencheck-Sprint, Schlagzeile-zu-Studie. Alle in „Settings".</li>
+    <li><strong>Lehr-Bericht / CSV</strong>: pro Spielstand komplette Übersicht inkl. Diskussionsfragen, Lesezeichen, Mikro-Reflexionen, Wahlomat, Glossar.</li>
+    <li><strong>Klassen-Vergleich</strong>: anonymisierte Übersicht über alle hochgeladenen Saves.</li>
+  </ul>
+
+  <h2>Anlaufstellen für die Klasse</h2>
+  <ul>
+    <li>bpb.de — Bundeszentrale für politische Bildung</li>
+    <li>klicksafe.de — Material für Medienkompetenz</li>
+    <li>hateaid.org — Hilfe bei digitaler Gewalt</li>
+    <li>beratung-gegen-rechtsextremismus.de</li>
+    <li>Telefonseelsorge 0800 111 0 111 (24/7, kostenlos)</li>
+  </ul>
+
+  <div class="foot">
+    Erstellt aus „Der Algorithmus". Frei zur Anpassung an euren Stundenplan.
+  </div>
+</body></html>`;
+  const blob = new Blob([html], { type: 'text/html' });
+  downloadBlob(blob, 'streem-workshop-3-tage.html');
+  toast('Stundenplan exportiert.', { long: true });
 }
 
 // CSV-Export: kompakte Tabelle mit den Feldern, die Lehrkräfte in Excel

@@ -242,6 +242,15 @@
                 <input type="checkbox" id="chk-light" />
                 <span>Light-Mode (für Projektor / helle Räume)</span>
               </label>
+              <label class="settings-toggle">
+                <input type="checkbox" id="chk-contrast" />
+                <span>Hoher Kontrast (für bessere Lesbarkeit)</span>
+              </label>
+              <label class="settings-slider">
+                <span>Schriftgröße</span>
+                <input type="range" id="rng-fontsize" min="85" max="135" step="5" />
+                <output id="rng-fontsize-val" aria-live="polite">100 %</output>
+              </label>
             </div>
           </details>
 
@@ -250,9 +259,11 @@
             <div class="settings-section-body">
               <button class="btn btn-ghost" id="btn-glossary">Glossar (Algorithmus, Bot, Filterblase …)</button>
               <button class="btn btn-ghost" id="btn-concepts">Konzept-Karten (Übersicht)</button>
+              <button class="btn btn-ghost" id="btn-shortcuts">Tastenkürzel anzeigen</button>
               <button class="btn btn-ghost" id="btn-minigame">Bot-Quiz spielen</button>
               <button class="btn btn-ghost" id="btn-factcheck">Faktencheck-Sprint spielen</button>
               <button class="btn btn-ghost" id="btn-headline">Schlagzeile-zu-Studie spielen</button>
+              <button class="btn btn-ghost" id="btn-glossquiz">Begriff-zur-Erklärung spielen</button>
               <button class="btn btn-ghost" id="btn-replay-tutorial">Tutorial nochmal abspielen</button>
               <button class="btn btn-ghost" id="btn-show-wrapped-now">Jahresrückblick jetzt öffnen</button>
               <button class="btn btn-ghost" id="btn-show-sandbox-now">Sandbox öffnen</button>
@@ -265,6 +276,7 @@
               <button class="btn btn-ghost" id="btn-jump-week">Zu Woche springen …</button>
               <button class="btn btn-ghost" id="btn-classcompare">Klassen-Vergleich (Saves laden)</button>
               <button class="btn btn-ghost" id="btn-export-report">Lehr-Bericht exportieren (HTML)</button>
+              <button class="btn btn-ghost" id="btn-export-workshop">3-Tage-Stundenplan exportieren (HTML)</button>
               <button class="btn btn-ghost" id="btn-export-csv">Stats als CSV (für Excel/Sheets)</button>
               <button class="btn btn-ghost" id="btn-save-export">Spielstand exportieren (JSON)</button>
               <button class="btn btn-ghost" id="btn-save-import">Spielstand importieren (JSON)</button>
