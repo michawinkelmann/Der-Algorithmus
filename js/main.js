@@ -17,6 +17,8 @@ import { generateRepliesForJustEndedWeek } from './postreplies.js';
 import { maybeShowPush } from './push.js';
 import { maybeRunTutorial } from './tutorial.js';
 import { showConcept } from './concepts.js';
+import { attachModal } from './modals.js';
+import { openGlossary } from './glossary.js';
 
 // ===== Daten-Bundle (statt fetch, damit file:// funktioniert) =====
 // Die JSONs werden zur Laufzeit geladen — funktioniert per fetch() auch bei file://
@@ -195,6 +197,7 @@ function bindGlobal() {
       document.querySelectorAll('.navbtn').forEach(x => x.classList.remove('active'));
       b.classList.add('active');
       const view = b.dataset.view;
+      document.getElementById('feed-root')?.classList.remove('dm-mode');
       if (view === 'dms') {
         openDmInbox();
       } else {
@@ -235,6 +238,10 @@ function bindGlobal() {
   // Bot-Minigame jederzeit wiederholbar
   const mgBtn = document.getElementById('btn-minigame');
   if (mgBtn) mgBtn.onclick = () => { showScreen('screen-main'); openBotMinigame(); };
+
+  // Glossar
+  const gloBtn = document.getElementById('btn-glossary');
+  if (gloBtn) gloBtn.onclick = () => { showScreen('screen-main'); openGlossary(); };
 
   // Wochen-Sprung für Lehrkraft
   const jumpBtn = document.getElementById('btn-jump-week');
@@ -413,6 +420,7 @@ function updateDmBadge() {
 
 function openDmInbox() {
   const root = document.getElementById('feed-root');
+  root.classList.remove('dm-mode');
   root.innerHTML = '';
   const wrap = document.createElement('div');
   wrap.className = 'dm-inbox';
@@ -424,11 +432,14 @@ function openDmInbox() {
   renderDmList(wrap.querySelector('#dm-list-root'), async (thread) => {
     SFX.swipe();
     const root2 = document.getElementById('feed-root');
+    root2.classList.add('dm-mode');
     root2.innerHTML = '';
     const w2 = document.createElement('div');
     w2.className = 'dm-thread-wrap';
     root2.appendChild(w2);
     await renderDmThread(w2, thread, () => {
+      const r = document.getElementById('feed-root');
+      r.classList.remove('dm-mode');
       openDmInbox();
       updateDmBadge();
     });
@@ -441,8 +452,6 @@ function openStory(story) {
   const c = getCharacter(story.author);
   const overlay = document.createElement('div');
   overlay.className = 'tw-overlay story-overlay';
-  overlay.setAttribute('role', 'dialog');
-  overlay.setAttribute('aria-modal', 'true');
   overlay.innerHTML = `
     <div class="story-box">
       <div class="story-bar"><div class="story-bar-fill"></div></div>
@@ -459,48 +468,60 @@ function openStory(story) {
     </div>
   `;
   document.body.appendChild(overlay);
-  const close = () => {
-    overlay.remove();
-    document.removeEventListener('keydown', onKey);
-    clearTimeout(autoClose);
-  };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
-  document.addEventListener('keydown', onKey);
-  overlay.addEventListener('click', e => { if (e.target === overlay || e.target.classList.contains('story-close')) close(); });
-  const autoClose = setTimeout(close, 5000);
+  // Pause-on-Touch: solange Pointer/Tap auf der Story ist, läuft der
+  // Fortschrittsbalken nicht weiter. So verpasst niemand den Inhalt.
+  const bar = overlay.querySelector('.story-bar-fill');
+  let pausedAt = null;
+  let consumed = 0;
+  const DURATION = 5000;
+  let raf = null;
+  function tick(ts) {
+    if (pausedAt) { raf = requestAnimationFrame(tick); return; }
+    consumed += 16.7;
+    const ratio = Math.min(1, consumed / DURATION);
+    if (bar) bar.style.width = (ratio * 100) + '%';
+    if (ratio >= 1) { handle.close(); return; }
+    raf = requestAnimationFrame(tick);
+  }
+  raf = requestAnimationFrame(tick);
+  const onDown = () => { pausedAt = Date.now(); };
+  const onUp = () => { pausedAt = null; };
+  overlay.addEventListener('pointerdown', onDown);
+  overlay.addEventListener('pointerup', onUp);
+  overlay.addEventListener('pointerleave', onUp);
+  const handle = attachModal(overlay, {
+    onClose: () => {
+      cancelAnimationFrame(raf);
+      overlay.removeEventListener('pointerdown', onDown);
+      overlay.removeEventListener('pointerup', onUp);
+      overlay.removeEventListener('pointerleave', onUp);
+    }
+  });
+  overlay.querySelector('.story-close').onclick = () => handle.close();
 }
 
 function openMap() {
   SFX.swipe();
   const overlay = document.createElement('div');
   overlay.className = 'tw-overlay';
-  overlay.setAttribute('role', 'dialog');
-  overlay.setAttribute('aria-modal', 'true');
   const box = document.createElement('div');
   box.className = 'tw-box big';
   overlay.appendChild(box);
   document.body.appendChild(overlay);
-  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
-  document.addEventListener('keydown', onKey);
-  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
-  renderMap(box, close);
+  const handle = attachModal(overlay);
+  renderMap(box, () => handle.close());
 }
 
 function openClassCompare() {
   SFX.swipe();
   const overlay = document.createElement('div');
   overlay.className = 'tw-overlay';
-  overlay.setAttribute('role', 'dialog');
-  overlay.setAttribute('aria-modal', 'true');
   const box = document.createElement('div');
   box.className = 'tw-box big';
   overlay.appendChild(box);
   document.body.appendChild(overlay);
-  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
-  document.addEventListener('keydown', onKey);
-  renderClassCompare(box, close);
+  const handle = attachModal(overlay);
+  renderClassCompare(box, () => handle.close());
 }
 
 function applyTheme(theme) {
@@ -539,10 +560,8 @@ function openBotMinigame() {
   box.className = 'tw-box big';
   overlay.appendChild(box);
   document.body.appendChild(overlay);
-  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
-  document.addEventListener('keydown', onKey);
-  runMinigame(box, close);
+  const handle = attachModal(overlay);
+  runMinigame(box, () => handle.close());
 }
 
 function maybeUnlockForWeek() {
@@ -612,7 +631,10 @@ function showWeekendCard(weekNum, eventResults, badges) {
     <div class="stat"><div class="num">${(d.userProfile.political_lean_estimated).toFixed(2)}</div><div class="lbl">Lean</div><div class="delta">${leanDelta>=0?'+':''}${leanDelta.toFixed(2)}</div></div>
   `;
 
-  let storyHtml = '';
+  // Highlight der Woche — ein knapper Satz, der eine markante Bewegung
+  // hervorhebt. Sehr knapp, damit es nicht mit den Events konkurriert.
+  const highlight = weekHighlight(d, eventResults, badges, prev, now, leanDelta, followedDelta);
+  let storyHtml = highlight ? `<div class="week-highlight"><span class="kicker">Highlight</span><span>${escapeHtml(highlight)}</span></div>` : '';
   // Events
   for (const r of eventResults) {
     const e = r.event, res = r.result;
@@ -715,6 +737,11 @@ function advanceWeek() {
   if (pendingReflection) {
     openReflection(pendingReflection);
     return;
+  }
+  // Direkt nach dem ersten Shitstorm einen Mikro-Reflexions-Moment anbieten.
+  const hadShitstorm = (Store.data.shitstormHistory || []).length > 0;
+  if (hadShitstorm && !Store.data.microReflections?.first_shitstorm) {
+    setTimeout(() => maybeQueueMicroReflection('first_shitstorm'), 400);
   }
   enterMain();
 }
@@ -845,6 +872,28 @@ function dynamicCharacterOverlay(id, base) {
   if (id === 'char_mira') {
     if ((arcs.mira_close || 0) >= 0.4) return { bio: 'Klima-Aktivistin · danke an alle, die zuhören.' };
     if ((arcs.mira_close || 0) <= -0.2) return { bio: 'Klima-Aktivistin. DMs vorerst zu.' };
+  }
+  return null;
+}
+
+function weekHighlight(d, eventResults, badges, prev, now, leanDelta, followedDelta) {
+  for (const r of eventResults) {
+    if (r.result?.kind === 'shitstorm') return 'Einer deiner Posts ist viral gegangen.';
+    if (r.result?.kind === 'deepfake') return 'Ein Deepfake hat dein Greifshafen aufgewirbelt.';
+    if (r.result?.kind === 'invite') return 'Du hast eine neue Gilden-Einladung bekommen.';
+    if (r.result?.kind === 'election_vote') return 'Wahltag — dein Feed hat dir eine ganz bestimmte Version gezeigt.';
+  }
+  if (badges?.length) return `Neues Abzeichen: ${badges[0]}.`;
+  if (Math.abs(leanDelta) > 0.08) {
+    return leanDelta > 0
+      ? 'Deine politische Position ist diese Woche sichtbar nach rechts gerutscht.'
+      : 'Deine politische Position ist diese Woche sichtbar nach links gerutscht.';
+  }
+  if (followedDelta >= 3) return `Du folgst jetzt ${followedDelta} neuen Accounts.`;
+  const prevTop = Object.entries(prev?.interests || {}).sort((a,b)=>b[1]-a[1])[0]?.[0];
+  const nowTop  = Object.entries(now?.interests  || {}).sort((a,b)=>b[1]-a[1])[0]?.[0];
+  if (prevTop && nowTop && prevTop !== nowTop) {
+    return `Dein Top-Thema hat sich von „${tagLabel(prevTop)}" auf „${tagLabel(nowTop)}" verschoben.`;
   }
   return null;
 }
@@ -1040,12 +1089,14 @@ function showElectionResult() {
         const obj = Math.round(p.share * 100);
         const per = Math.round((pc?.perceived || 0) * 100);
         const diff = per - obj;
+        const arrow = diff > 0 ? '↑' : diff < 0 ? '↓' : '→';
+        const diffLabel = diff > 0 ? 'mehr im Feed' : diff < 0 ? 'weniger im Feed' : 'gleich';
         return `
           <div class="election-row">
             <div class="party-label" style="color:${col}">${escapeHtml(p.name)}</div>
             <div class="bar-pair">
               <div class="bar"><div class="fill" style="width:${obj}%;background:${col};opacity:0.55"></div><span class="bar-val">${obj}%</span></div>
-              <div class="bar"><div class="fill" style="width:${per}%;background:${col}"></div><span class="bar-val">${per}% <em class="diff ${diff>=0?'pos':'neg'}">${diff>=0?'+':''}${diff}</em></span></div>
+              <div class="bar"><div class="fill" style="width:${per}%;background:${col}"></div><span class="bar-val">${per}% <em class="diff ${diff>=0?'pos':'neg'}" aria-label="${escapeHtml(diffLabel)}"><span aria-hidden="true">${arrow}</span> ${diff>=0?'+':''}${diff}</em></span></div>
             </div>
           </div>`;
       }).join('')}

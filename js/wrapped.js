@@ -190,9 +190,68 @@ export function buildWrapped() {
 }
 
 // Multiple Endings — datengetrieben aus dem finalen Profil und der Spielhistorie.
+// Pro Ending eine kleine kuratierte Quellen-Liste — echte Anlaufstellen,
+// die zum Thema des Endings passen. Macht aus „du hast jetzt erlebt …"
+// einen konkreten Anschluss-Schritt.
+const ENDING_SOURCES = {
+  finn_lost: [
+    { label: 'beratung-gegen-rechtsextremismus.de', what: 'wenn jemand in deinem Umfeld abdriftet' },
+    { label: 'jugendschutz.net', what: 'Meldestelle für extremistische und jugendgefährdende Inhalte' },
+    { label: 'bpb.de — Reihe „Was tun gegen Rechtsextremismus"', what: 'Hintergrund + Handlungsoptionen' }
+  ],
+  finn_saved: [
+    { label: 'bpb.de — Radikalisierungsprävention', what: 'was hat hier geholfen, was hilft strukturell' },
+    { label: 'klicksafe.de — „Hass im Netz"', what: 'wie du andere unterstützen kannst' }
+  ],
+  rabbithole: [
+    { label: 'exit-deutschland.de', what: 'Ausstiegshilfe aus extremistischen Szenen' },
+    { label: 'beratung-gegen-rechtsextremismus.de', what: 'auch für Angehörige' },
+    { label: 'Telefonseelsorge 0800 111 0 111', what: 'wenn dir nach dem Spiel etwas hängenbleibt' }
+  ],
+  allyship: [
+    { label: 'hateaid.org', what: 'rechtliche und psychologische Unterstützung bei digitaler Gewalt' },
+    { label: 'fearlessdemocracy.org', what: 'Hate-Speech erkennen und melden' },
+    { label: 'bpb.de — „Antifeminismus erkennen"', what: 'Hintergrund zu Mustern, die du gesehen hast' }
+  ],
+  aware: [
+    { label: 'bpb.de — „Wie funktionieren Algorithmen?"', what: 'die Mechanik, die du im Spiel ausgestellt gesehen hast' },
+    { label: 'klicksafe.de — „Algorithmen verstehen"', what: 'Material für Schule und für dich selbst' },
+    { label: 'algorithmwatch.org', what: 'forscht und berichtet zu algorithmischer Macht' }
+  ],
+  influencer: [
+    { label: 'klicksafe.de — „Reichweite und Verantwortung"', what: 'was sollte ich beachten, wenn ich poste' },
+    { label: 'hateaid.org', what: 'Schutz vor Pile-Ons' }
+  ],
+  crusader: [
+    { label: 'bpb.de — „Wie diskutieren wir online?"', what: 'Gesprächsführung statt Empörung' },
+    { label: 'klicksafe.de — „Mein digitaler Fußabdruck"', what: 'was bleibt online?' }
+  ],
+  guarded: [
+    { label: 'klicksafe.de — „Selbstschutz online"', what: 'Werkzeuge für die eigene Aufmerksamkeit' },
+    { label: 'bpb.de — Medienkompetenz', what: 'tiefer einsteigen' }
+  ],
+  nerd: [
+    { label: 'algorithmwatch.org', what: 'wissenschaftlich-kritische Sicht auf Plattformen' },
+    { label: 'iqo.uni-hannover.de — Open Science', what: 'Studien lesen, bevor du Schlagzeilen teilst' }
+  ],
+  driven: [
+    { label: 'klicksafe.de', what: 'Erste Anlaufstelle für sicheren Umgang mit Social Media' },
+    { label: 'bpb.de — „Politische Bildung digital"', what: 'einordnen, was dein Feed dir gezeigt hat' }
+  ]
+};
+
 function buildEndingSlide(d) {
   const e = computeEnding(d);
   d.ending = e.key;
+  const sources = ENDING_SOURCES[e.key] || ENDING_SOURCES.driven;
+  const sourceList = `
+    <div class="ending-sources">
+      <div class="ending-sources-head">Wenn dich das Thema weiter beschäftigt:</div>
+      <ul>
+        ${sources.map(s => `<li><strong>${escapeHtml(s.label)}</strong><br/><span class="muted small">${escapeHtml(s.what)}</span></li>`).join('')}
+      </ul>
+    </div>
+  `;
   return {
     id: 's8b',
     html: `
@@ -204,6 +263,7 @@ function buildEndingSlide(d) {
         <div class="ending-stats muted small">
           ${e.facts.map(f => `<div>${escapeHtml(f)}</div>`).join('')}
         </div>
+        ${sourceList}
       </div>
       <p class="muted small">Dieses Ergebnis hängt von deinen Entscheidungen ab — andere Spielzüge führen zu anderen Bögen.</p>
     `

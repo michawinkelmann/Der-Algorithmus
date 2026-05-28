@@ -2,6 +2,7 @@
 // angezeigt werden. Bewusst sehr knapp gehalten — eine Karte ≤ 60 Sekunden Lesezeit.
 
 import { Store } from './state.js';
+import { attachModal } from './modals.js';
 
 const CONCEPTS = {
   bots_intro: {
@@ -81,11 +82,8 @@ export function showConcept(key) {
     </div>
   `;
   document.body.appendChild(overlay);
-  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
-  document.addEventListener('keydown', onKey);
-  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
-  overlay.querySelector('#concept-close').onclick = close;
+  const handle = attachModal(overlay);
+  overlay.querySelector('#concept-close').onclick = () => handle.close();
 }
 
 function escapeHtml(s) {

@@ -32,6 +32,7 @@ ORDER = [
     "push.js",
     "tutorial.js",
     "concepts.js",
+    "glossary.js",
     "main.js",
 ]
 

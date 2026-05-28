@@ -92,9 +92,8 @@
 }
 .story-bar-fill {
   height: 100%; background: #fff; width: 0;
-  animation: story-progress 5s linear forwards;
+  /* Fortschritt wird von JS gesetzt (pause-on-touch). */
 }
-@keyframes story-progress { to { width: 100%; } }
 .story-head { display: flex; align-items: center; gap: 10px; }
 .story-head .avatar { width: 32px; height: 32px; border-radius: 50%; overflow: hidden; background: var(--bg-elev); display: grid; place-items: center; }
 .story-head .avatar svg { width: 100%; height: 100%; }
@@ -155,8 +154,23 @@
 }
 .dm-week { white-space: nowrap; }
 
-/* DM-Thread */
-.dm-thread-wrap { display: flex; flex-direction: column; height: calc(100vh - 130px); height: calc(100dvh - 130px); }
+/* DM-Thread — füllt das verfügbare Feed-Root aus, ohne starre 100vh-Annahme.
+   Funktioniert auch im Phone-Frame-Desktop-Layout, wo der Container kürzer ist. */
+.dm-thread-wrap {
+  display: flex; flex-direction: column;
+  min-height: 0;
+  height: 65vh; height: 65dvh;
+}
+.feed-root.dm-mode {
+  display: flex; flex-direction: column;
+  height: calc(100vh - 130px); height: calc(100dvh - 130px);
+  padding: 0;
+  max-width: none;
+}
+.feed-root.dm-mode > .dm-thread-wrap { flex: 1; height: auto; }
+@media (min-width: 980px) {
+  .feed-root.dm-mode { height: 100%; }
+}
 .dm-thread-head {
   display: flex; align-items: center; gap: 10px;
   padding: 10px 12px;
@@ -631,3 +645,140 @@
 .ending-finn_lost .ending-title { background: linear-gradient(135deg, var(--danger), var(--warn)); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .ending-finn_saved { border-color: var(--ok); }
 .ending-allyship { border-color: var(--accent); }
+
+/* ===== Quellen-Anhang im Ending ===== */
+.ending-sources {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--line);
+  text-align: left;
+}
+.ending-sources-head {
+  font-size: 13px; font-weight: 600;
+  color: var(--accent-2);
+  margin-bottom: 8px;
+  text-align: center;
+}
+.ending-sources ul {
+  list-style: none; padding: 0; margin: 0;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.ending-sources li {
+  padding: 8px 12px;
+  background: var(--bg-elev-2);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  font-size: 13px; line-height: 1.5;
+}
+.ending-sources li strong { font-size: 14px; }
+
+/* ===== Compose Sticker ===== */
+.compose-stickers {
+  display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+  margin: 8px 0;
+}
+.compose-sticker {
+  background: var(--bg-elev-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 22px;
+  width: 42px; height: 42px;
+  cursor: pointer;
+  display: grid; place-items: center;
+  transition: border-color 120ms ease, transform 100ms ease;
+}
+.compose-sticker:hover { border-color: var(--accent-2); }
+.compose-sticker:active { transform: scale(0.95); }
+.compose-sticker.selected {
+  border-color: var(--accent);
+  background: rgba(255,46,136,0.12);
+  box-shadow: 0 0 0 2px rgba(255,46,136,0.3);
+}
+
+.own-post-sticker {
+  font-size: 64px;
+  text-align: center;
+  padding: 18px 0;
+  background: var(--bg-elev-2);
+  border-radius: var(--radius-sm);
+  margin-top: 10px;
+}
+
+/* NPC-Replies unter eigenen Posts im Feed */
+.own-post-replies {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.own-post-reply {
+  display: grid; grid-template-columns: 32px 1fr; gap: 10px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev-2);
+  border-left: 3px solid var(--line);
+  font-size: 13px;
+}
+.own-post-reply.stance-support  { border-left-color: var(--ok); }
+.own-post-reply.stance-pushback { border-left-color: var(--danger); }
+.own-post-reply.stance-curious  { border-left-color: var(--accent-2); }
+.own-post-reply .avatar.small {
+  width: 32px; height: 32px;
+  border-radius: 50%; overflow: hidden; background: var(--bg);
+  display: grid; place-items: center;
+}
+.own-post-reply .avatar.small svg { width: 100%; height: 100%; }
+
+/* ===== Highlight der Woche (Wochenende-Karte) ===== */
+.week-highlight {
+  display: flex; gap: 10px; align-items: center;
+  padding: 10px 12px;
+  background: linear-gradient(90deg, rgba(255,46,136,0.12), rgba(34,211,238,0.08));
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  margin: 10px 0 16px;
+  font-size: 14px;
+}
+.week-highlight .kicker {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--accent); font-weight: 700;
+  padding: 2px 8px; background: rgba(255,46,136,0.18);
+  border-radius: 10px; white-space: nowrap;
+}
+
+/* ===== Glossar ===== */
+.glossary-box { max-width: 520px; max-height: 80vh; overflow-y: auto; }
+.glossary-head { display: flex; justify-content: space-between; align-items: center; }
+.glossary-head h3 { margin: 0; color: var(--accent-2); }
+.glossary-list {
+  list-style: none; padding: 0; margin: 12px 0 0;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.glossary-list li {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-elev-2);
+}
+.glossary-term {
+  all: unset; cursor: pointer;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 12px;
+  width: 100%;
+}
+.glossary-term:hover { background: var(--bg-elev); }
+.glossary-chev {
+  color: var(--accent-2);
+  font-size: 18px; font-weight: 700;
+  margin-left: 12px;
+}
+.glossary-text {
+  padding: 0 12px 12px;
+  font-size: 14px; line-height: 1.5;
+  color: var(--text-dim);
+}
+
+/* Wahl-Diff Pfeile */
+.diff { display: inline-flex; align-items: center; gap: 2px; font-style: normal; }
+.diff.pos { color: var(--ok); }
+.diff.neg { color: var(--danger); }

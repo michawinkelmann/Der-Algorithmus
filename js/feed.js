@@ -5,7 +5,7 @@ import { buildFeed, explainPost, scorePost } from './algorithm.js';
 import { getCharacter, avatarSvg, memeSvg } from './characters.js';
 import { askWarning } from './warnings.js';
 import { SFX } from './sound.js';
-import { getRepliesForInbox } from './postreplies.js';
+import { getRepliesForInbox, getRepliesForOwnPost } from './postreplies.js';
 
 let POSTS = [];
 let ADS = [];
@@ -382,6 +382,24 @@ function renderPost(post) {
 function renderOwnPost(op, opts = {}) {
   const card = document.createElement('article');
   card.className = 'post-card own-post' + (opts.pinned ? ' pinned' : '');
+  const stickerBlock = op.sticker
+    ? `<div class="own-post-sticker" aria-hidden="true">${op.sticker}</div>`
+    : '';
+  const replies = getRepliesForOwnPost(op);
+  const repliesBlock = replies.length
+    ? `<div class="own-post-replies">
+        ${replies.map(r => {
+          const c = getCharacter(r.author);
+          return `<div class="own-post-reply stance-${r.stance}">
+            <div class="avatar small">${avatarSvg(c?.avatar || 0)}</div>
+            <div class="reply-meta">
+              <div class="reply-author"><strong>${escapeHtml(c?.name || r.author)}</strong> <span class="muted small">${escapeHtml(c?.handle || '')}</span></div>
+              <div class="reply-text">${escapeHtml(r.text)}</div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`
+    : '';
   card.innerHTML = `
     <div class="post-head">
       <div class="avatar" aria-hidden="true">${avatarSvg(Store.data.character.avatar || 0)}</div>
@@ -391,7 +409,9 @@ function renderOwnPost(op, opts = {}) {
       </div>
     </div>
     <div class="post-body">${escapeHtml(op.text)}</div>
+    ${stickerBlock}
     <div class="muted small" style="padding-top:8px">Tags: ${(op.tags || []).join(', ')}</div>
+    ${repliesBlock}
   `;
   return card;
 }
@@ -410,6 +430,10 @@ function buildComposeBox() {
         ${trending.slice(0, 4).map(t => `<button type="button" class="compose-trend" data-tag="${escapeHtml(t.tag)}">${escapeHtml(t.tag)}</button>`).join('')}
       </div>`
     : '';
+  // Simulierte Bild-Anhänge — keine echten Dateien, nur große Emoji-Bilder.
+  // Gewählter Sticker wird mit dem Post gespeichert und im Feed als Vorschau gezeigt.
+  const STICKERS = ['☕', '🎮', '📚', '🌱', '📢', '🎧', '🤖', '🗳️'];
+  let chosenSticker = null;
   wrap.innerHTML = `
     <textarea id="compose-text" maxlength="${MAX}" placeholder="Was ist los?" aria-label="Beitragstext"></textarea>
     <div class="compose-meta">
@@ -418,11 +442,27 @@ function buildComposeBox() {
     </div>
     <div class="compose-topic-grid" id="compose-topics"></div>
     ${trendingRow}
+    <div class="compose-stickers" role="group" aria-label="Sticker anhängen">
+      <span class="muted small">Sticker (optional):</span>
+      ${STICKERS.map(s => `<button type="button" class="compose-sticker" data-s="${s}" aria-label="Sticker ${s}">${s}</button>`).join('')}
+    </div>
     <div class="compose-row">
       <span class="muted small" id="compose-status"></span>
       <button class="btn btn-primary" id="btn-publish">Posten</button>
     </div>
   `;
+  wrap.querySelectorAll('.compose-sticker').forEach(b => {
+    b.onclick = () => {
+      if (chosenSticker === b.dataset.s) {
+        chosenSticker = null;
+        b.classList.remove('selected');
+      } else {
+        wrap.querySelectorAll('.compose-sticker').forEach(x => x.classList.remove('selected'));
+        chosenSticker = b.dataset.s;
+        b.classList.add('selected');
+      }
+    };
+  });
   const grid = wrap.querySelector('#compose-topics');
   for (const t of topics) {
     const b = document.createElement('button');
@@ -464,7 +504,7 @@ function buildComposeBox() {
     if (chosen.size === 0) { status.textContent = 'Wähle mindestens ein Thema.'; return; }
     const tags = [...chosen];
     const outrage = tags.some(t => ['politik-rechts','politik-links','verschwoerung','hass','feminismus','anti-feminismus'].includes(t)) ? 0.3 : 0.1;
-    Store.addOwnPost({ text, tags, outrage });
+    Store.addOwnPost({ text, tags, outrage, sticker: chosenSticker });
     for (const t of tags) {
       Store.data.userProfile.interests[t] = Math.min(1, (Store.data.userProfile.interests[t] || 0) + 0.1);
     }

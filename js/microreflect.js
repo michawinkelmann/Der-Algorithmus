@@ -4,6 +4,7 @@
 // geschrieben und landen im Lehr-Bericht.
 
 import { Store } from './state.js';
+import { attachModal } from './modals.js';
 
 const PROMPTS = {
   marc_dm: {
@@ -56,19 +57,12 @@ function showMicroReflection(key) {
   `;
   document.body.appendChild(overlay);
   const ta = overlay.querySelector('#micro-input');
-  setTimeout(() => ta.focus(), 30);
-  const close = () => {
-    overlay.remove();
-    document.removeEventListener('keydown', onKey);
-  };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
-  document.addEventListener('keydown', onKey);
-  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  const handle = attachModal(overlay, { initialFocus: ta });
   overlay.querySelector('#micro-skip').onclick = () => {
     if (!Store.data.microReflections) Store.data.microReflections = {};
     Store.data.microReflections[key] = { skipped: true, week: Store.data.currentWeek, ts: Date.now() };
     Store.save();
-    close();
+    handle.close();
   };
   overlay.querySelector('#micro-save').onclick = () => {
     if (!Store.data.microReflections) Store.data.microReflections = {};
@@ -79,7 +73,7 @@ function showMicroReflection(key) {
       question: p.question
     };
     Store.save();
-    close();
+    handle.close();
   };
 }
 
