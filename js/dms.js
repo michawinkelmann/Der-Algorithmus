@@ -163,8 +163,7 @@ export function renderDmThread(root, thread, onBack) {
       b.textContent = ch.text;
       b.onclick = () => {
         applyReply(thread.id, pending.after_week, ch);
-        SFX.dm();
-        renderDmThread(root, thread, onBack);
+        showTypingThenRerender(root, thread, onBack);
       };
       choicesWrap.appendChild(b);
     }
@@ -175,6 +174,30 @@ export function renderDmThread(root, thread, onBack) {
 
   body.scrollTop = body.scrollHeight;
   markThreadSeen(thread.id);
+}
+
+// Eigene Antwort: kurz "schreibt..." einblenden, damit ein DM sich anfühlt
+// wie ein Gespräch und nicht wie ein Form-Submit.
+function showTypingThenRerender(root, thread, onBack) {
+  const body = root.querySelector('#dm-thread-body');
+  const input = root.querySelector('#dm-thread-input');
+  if (body) {
+    const mine = document.createElement('div');
+    mine.className = 'dm-bubble from-me';
+    const lastReply = (Store.data.dmReplies?.[thread.id] || {});
+    const keys = Object.keys(lastReply).map(Number).sort((a, b) => b - a);
+    const recent = lastReply[keys[0]];
+    if (recent) {
+      mine.innerHTML = `<div class="dm-text">${escapeHtml(stripQuotes(recent.text))}</div><div class="dm-time muted small">jetzt</div>`;
+      body.appendChild(mine);
+      body.scrollTop = body.scrollHeight;
+    }
+  }
+  if (input) {
+    input.innerHTML = `<div class="dm-typing"><span class="who">${escapeHtml(thread.title)} schreibt</span><span class="dots"><span></span><span></span><span></span></span></div>`;
+  }
+  SFX.dm();
+  setTimeout(() => renderDmThread(root, thread, onBack), 1400);
 }
 
 // Welche Charaktere sind "online"? Deterministisch pro Woche aus dem Seed.

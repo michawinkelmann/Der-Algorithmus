@@ -5,6 +5,7 @@ import { buildFeed, explainPost, scorePost } from './algorithm.js';
 import { getCharacter, avatarSvg, memeSvg } from './characters.js';
 import { askWarning } from './warnings.js';
 import { SFX } from './sound.js';
+import { getRepliesForInbox } from './postreplies.js';
 
 let POSTS = [];
 let ADS = [];
@@ -27,6 +28,39 @@ export function initFeed(data) {
 function getActiveStories() {
   const w = Store.data.currentWeek;
   return STORIES.filter(s => s.week <= w && s.week >= w - 1);
+}
+
+// Trending-Hashtags pro Woche: Aggregiert aus #-Vorkommen in den Posts der
+// aktuellen und vorigen Woche (in der Datenbasis nicht persistiert,
+// sondern aus dem POSTS-Array errechnet). Liefert die 5 häufigsten.
+function getTrendingHashtags() {
+  const w = Store.data.currentWeek;
+  const counts = new Map();
+  const tagRe = /#[A-Za-zÄÖÜäöüß0-9_]{3,}/g;
+  // Posts dieser und der letzten Woche aus dem eligible-Filter.
+  const candidates = POSTS.filter(p => {
+    // sehr weiches Zeitfenster: Posts mit politischem Bezug erst, wenn freigeschaltet
+    return isFeedEligible(p, Store.data);
+  });
+  for (const p of candidates) {
+    const matches = (p.text || '').match(tagRe) || [];
+    for (const m of matches) counts.set(m, (counts.get(m) || 0) + 1);
+  }
+  // Plus thematische Pseudo-Hashtags aus den dominanten Tags der Top-Posts.
+  for (const p of candidates.slice(0, 30)) {
+    for (const t of p.tags || []) {
+      const key = '#' + t.replace(/[^a-zA-Z0-9]/g, '');
+      if (!counts.has(key) && Math.random() < 0.4) counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([tag, count]) => ({ tag, count }));
+}
+
+export function getTrendingForCompose() {
+  return getTrendingHashtags();
 }
 
 export function setCallbacks({ onWeekEnd: wEnd, onOpenCompose: oc, onOpenStory: os }) {
@@ -157,6 +191,27 @@ export async function renderFeed(view = 'feed') {
       <p>${escapeHtml(w.intro)}</p>
     `;
     root.appendChild(header);
+
+    // Trending-Bar (ab W3, wenn der Feed Inhalt hat).
+    if (d.currentWeek >= 3) {
+      const trending = getTrendingHashtags();
+      if (trending.length) {
+        const tb = document.createElement('div');
+        tb.className = 'trending-bar';
+        tb.innerHTML = `<span class="trending-label muted small">Trending in Greifshafen:</span>` +
+          trending.map(t => `<button class="trending-tag" data-tag="${escapeHtml(t.tag)}">${escapeHtml(t.tag)}</button>`).join('');
+        tb.querySelectorAll('.trending-tag').forEach(b => {
+          b.onclick = () => {
+            const tag = b.dataset.tag.toLowerCase();
+            if (!Store.data.trendingViewed) Store.data.trendingViewed = {};
+            Store.data.trendingViewed[tag] = Store.data.currentWeek;
+            Store.save();
+            toast(`Stell dir vor, du klickst ${b.dataset.tag} und siehst nur noch diese Posts. Was würde das mit deinem Feed machen?`, { long: true });
+          };
+        });
+        root.appendChild(tb);
+      }
+    }
 
     const list = document.createElement('div');
     list.className = 'feed-list';
@@ -333,6 +388,13 @@ function buildComposeBox() {
   const chosen = new Set();
   const MAX = 280;
 
+  const trending = getTrendingHashtags();
+  const trendingRow = trending.length
+    ? `<div class="compose-trending">
+        <span class="muted small">Trending — anklicken hängt an:</span>
+        ${trending.slice(0, 4).map(t => `<button type="button" class="compose-trend" data-tag="${escapeHtml(t.tag)}">${escapeHtml(t.tag)}</button>`).join('')}
+      </div>`
+    : '';
   wrap.innerHTML = `
     <textarea id="compose-text" maxlength="${MAX}" placeholder="Was ist los?" aria-label="Beitragstext"></textarea>
     <div class="compose-meta">
@@ -340,6 +402,7 @@ function buildComposeBox() {
       <span class="compose-counter" id="compose-counter" aria-live="polite">0 / ${MAX}</span>
     </div>
     <div class="compose-topic-grid" id="compose-topics"></div>
+    ${trendingRow}
     <div class="compose-row">
       <span class="muted small" id="compose-status"></span>
       <button class="btn btn-primary" id="btn-publish">Posten</button>
@@ -358,6 +421,16 @@ function buildComposeBox() {
   }
   const txt = wrap.querySelector('#compose-text');
   const counter = wrap.querySelector('#compose-counter');
+  wrap.querySelectorAll('.compose-trend').forEach(b => {
+    b.onclick = () => {
+      const cur = txt.value.trimEnd();
+      const sep = cur && !cur.endsWith(' ') ? ' ' : '';
+      const next = (cur + sep + b.dataset.tag + ' ').slice(0, MAX);
+      txt.value = next;
+      txt.dispatchEvent(new Event('input'));
+      txt.focus();
+    };
+  });
   txt.addEventListener('input', () => {
     const n = txt.value.length;
     counter.textContent = `${n} / ${MAX}`;
@@ -392,6 +465,32 @@ function renderNotifications() {
   const wrap = document.createElement('div');
   wrap.className = 'feed-list';
 
+  // Antworten auf eigene Posts
+  const postReplies = getRepliesForInbox();
+  if (postReplies.length) {
+    const h = document.createElement('div');
+    h.className = 'feed-header';
+    h.innerHTML = '<h3>Antworten auf deine Posts</h3>';
+    wrap.appendChild(h);
+    for (const entry of postReplies) {
+      const card = document.createElement('div');
+      card.className = 'reply-bundle';
+      const head = `<div class="reply-bundle-head muted small">Auf deinen Post in W${entry.week - 1}: „${escapeHtml(entry.postSnippet)}${entry.postSnippet.length >= 120 ? '…' : ''}"</div>`;
+      const body = entry.replies.map(r => {
+        const c = getCharacter(r.author);
+        return `<div class="reply-bundle-item stance-${r.stance}">
+          <div class="avatar small">${avatarSvg(c?.avatar || 0)}</div>
+          <div class="reply-meta">
+            <div class="reply-author"><strong>${escapeHtml(c?.name || r.author)}</strong> <span class="muted small">${escapeHtml(c?.handle || '')}</span></div>
+            <div class="reply-text">${escapeHtml(r.text)}</div>
+          </div>
+        </div>`;
+      }).join('');
+      card.innerHTML = head + '<div class="reply-bundle-body">' + body + '</div>';
+      wrap.appendChild(card);
+    }
+  }
+
   // Badges
   if (Store.data.badges.length) {
     const h = document.createElement('div');
@@ -414,7 +513,7 @@ function renderNotifications() {
     wrap.appendChild(card);
   }
 
-  if (!Store.data.badges.length && !Store.data.shitstormHistory.length) {
+  if (!postReplies.length && !Store.data.badges.length && !Store.data.shitstormHistory.length) {
     wrap.innerHTML = '<p class="muted">Noch keine Benachrichtigungen. Spiele weiter.</p>';
   }
   return wrap;

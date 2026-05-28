@@ -69,6 +69,11 @@ function freshSave() {
     challengeMode: null,
     minigameResults: {},
     ending: null,
+    ownPostReplies: {},
+    pushNotificationsSeen: {},
+    tutorialDone: false,
+    trendingViewed: {},
+    conceptsSeen: {},
     random_seed: Math.floor(Math.random() * 1e9)
   };
 }
