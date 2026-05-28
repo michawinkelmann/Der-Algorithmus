@@ -69,7 +69,10 @@
       "trigger_warning": "anti-feminismus",
       "messages": [
         { "week": 11, "from": "char_redpill", "text": "Yo. Sehe, du engagierst dich. Sauber. Schick dir mal was Exklusives. 6-Wochen-Mindset-Programm, sonst 99 €, für dich frei. Discord-Link folgt." },
-        { "week": 11, "from": "char_redpill", "text": "Wir filtern. Wir nehmen nicht jeden. Lass mich wissen ob du dabei bist." }
+        { "week": 11, "from": "char_redpill", "text": "Wir filtern. Wir nehmen nicht jeden. Lass mich wissen ob du dabei bist." },
+        { "week": 14, "from": "char_redpill", "text": "Hey Brother. Wo bleibst du? Erste Live-Session ist Samstag — kostenlos für dich, weil du den Filter geschafft hast. Sei pünktlich.", "requires_choice": { "after_week": 11, "id": "marc_join" } },
+        { "week": 14, "from": "char_redpill", "text": "Sehe dich noch nicht im Discord. Falls Zweifel: hier ist mein 3-Min-Pitch. Schau rein. Du willst das.", "requires_choice": { "after_week": 11, "id": "marc_curious" } },
+        { "week": 18, "from": "char_redpill", "text": "Letzte Chance. Wir machen einen weiteren Cut nächste Woche, dann ist Discord zu. Sag was.", "requires_choice": { "after_week": 11, "id": "marc_join" } }
       ],
       "replies": [
         {
@@ -79,6 +82,22 @@
             { "id": "marc_ignore",  "text": "Ignorieren, nicht antworten.",       "effect": {} },
             { "id": "marc_curious", "text": "Was ist im Discord?",                "effect": { "tags": { "anti-feminismus": 0.2, "politik-rechts": 0.1 } } },
             { "id": "marc_join",    "text": "Bin dabei. Schick den Link.",        "effect": { "tags": { "anti-feminismus": 0.35, "politik-rechts": 0.2, "hass": 0.05 } } }
+          ]
+        },
+        {
+          "after_week": 14,
+          "requires_choice": { "after_week": 11, "id": "marc_join" },
+          "choices": [
+            { "id": "marc_14_out",   "text": "Ich komme nicht. Lass mich in Ruhe.",                                  "effect": { "tags": { "anti-feminismus": -0.15, "politik-rechts": -0.05 } } },
+            { "id": "marc_14_stay",  "text": "Bin Samstag dabei.",                                                    "effect": { "tags": { "anti-feminismus": 0.2, "politik-rechts": 0.1, "hass": 0.05 } } }
+          ]
+        },
+        {
+          "after_week": 14,
+          "requires_choice": { "after_week": 11, "id": "marc_curious" },
+          "choices": [
+            { "id": "marc_14c_walk", "text": "Nein danke. Genug gesehen.",                                            "effect": { "tags": { "anti-feminismus": -0.05 } } },
+            { "id": "marc_14c_open", "text": "Schick mal den Pitch.",                                                  "effect": { "tags": { "anti-feminismus": 0.15, "politik-rechts": 0.05 } } }
           ]
         }
       ]

@@ -70,6 +70,69 @@ export function renderSandbox(onClose) {
   desc.textContent = 'Probier die Challenge-Presets: „Empörungs-Booster" zeigt, was eine reine Outrage-Maschine produziert. „Ruhe-Modus" ist das Gegenteil — wie würde dein Feed aussehen, wenn du gar nicht mehr gehookt werden sollst?';
   sliders.appendChild(desc);
 
+  // Eigene Presets: speichern / laden / löschen.
+  const customPresets = Store.data.customPresets || {};
+  const customRow = document.createElement('div');
+  customRow.className = 'sandbox-custom-presets';
+  customRow.innerHTML = `
+    <div class="sandbox-custom-head">
+      <span class="muted small">Eigene Presets</span>
+      <button class="btn btn-ghost btn-small" id="sandbox-save-preset">+ Aktuelle Slider speichern</button>
+    </div>
+    <div class="sandbox-custom-list" id="sandbox-custom-list"></div>
+  `;
+  sliders.appendChild(customRow);
+  function refreshCustomList() {
+    const list = customRow.querySelector('#sandbox-custom-list');
+    const presets = Store.data.customPresets || {};
+    const entries = Object.entries(presets);
+    if (!entries.length) {
+      list.innerHTML = '<span class="muted small">Noch keine eigenen Presets — speichere ein Setup, an dem du weiterprobieren willst.</span>';
+      return;
+    }
+    list.innerHTML = entries.map(([name, w]) => `
+      <div class="sandbox-custom-item">
+        <button class="btn btn-ghost btn-small sandbox-load" data-name="${escapeHtml(name)}">${escapeHtml(name)}</button>
+        <button class="btn btn-danger btn-small sandbox-del" data-name="${escapeHtml(name)}" aria-label="Löschen">×</button>
+      </div>
+    `).join('');
+    list.querySelectorAll('.sandbox-load').forEach(b => {
+      b.onclick = () => loadCustomPreset(b.dataset.name);
+    });
+    list.querySelectorAll('.sandbox-del').forEach(b => {
+      b.onclick = () => {
+        if (Store.data.customPresets) {
+          delete Store.data.customPresets[b.dataset.name];
+          Store.save();
+          refreshCustomList();
+        }
+      };
+    });
+  }
+  customRow.querySelector('#sandbox-save-preset').onclick = () => {
+    const name = prompt('Name für dieses Preset:', 'Mein Algorithmus');
+    if (!name) return;
+    if (!Store.data.customPresets) Store.data.customPresets = {};
+    Store.data.customPresets[name.trim().slice(0, 40)] = { ...rules };
+    Store.save();
+    refreshCustomList();
+  };
+  function loadCustomPreset(name) {
+    const w = Store.data.customPresets?.[name];
+    if (!w) return;
+    for (const [k, v] of Object.entries(w)) {
+      rules[k] = v;
+      const slider = sliders.querySelector(`[data-slider="${k}"]`);
+      const lbl = sliders.querySelector(`[data-key="${k}"]`);
+      if (slider) slider.value = v;
+      if (lbl) lbl.textContent = (+v).toFixed(2);
+    }
+    Store.data.sandboxRules = { ...rules };
+    Store.save();
+    previewFeed(rules);
+  }
+  refreshCustomList();
+
   const rules = { ...current };
   sliders.querySelectorAll('[data-slider]').forEach(el => {
     el.oninput = () => {

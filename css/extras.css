@@ -1241,3 +1241,137 @@ html[data-theme="light"] .save-indicator {
 .badge-emoji { font-size: 22px; margin-bottom: 4px; }
 .badge-name { font-weight: 700; font-size: 13px; }
 .badge-desc { font-size: 11px; line-height: 1.4; margin-top: 2px; }
+
+/* ===== Wahlomat ===== */
+.wahlomat-box { max-width: 620px; max-height: 85vh; overflow-y: auto; }
+.wahlomat-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.wahlomat-head h3 { margin: 0; }
+.wahlomat-list { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
+.wahlomat-row {
+  background: var(--bg-elev-2);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+}
+.wahlomat-q { font-size: 14px; margin-bottom: 8px; }
+.wahlomat-choices { display: flex; gap: 6px; flex-wrap: wrap; }
+.wahlomat-choice {
+  flex: 1; min-width: 80px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer; font-size: 13px;
+}
+.wahlomat-choice input { margin: 0; }
+.wahlomat-choice:has(input:checked) {
+  background: rgba(255,46,136,0.12);
+  border-color: var(--accent);
+}
+.wahlomat-actions { text-align: center; margin: 12px 0; }
+.wahlomat-result { margin-top: 14px; }
+.wahlomat-result h4 { margin: 8px 0 4px; }
+.wahlomat-bars { display: flex; flex-direction: column; gap: 5px; margin: 8px 0; }
+.wahlomat-bar-row {
+  display: grid; grid-template-columns: 150px 1fr 50px;
+  gap: 8px; align-items: center; font-size: 13px;
+}
+.wahlomat-bar-label { font-weight: 600; }
+.wahlomat-bar {
+  height: 16px; background: var(--bg-elev-2); border-radius: 8px; overflow: hidden;
+}
+.wahlomat-bar-fill { height: 100%; transition: width 700ms cubic-bezier(.2,.8,.2,1); }
+.wahlomat-bar-pct { text-align: right; font-variant-numeric: tabular-nums; }
+.wahlomat-insight {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: rgba(34,211,238,0.08);
+  border-left: 3px solid var(--accent-2);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+.election-extras { margin: 10px 0; }
+.election-extras .btn { width: 100%; }
+
+/* ===== Faktencheck-Minigame ===== */
+.factcheck-card {
+  background: var(--bg-elev-2);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin: 14px 0;
+  border: 1px solid var(--line);
+}
+.factcheck-text {
+  font-size: 16px; line-height: 1.5;
+  background: var(--bg);
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--accent-2);
+  margin-bottom: 12px;
+}
+.factcheck-choices { display: flex; gap: 8px; }
+.fc-btn {
+  flex: 1; background: var(--bg); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 10px 14px; cursor: pointer; font-size: 14px;
+}
+.fc-btn:hover { border-color: var(--accent); }
+.fc-resolve {
+  background: var(--bg-elev);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  margin-top: 10px;
+}
+.fc-verdict { font-size: 14px; padding: 6px 0; }
+.fc-verdict.color-ok strong { color: var(--ok); }
+.fc-verdict.color-warn strong { color: var(--warn); }
+.fc-verdict.color-bad strong { color: var(--danger); }
+
+/* ===== Sandbox Custom Presets ===== */
+.sandbox-custom-presets {
+  margin-top: 12px; padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.sandbox-custom-head {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  margin-bottom: 8px;
+}
+.sandbox-custom-list {
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.sandbox-custom-item {
+  display: inline-flex; gap: 4px;
+  background: var(--bg-elev-2);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+}
+.sandbox-custom-item .sandbox-load {
+  background: transparent;
+  border: 0;
+}
+.sandbox-custom-item .sandbox-del {
+  padding: 4px 8px;
+  font-size: 14px;
+  min-height: 0;
+}
+
+/* ===== Lehrkraft-Vorbereitungs-Checkliste ===== */
+.checklist { list-style: none; padding: 0; margin: 16px 0; display: flex; flex-direction: column; gap: 8px; }
+.checklist-item {
+  display: grid; grid-template-columns: 32px 1fr; gap: 10px; align-items: start;
+  background: var(--bg-elev-2);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  border-left: 3px solid var(--line);
+}
+.checklist-item.ok { border-left-color: var(--ok); }
+.checklist-item.warn { border-left-color: var(--warn); }
+.checklist-mark {
+  font-size: 18px; font-weight: 700;
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: var(--bg);
+}
+.checklist-item.ok .checklist-mark { color: var(--ok); }
+.checklist-item.warn .checklist-mark { color: var(--warn); }
+.checklist-item strong { font-size: 14px; display: block; margin-bottom: 2px; }

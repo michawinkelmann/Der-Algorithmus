@@ -34,7 +34,9 @@ ORDER = [
     "dms.js",
     "places.js",
     "minigame.js",
+    "factcheck.js",
     "classcompare.js",
+    "wahlomat.js",
     "main.js",
 ]
 

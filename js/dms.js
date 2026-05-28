@@ -16,18 +16,32 @@ export function initDms(data) {
 
 export function getAllThreads() { return THREADS; }
 
+// Erfüllt der User die `requires_choice`-Bedingung eines Items?
+// Item zeigt nur, wenn die referenzierte frühere Wahl exakt gematcht wurde.
+function meetsRequiredChoice(item, thread) {
+  const req = item.requires_choice;
+  if (!req) return true;
+  const taken = Store.data.dmReplies?.[thread.id] || {};
+  return taken[req.after_week]?.id === req.id;
+}
+
 // Welche Nachrichten in diesem Thread bis zur aktuellen Woche freigeschaltet sind.
+// Berücksichtigt zusätzlich `requires_choice` für bedingte Folge-Nachrichten.
 export function getVisibleMessages(thread) {
-  return (thread.messages || []).filter(m => m.week <= Store.data.currentWeek);
+  return (thread.messages || []).filter(m =>
+    m.week <= Store.data.currentWeek && meetsRequiredChoice(m, thread));
 }
 
 // Welche Antworten-Auswahl noch offen ist (nach welcher Woche, noch nichts gewählt)?
+// Reply-Slots mit `requires_choice` werden nur angeboten, wenn die referenzierte
+// vorherige Antwort getroffen wurde.
 export function getPendingChoice(thread) {
   const replies = thread.replies || [];
   const taken = Store.data.dmReplies?.[thread.id] || {};
   for (const r of replies) {
     if (r.after_week > Store.data.currentWeek) continue;
     if (taken[r.after_week]) continue;
+    if (!meetsRequiredChoice(r, thread)) continue;
     return r;
   }
   return null;
