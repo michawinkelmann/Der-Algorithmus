@@ -923,3 +923,133 @@ html[data-theme="light"] .wrapped-slide h1 {
   background: none; -webkit-text-fill-color: var(--accent); color: var(--accent);
 }
 html[data-theme="light"] .pathway-node.radical { background: rgba(202, 138, 4, 0.12); color: #92520a; border-color: var(--warn); }
+
+/* ===== Settings-Modal: Header sticky + Sektionen ===== */
+.settings-card {
+  padding: 0;
+  display: flex; flex-direction: column;
+}
+.settings-header {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-elev);
+  position: sticky; top: 0; z-index: 2;
+}
+.settings-header h2 { margin: 0; }
+.settings-body { padding: 14px 20px 0; }
+.settings-footer {
+  padding: 14px 20px;
+  border-top: 1px solid var(--line);
+  background: var(--bg-elev);
+  position: sticky; bottom: 0;
+}
+.settings-footer .btn { width: 100%; }
+.settings-section {
+  margin: 10px 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev-2);
+}
+.settings-section > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 10px 14px;
+  font-weight: 600;
+  font-size: 14px;
+  user-select: none;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.settings-section > summary::-webkit-details-marker { display: none; }
+.settings-section > summary::after {
+  content: '▾';
+  color: var(--text-dim);
+  transition: transform 200ms ease;
+}
+.settings-section[open] > summary::after { transform: rotate(180deg); }
+.settings-section-body {
+  padding: 4px 14px 14px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+
+/* ===== Class-Compare: Protagonist-Vergleich ===== */
+.cc-protag-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px; margin: 12px 0;
+}
+.cc-protag-card {
+  background: var(--bg-elev);
+  border-radius: var(--radius);
+  padding: 12px;
+  border: 1px solid var(--line);
+}
+.cc-protag-name {
+  font-weight: 700; font-size: 16px; text-transform: capitalize;
+  color: var(--accent-2);
+}
+.cc-protag-meta { margin-bottom: 8px; }
+.cc-protag-stats {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  font-size: 12px;
+}
+.cc-protag-stats div {
+  background: var(--bg-elev-2);
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  display: flex; flex-direction: column;
+}
+.cc-protag-stats b { font-size: 16px; color: var(--text); }
+
+/* ===== Class-Compare: Geteilte Bookmarks ===== */
+.cc-bookmarks {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-top: 10px;
+}
+.cc-bookmark {
+  background: var(--bg-elev);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--text-dim);
+  padding: 10px 12px;
+}
+.cc-bookmark.multi { border-left-color: var(--accent); background: linear-gradient(180deg, rgba(255,46,136,0.08), var(--bg-elev)); }
+.cc-bookmark-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 6px;
+}
+.cc-bookmark-count {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--accent);
+  background: rgba(255,46,136,0.12);
+  padding: 2px 8px; border-radius: 10px;
+}
+.cc-bookmark.multi .cc-bookmark-count { background: rgba(255,46,136,0.2); }
+.cc-bookmark-text {
+  font-size: 14px; line-height: 1.45; color: var(--text);
+}
+
+/* ===== Glossar-Suche ===== */
+.glossary-search { margin: 10px 0; }
+.glossary-search input {
+  width: 100%;
+  background: var(--bg-elev-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 10px 12px; font-family: inherit; font-size: 14px;
+}
+.glossary-empty { text-align: center; padding: 14px 0; }
+
+/* ===== Verpasste Stories im Wrapped ===== */
+.missed-stories {
+  display: flex; flex-direction: column; gap: 8px;
+  max-width: 520px; margin: 18px auto;
+  text-align: left;
+}
+.missed-story {
+  display: grid; grid-template-columns: 40px 40px 1fr; gap: 10px;
+  align-items: center;
+  background: rgba(0,0,0,0.25);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 14px;
+}
+.missed-emoji { font-size: 24px; text-align: center; }

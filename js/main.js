@@ -15,7 +15,7 @@ import { SFX, setSoundEnabled, setSoundVolume } from './sound.js';
 import { maybeQueueMicroReflection } from './microreflect.js';
 import { generateRepliesForJustEndedWeek } from './postreplies.js';
 import { maybeShowPush } from './push.js';
-import { maybeRunTutorial } from './tutorial.js';
+import { maybeRunTutorial, forceRunTutorial } from './tutorial.js';
 import { showConcept } from './concepts.js';
 import { attachModal } from './modals.js';
 import { openGlossary } from './glossary.js';
@@ -164,6 +164,11 @@ function bindGlobal() {
   // Settings
   document.getElementById('btn-settings').onclick = () => showScreen('screen-settings');
   document.getElementById('btn-settings-close').onclick = () => showScreen('screen-main');
+  document.getElementById('btn-settings-close-top')?.addEventListener('click', () => showScreen('screen-main'));
+  document.getElementById('btn-replay-tutorial')?.addEventListener('click', () => {
+    showScreen('screen-main');
+    setTimeout(() => forceRunTutorial(), 400);
+  });
   document.getElementById('btn-reset').onclick = () => {
     if (confirm('Spielstand wirklich löschen?')) {
       Store.reset();
@@ -1308,15 +1313,9 @@ function exportReport() {
   })()}
 
   <h2>Diskussionsfragen für die Klasse</h2>
-  <p class="muted">Gedacht für die Reflexionsphase nach dem Spiel. Frei zu kürzen, zu ergänzen, zu ignorieren.</p>
+  <p class="muted">Auf den tatsächlichen Spielverlauf zugeschnitten — gedacht für die Reflexionsphase. Frei zu kürzen, zu ergänzen, zu ignorieren.</p>
   <ol class="disc">
-    <li>Welche eine Entscheidung im Spiel würdest du heute anders treffen — und warum?</li>
-    <li>Ab welcher Woche hast du das Gefühl gehabt, der Algorithmus „lernt dich"?</li>
-    <li>Wo war der Unterschied zwischen Empörung und Engagement für dich am ehesten spürbar?</li>
-    <li>Welche Push-Notification hat dich am ehesten zurückgeholt — und wie real ist das im echten Leben?</li>
-    <li>Wenn du Lehrkraft wärst: was würdest du an „Streem" anders bauen, damit es weniger süchtig macht?</li>
-    <li>Was war das Beste, was dir auf der Plattform passiert ist? Was das Schlimmste?</li>
-    <li>Welche Rolle haben die NPCs (Lea, Finn, Mira, Lara) gespielt, und welche Stimmen hast du im echten Netz?</li>
+    ${buildContextualDiscussionQuestions(d).map(q => `<li>${escapeHtml(q)}</li>`).join('')}
   </ol>
 
   <div class="foot">
@@ -1328,6 +1327,124 @@ function exportReport() {
   const blob = new Blob([html], { type: 'text/html' });
   downloadBlob(blob, `streem-bericht-${(c.name||'spieler').toLowerCase().replace(/[^a-z0-9]/g,'_')}.html`);
   toast('Bericht exportiert.', { long: true });
+}
+
+// Diskussionsfragen, die sich an den tatsächlichen Spielverlauf anpassen.
+// Eine Mischung aus immer-passenden und kontext-spezifischen Fragen,
+// gewichtet so, dass kontextuelle zuerst kommen.
+function buildContextualDiscussionQuestions(d) {
+  const out = [];
+  const p = d.userProfile || {};
+  const arcs = d.npcArcs || {};
+  const guilds = d.guildMemberships || [];
+  const dmReplies = d.dmReplies || {};
+  const tw = d.contentWarningsAccepted || {};
+  const twSkip = Object.values(tw).reduce((a, b) => a + (b.skipped || 0), 0);
+  const twShown = Object.values(tw).reduce((a, b) => a + (b.shown || 0), 0);
+  const actions = (d.history || []).flatMap(h => h.actions || []);
+  const angry = actions.filter(a => a.type === 'angry_comment').length;
+  const ownPosts = (d.ownPosts || []).length;
+  const ending = d.ending;
+  const marcChoice = dmReplies.dm_marc?.[11]?.id || null;
+  const finnPath = arcs.finn_path || 0;
+  const lara = dmReplies.dm_lara?.[24]?.id || null;
+  const lea14 = dmReplies.dm_lea?.[14]?.id || null;
+  const mira15 = dmReplies.dm_mira?.[15]?.id || null;
+  const protag = d.character?.protagonist || 'alex';
+
+  // 1) Ending-spezifische Eröffnungsfrage
+  if (ending === 'rabbithole' || ending === 'finn_lost') {
+    out.push('Bei welcher Entscheidung im Spiel hättest du am ehesten einen Bruch einleiten können — wenn du es im echten Leben mit einer Person erleben würdest, die genauso abrutscht?');
+  } else if (ending === 'finn_saved') {
+    out.push('Du hast Finn auf seiner Bahn gestoppt. Was war im Spiel die kleinste Bewegung, die einen echten Unterschied gemacht hat?');
+  } else if (ending === 'aware') {
+    out.push('Du hast Lea gegenüber zugegeben, dass dieser Feed etwas mit dir macht. Wann hast du das im echten Leben zuletzt zu jemandem gesagt — oder hörst du es selten?');
+  } else if (ending === 'allyship') {
+    out.push('Mira hat dich nach einem Hate-Pile-On gebeten, kurz zu helfen. Wo ist im echten Netz die Grenze zwischen „Helfen" und „Aufmerksamkeits-Spirale weiterdrehen"?');
+  } else if (ending === 'crusader') {
+    out.push('Du hast viel und laut kommentiert. Wann führt Empörung zu Veränderung — wann nur zu mehr Empörung?');
+  } else if (ending === 'guarded') {
+    out.push('Du hast viele Inhalte übersprungen, Accounts stummgeschaltet. Macht das den Feed sicherer — oder nur enger?');
+  } else if (ending === 'influencer') {
+    out.push('Du warst Mikro-Influencer:in. Was hat sich verändert, als du selbst gepostet hast — verglichen mit nur konsumieren?');
+  } else {
+    out.push('Wann im Spielverlauf hattest du das Gefühl, der Algorithmus „lernt dich" — auch wenn du nicht aktiv etwas geändert hast?');
+  }
+
+  // 2) Marc-DM-spezifisch
+  if (marcChoice === 'marc_join') {
+    out.push('Du hast Marc Stay-Based geantwortet, mit in den Discord zu gehen. Was war attraktiv an seiner Anwerbung — auch wenn du wusstest, was er repräsentiert?');
+  } else if (marcChoice === 'marc_curious') {
+    out.push('Du hast bei Marc nachgefragt, ohne mitzumachen. Wo verläuft im echten Netz die Linie zwischen „neugierig zuschauen" und „bestätigen"?');
+  } else if (marcChoice === 'marc_block') {
+    out.push('Du hast Marc sofort blockiert. War das die richtige Reaktion — oder verliert man dadurch auch die Chance zu verstehen, was dort passiert?');
+  } else {
+    out.push('Marc Stay-Based hat dich angeschrieben. Wenn dich jemand wie er in echt anschreiben würde — wie würdest du reagieren?');
+  }
+
+  // 3) Finn-Pfad-spezifisch
+  if (finnPath >= 2) {
+    out.push('Finn ist auf seiner Bahn in Richtung Gilde gerutscht, du hast ihn nicht aufgehalten. Was hätte dich im echten Leben getriggert, einzugreifen — und was hat dich im Spiel davon abgehalten?');
+  } else if (finnPath <= -2) {
+    out.push('Du hast Finn zweimal widersprochen. Erinnerst du dich an eine Situation im echten Leben, in der du jemanden hättest stoppen sollen — aber nicht hast?');
+  }
+
+  // 4) Lara/Mira-Solidarität
+  if (lara === 'lara_24_solidarity' || mira15 === 'mira_15_support') {
+    out.push('Du hast einer Person, die online Hass abbekam, kurz zur Seite gestanden. Welche Form von Unterstützung hilft im echten Netz — und welche schadet?');
+  } else if (lara === 'lara_24_silence' && mira15 === 'mira_15_distance') {
+    out.push('In beiden Fällen, in denen jemand Hass abbekam, hast du Distanz gehalten. Welche Gründe gibt es, sich rauszuhalten — und welche Kosten?');
+  }
+
+  // 5) Selbstwahrnehmung
+  if (lea14 === 'lea_14_open') {
+    out.push('Lea zu sagen, dass dieser Feed etwas mit dir macht — was hat das im Spiel verändert? Wo wäre es im echten Leben schwieriger?');
+  } else if (lea14 === 'lea_14_deflect') {
+    out.push('Lea hat gefragt, was los ist — du hast „Stress halt" geantwortet. Was hindert uns daran, ehrlich zu sagen, wenn ein Feed uns formt?');
+  }
+
+  // 6) Empörung/Engagement
+  if (angry >= 5) {
+    out.push(`Du hast ${angry}-mal wütend kommentiert. Was war im Spiel der Anreiz dazu — und wem hat es etwas gebracht?`);
+  }
+
+  // 7) Inhaltswarnungen
+  if (twSkip >= 3 && twShown >= 3) {
+    out.push('Du hast sowohl mehrmals durch Inhaltswarnungen gegangen als auch mehrmals abgebrochen. Wie hast du im Moment entschieden — Bauch, Tagesform, etwas Spezifisches?');
+  } else if (twSkip >= 4) {
+    out.push('Du hast viele Inhaltswarnungen übersprungen. Schützt das wirklich — oder schiebt es das Thema nur weg, ohne es zu verarbeiten?');
+  } else if (twShown >= 4) {
+    out.push('Du bist oft bewusst durch die Inhaltswarnungen gegangen. Was ist der Wert davon, sich schwierige Inhalte aktiv anzusehen?');
+  }
+
+  // 8) Eigene Posts
+  if (ownPosts >= 5) {
+    out.push(`Du hast ${ownPosts} eigene Posts geschrieben. Was hat sich daran verändert, selbst etwas in den Feed zu geben — gegenüber nur lesen?`);
+  } else if (ownPosts === 0) {
+    out.push('Du hast nichts selbst gepostet — was hat dich davon abgehalten? Wäre das im echten Leben anders?');
+  }
+
+  // 9) Gilden
+  if (guilds.includes('echte_werte')) {
+    out.push('Du warst in „Echte Werte". Welche Mechanik in dieser Gilde war für dich am beunruhigendsten — und warum?');
+  } else if (guilds.includes('lese_runde')) {
+    out.push('Du warst in der Leserunde. Auch das ist eine Filterblase — nur eine angenehmere. Was unterscheidet eine gute von einer schlechten Filterblase?');
+  }
+
+  // 10) Protagonist-spezifisch
+  if (protag === 'jamal') {
+    out.push('Du hast Jamal gespielt — politisch unentschieden. Hat dich der Algorithmus in eine Richtung gezogen, die du dir vorher nicht vorgestellt hattest?');
+  } else if (protag === 'ronja') {
+    out.push('Du hast Ronja gespielt — aktivistisch von Anfang an. Hat dich der Algorithmus radikalisiert oder eher abgebaut?');
+  }
+
+  // Allgemeine Schluss-Fragen (mind. eine, max. zwei).
+  out.push('Welche Push-Notification hat dich am ehesten zurückgeholt — und wie real ist das im echten Leben?');
+  if (out.length < 7) {
+    out.push('Wenn du das Spiel nochmal spielen könntest: welche eine Sache würdest du anders machen?');
+  }
+
+  return out.slice(0, 8);
 }
 
 function downloadBlob(blob, filename) {

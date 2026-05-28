@@ -126,7 +126,8 @@ function extractRow(item, idx, anonymize) {
     guilds: guilds.length,
     voted: s.electionVote || null,
     interests: p.interests || {},
-    decisions: extractDecisions(s)
+    decisions: extractDecisions(s),
+    bookmarks: Object.values(s.bookmarks || {})
   };
 }
 
@@ -170,6 +171,84 @@ function buildReportHtml(rows) {
     <h3>Entscheidungen an Wendepunkten</h3>
     <p class="muted small">Die markanten Punkte, an denen sich Klassen am ehesten unterhalten: Marc-Anwerbung, Finn auf seiner Bahn, Lara nach Hate-Incident, Mira nach Hate-Kommentaren, Lea in W14. Die Verteilung verrät am meisten.</p>
     ${buildDecisionDiffs(rows)}
+
+    ${buildProtagonistBreakdown(rows)}
+
+    ${buildClassBookmarks(rows)}
+  `;
+}
+
+// Aufschlüsselung nach gewählter Spielfigur: zeigt, ob die Wahl der
+// Spielfigur signifikant zu unterschiedlichen Verläufen geführt hat.
+function buildProtagonistBreakdown(rows) {
+  const groups = { alex: [], jamal: [], ronja: [] };
+  for (const r of rows) {
+    const k = (r.protagonist || 'alex').toLowerCase();
+    if (groups[k]) groups[k].push(r); else (groups.alex ||= []).push(r);
+  }
+  const used = Object.entries(groups).filter(([, list]) => list.length > 0);
+  if (used.length < 2) return ''; // nur eine Spielfigur — kein Vergleich.
+
+  function summary(list) {
+    if (!list.length) return null;
+    const lean = list.reduce((a, r) => a + r.lean, 0) / list.length;
+    const angry = list.reduce((a, r) => a + r.angry, 0) / list.length;
+    const ownPosts = list.reduce((a, r) => a + r.ownPosts, 0) / list.length;
+    const rabbit = list.filter(r => r.inRabbitHole).length;
+    return { lean, angry, ownPosts, rabbit, n: list.length };
+  }
+
+  return `
+    <h3>Vergleich nach Spielfigur</h3>
+    <p class="muted small">Hatte die Wahl der Spielfigur einen Einfluss auf den Verlauf? Hier siehst du, ob Alex, Jamal und Ronja in der Klasse zu unterschiedlichen Mustern geführt haben.</p>
+    <div class="cc-protag-grid">
+      ${used.map(([key, list]) => {
+        const s = summary(list);
+        return `<div class="cc-protag-card">
+          <div class="cc-protag-name">${escapeHtml(key)}</div>
+          <div class="cc-protag-meta muted small">${s.n} Spielstand${s.n === 1 ? '' : 'ände'}</div>
+          <div class="cc-protag-stats">
+            <div><b>${s.lean.toFixed(2)}</b><span class="muted small">Ø Lean</span></div>
+            <div><b>${s.angry.toFixed(1)}</b><span class="muted small">Ø wütende Komm.</span></div>
+            <div><b>${s.ownPosts.toFixed(1)}</b><span class="muted small">Ø eigene Posts</span></div>
+            <div><b>${s.rabbit}</b><span class="muted small">in „Echte Werte"</span></div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+}
+
+// Welche Posts hat die Klasse zusammen gemerkt? Beiträge mit mehreren
+// Bookmarks sind starke Diskussionsanker.
+function buildClassBookmarks(rows) {
+  const all = {};
+  for (const r of rows) {
+    for (const b of r.bookmarks || []) {
+      const key = `${b.author || '?'}__W${b.week ?? '?'}__${(b.text || '').slice(0, 60)}`;
+      if (!all[key]) all[key] = { count: 0, author: b.author, week: b.week, text: b.text, tags: b.tags || [] };
+      all[key].count++;
+    }
+  }
+  const items = Object.values(all)
+    .filter(it => it.text)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 12);
+  if (!items.length) return '';
+  return `
+    <h3>Geteilte Lesezeichen</h3>
+    <p class="muted small">Posts, die in der Klasse mehrfach für die Reflexion gemerkt wurden. Posts mit hoher Markierung sind Kandidaten für die gemeinsame Diskussion.</p>
+    <div class="cc-bookmarks">
+      ${items.map(it => `
+        <div class="cc-bookmark ${it.count > 1 ? 'multi' : ''}">
+          <div class="cc-bookmark-head">
+            <span class="cc-bookmark-count">${it.count}× markiert</span>
+            <span class="cc-bookmark-meta muted small">W${it.week} · ${escapeHtml(it.author || '')}</span>
+          </div>
+          <div class="cc-bookmark-text">${escapeHtml(it.text)}</div>
+        </div>
+      `).join('')}
+    </div>
   `;
 }
 

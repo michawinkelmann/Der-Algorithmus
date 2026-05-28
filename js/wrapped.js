@@ -173,6 +173,7 @@ export function buildWrapped() {
         <p>Ungefähr auf der App verbracht. ${ownCount} eigene Posts. ${twShown} Inhaltswarnungen angeschaut, ${twSkipped} übersprungen.</p>
       `
     },
+    buildMissedStoriesSlide(d),
     buildEndingSlide(d),
     {
       id: 's9',
@@ -239,6 +240,35 @@ const ENDING_SOURCES = {
     { label: 'bpb.de — „Politische Bildung digital"', what: 'einordnen, was dein Feed dir gezeigt hat' }
   ]
 };
+
+// Stories, die der User während des Spiels NICHT angeklickt hat.
+// Pädagogisch wertvoll: zeigt, wie Stories ablaufen, ohne dass man's merkt.
+function buildMissedStoriesSlide(d) {
+  const viewed = d.storiesViewed || {};
+  const all = (window.__DATA_STORIES?.stories || []);
+  const missed = all.filter(s => s.week <= d.currentWeek && !viewed[s.id]);
+  const totalSeen = all.filter(s => s.week <= d.currentWeek && viewed[s.id]).length;
+  const total = all.filter(s => s.week <= d.currentWeek).length;
+  if (!total) {
+    return {
+      id: 's8c',
+      html: `<h2>Stories</h2><p>Keine Stories gespielt. Macht nichts — die meisten verschwinden eh nach 24 Stunden.</p>`
+    };
+  }
+  const pct = Math.round(totalSeen / total * 100);
+  const samples = missed.slice(0, 4);
+  return {
+    id: 's8c',
+    html: `
+      <h2>Stories: was du nicht gesehen hast</h2>
+      <div class="big-num">${missed.length}</div>
+      <p>Stories sind nach einer Woche weg — du hast ${totalSeen} von ${total} angeklickt (${pct} %). Plattformen nutzen genau diesen Verschwindeeffekt, um dich öfter zurückzuholen.</p>
+      ${samples.length ? `<div class="missed-stories">
+        ${samples.map(s => `<div class="missed-story"><span class="missed-emoji">${escapeHtml(s.emoji || '·')}</span><span class="muted small">W${s.week}</span><span>${escapeHtml(s.text)}</span></div>`).join('')}
+      </div>` : ''}
+    `
+  };
+}
 
 function buildEndingSlide(d) {
   const e = computeEnding(d);
