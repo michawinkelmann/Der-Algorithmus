@@ -20,6 +20,8 @@ import { showConcept } from './concepts.js';
 import { attachModal } from './modals.js';
 import { openGlossary } from './glossary.js';
 import { maybeShowPreQuiz, showPostQuiz, buildSelfcheckCompareHtml } from './selfcheck.js';
+import { openWahlomat } from './wahlomat.js';
+import { runFactcheck } from './factcheck.js';
 
 // ===== Daten-Bundle (statt fetch, damit file:// funktioniert) =====
 // Die JSONs werden zur Laufzeit geladen — funktioniert per fetch() auch bei file://
@@ -146,6 +148,8 @@ function bindGlobal() {
   document.getElementById('btn-continue').onclick = () => enterMain();
   document.getElementById('btn-about').onclick = () => showScreen('screen-about');
   document.getElementById('btn-about-close').onclick = () => showScreen('screen-start');
+  document.getElementById('btn-checklist')?.addEventListener('click', openChecklist);
+  document.getElementById('btn-checklist-close')?.addEventListener('click', () => showScreen('screen-start'));
 
   // Intro
   buildIntroForm();
@@ -267,6 +271,8 @@ function bindGlobal() {
   // Bot-Minigame jederzeit wiederholbar
   const mgBtn = document.getElementById('btn-minigame');
   if (mgBtn) mgBtn.onclick = () => { showScreen('screen-main'); openBotMinigame(); };
+  const fcBtn = document.getElementById('btn-factcheck');
+  if (fcBtn) fcBtn.onclick = () => { showScreen('screen-main'); openFactcheckMinigame(); };
 
   // Glossar
   const gloBtn = document.getElementById('btn-glossary');
@@ -619,6 +625,18 @@ function openBotMinigame() {
   document.body.appendChild(overlay);
   const handle = attachModal(overlay);
   runMinigame(box, () => handle.close());
+}
+
+function openFactcheckMinigame() {
+  SFX.swipe();
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  const box = document.createElement('div');
+  box.className = 'tw-box big';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  const handle = attachModal(overlay);
+  runFactcheck(box, () => handle.close());
 }
 
 function maybeUnlockForWeek() {
@@ -1187,8 +1205,12 @@ function openElection() {
         </div>`;
       }).join('')}
     </div>
+    <div class="election-extras">
+      <button class="btn btn-ghost" id="btn-open-wahlomat">📝 Wahlomat-Quiz — was passt zu mir?</button>
+    </div>
     <div id="election-result-slot"></div>
   `;
+  body.querySelector('#btn-open-wahlomat').onclick = () => openWahlomat();
   body.querySelectorAll('[data-vote]').forEach(b => {
     b.onclick = () => {
       Store.data.electionVote = b.dataset.vote;
@@ -1285,6 +1307,59 @@ const ACHIEVEMENTS_CATALOG = [
   { title: 'Wachposten',            desc: 'Finn vor der Gilde gewarnt.' },
   { title: 'Verbündete:r',          desc: 'Mira hat dir vertraut.' }
 ];
+
+function openChecklist() {
+  const body = document.getElementById('checklist-body');
+  // Live-Checks ausführen.
+  let lsOK = false;
+  try {
+    const k = '__checktest';
+    localStorage.setItem(k, '1');
+    lsOK = localStorage.getItem(k) === '1';
+    localStorage.removeItem(k);
+  } catch (e) { lsOK = false; }
+  const isFile = location.protocol === 'file:';
+  const isPrivate = !lsOK;
+  const ua = navigator.userAgent || '';
+  const isSafariMobile = /Safari/.test(ua) && /Mobile/.test(ua) && !/Chrome/.test(ua);
+  const isChrome = /Chrome/.test(ua) && !/Edg|OPR/.test(ua);
+  const audioCtxOK = !!(window.AudioContext || window.webkitAudioContext);
+  const items = [
+    { ok: lsOK, label: 'localStorage funktioniert',
+      detail: lsOK ? 'Spielstand kann gespeichert werden.' : 'Privat-Modus oder Cookies blockiert? Spielstand würde nicht gespeichert.' },
+    { ok: !isPrivate, label: 'Kein Privat-Modus',
+      detail: isPrivate ? 'iPad/Safari: bitte aus dem privaten Tab heraus. Sonst geht der Spielstand beim Schließen verloren.' : 'Normaler Modus.' },
+    { ok: !(isFile && isChrome), label: 'Browser kann lokale Dateien',
+      detail: (isFile && isChrome)
+        ? 'Chrome auf file:// kann JSON-Daten blockieren. Tipp: nimm Firefox/Safari, oder starte einen kleinen Server (siehe README).'
+        : isFile ? 'file://-Modus erkannt — Safari/Firefox funktionieren in der Regel.' : 'Du bist auf http(s) — alles fein.' },
+    { ok: audioCtxOK, label: 'WebAudio verfügbar',
+      detail: audioCtxOK ? 'Sound-Effekte funktionieren.' : 'Kein WebAudio — Spiel läuft, aber stumm.' },
+    { ok: true, label: 'Reflexionsphase einplanen',
+      detail: 'Pro Spieltag ~80 Minuten Spielzeit, danach 30-45 Min Reflexion. Lehr-Bericht und Klassen-Vergleich (Settings) helfen.' },
+    { ok: true, label: 'Inhaltswarnungen vorab erklären',
+      detail: 'Manche Inhalte sind politisch heikel (Verschwörungen, Rechtsextremismus, Anti-Feminismus). Inhaltswarnungen können übersprungen werden.' },
+    { ok: true, label: 'Klassen-Spielstände sammeln',
+      detail: 'Am letzten Tag JSON-Spielstände aller SuS einsammeln → Settings → Klassen-Vergleich → ein HTML-Dokument mit Entscheidungs-Diffs.' },
+    { ok: true, label: 'Tag-Fokus via URL setzen',
+      detail: 'Mit ?day=1, ?day=2 oder ?day=3 in der URL erscheint ein Lehrer-Banner mit den Schwerpunkten des Tages.' }
+  ];
+  body.innerHTML = `
+    <ul class="checklist">
+      ${items.map(it => `
+        <li class="checklist-item ${it.ok ? 'ok' : 'warn'}">
+          <span class="checklist-mark" aria-hidden="true">${it.ok ? '✓' : '⚠'}</span>
+          <div>
+            <strong>${escapeHtml(it.label)}</strong>
+            <div class="muted small">${escapeHtml(it.detail)}</div>
+          </div>
+        </li>
+      `).join('')}
+    </ul>
+    <p class="muted small">Bei Fragen: README.md im Repo, Abschnitt „Schnellstart" und „Troubleshooting".</p>
+  `;
+  showScreen('screen-checklist');
+}
 
 function openProfileModal() {
   const c = Store.data.character;

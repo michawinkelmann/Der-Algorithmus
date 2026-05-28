@@ -52,6 +52,30 @@ const TERMS = [
   {
     term: 'Deepfake',
     text: 'Manipulierte Bilder, Videos oder Audios, die mit KI erzeugt wurden. Wirken echt, sind es aber nicht. Faktencheck mit Rückwärtsbildersuche und Quellenprüfung ist die einfachste Verteidigung.'
+  },
+  {
+    term: 'Dark Pattern',
+    text: 'UI-Tricks, die dich zu Klicks oder Käufen drängen — z.B. unauffällige „Abmelden"-Buttons, künstliche Knappheit, irreführende Push-Notifications. Erkennen heißt nicht, nicht mehr zu nutzen — es heißt, weniger automatisch zu reagieren.'
+  },
+  {
+    term: 'Engagement-Bait',
+    text: 'Beiträge, die so gestaltet sind, dass sie Reaktionen provozieren — über inhaltlichen Wert hinaus. Beispiele: bewusst zugespitzte Formulierungen, „Stimm zu, wenn du auch denkst …", Quizfragen ohne Sachbezug.'
+  },
+  {
+    term: 'Astroturfing',
+    text: 'Künstlich erzeugte „Graswurzel"-Bewegung: viele scheinbar unabhängige Accounts vertreten dieselbe Position — koordiniert oder bot-getrieben. Zweck: eine Meinung größer wirken lassen, als sie ist.'
+  },
+  {
+    term: 'Personalisierung',
+    text: 'Inhalte werden gezielt auf dich zugeschnitten — über Klick-Verhalten, Standort, gefolgte Accounts, gekaufte Produkte. Vorteil: passgenau. Risiko: Filterblase und Manipulationsangriffe (Targeting) werden leichter.'
+  },
+  {
+    term: 'Datenspur',
+    text: 'Alles, was du einer Plattform hinterlässt — auch unbewusst: Verweildauer, Scroll-Tiefe, geschriebene aber nicht gepostete Entwürfe. Wird zu deinem Schatten-Profil und beeinflusst, was du in Zukunft siehst.'
+  },
+  {
+    term: 'Polarisierung',
+    text: 'Verschärfung gegensätzlicher Positionen, oft begleitet von emotionaler Aufladung. Algorithmen, die Engagement maximieren, können polarisierende Inhalte verstärken, weil sie mehr Reaktionen erzeugen.'
   }
 ];
 

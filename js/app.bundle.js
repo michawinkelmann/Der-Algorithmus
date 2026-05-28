@@ -1940,6 +1940,30 @@ const TERMS = [
   {
     term: 'Deepfake',
     text: 'Manipulierte Bilder, Videos oder Audios, die mit KI erzeugt wurden. Wirken echt, sind es aber nicht. Faktencheck mit Rückwärtsbildersuche und Quellenprüfung ist die einfachste Verteidigung.'
+  },
+  {
+    term: 'Dark Pattern',
+    text: 'UI-Tricks, die dich zu Klicks oder Käufen drängen — z.B. unauffällige „Abmelden"-Buttons, künstliche Knappheit, irreführende Push-Notifications. Erkennen heißt nicht, nicht mehr zu nutzen — es heißt, weniger automatisch zu reagieren.'
+  },
+  {
+    term: 'Engagement-Bait',
+    text: 'Beiträge, die so gestaltet sind, dass sie Reaktionen provozieren — über inhaltlichen Wert hinaus. Beispiele: bewusst zugespitzte Formulierungen, „Stimm zu, wenn du auch denkst …", Quizfragen ohne Sachbezug.'
+  },
+  {
+    term: 'Astroturfing',
+    text: 'Künstlich erzeugte „Graswurzel"-Bewegung: viele scheinbar unabhängige Accounts vertreten dieselbe Position — koordiniert oder bot-getrieben. Zweck: eine Meinung größer wirken lassen, als sie ist.'
+  },
+  {
+    term: 'Personalisierung',
+    text: 'Inhalte werden gezielt auf dich zugeschnitten — über Klick-Verhalten, Standort, gefolgte Accounts, gekaufte Produkte. Vorteil: passgenau. Risiko: Filterblase und Manipulationsangriffe (Targeting) werden leichter.'
+  },
+  {
+    term: 'Datenspur',
+    text: 'Alles, was du einer Plattform hinterlässt — auch unbewusst: Verweildauer, Scroll-Tiefe, geschriebene aber nicht gepostete Entwürfe. Wird zu deinem Schatten-Profil und beeinflusst, was du in Zukunft siehst.'
+  },
+  {
+    term: 'Polarisierung',
+    text: 'Verschärfung gegensätzlicher Positionen, oft begleitet von emotionaler Aufladung. Algorithmen, die Engagement maximieren, können polarisierende Inhalte verstärken, weil sie mehr Reaktionen erzeugen.'
   }
 ];
 
@@ -3693,6 +3717,69 @@ function renderSandbox(onClose) {
   desc.textContent = 'Probier die Challenge-Presets: „Empörungs-Booster" zeigt, was eine reine Outrage-Maschine produziert. „Ruhe-Modus" ist das Gegenteil — wie würde dein Feed aussehen, wenn du gar nicht mehr gehookt werden sollst?';
   sliders.appendChild(desc);
 
+  // Eigene Presets: speichern / laden / löschen.
+  const customPresets = Store.data.customPresets || {};
+  const customRow = document.createElement('div');
+  customRow.className = 'sandbox-custom-presets';
+  customRow.innerHTML = `
+    <div class="sandbox-custom-head">
+      <span class="muted small">Eigene Presets</span>
+      <button class="btn btn-ghost btn-small" id="sandbox-save-preset">+ Aktuelle Slider speichern</button>
+    </div>
+    <div class="sandbox-custom-list" id="sandbox-custom-list"></div>
+  `;
+  sliders.appendChild(customRow);
+  function refreshCustomList() {
+    const list = customRow.querySelector('#sandbox-custom-list');
+    const presets = Store.data.customPresets || {};
+    const entries = Object.entries(presets);
+    if (!entries.length) {
+      list.innerHTML = '<span class="muted small">Noch keine eigenen Presets — speichere ein Setup, an dem du weiterprobieren willst.</span>';
+      return;
+    }
+    list.innerHTML = entries.map(([name, w]) => `
+      <div class="sandbox-custom-item">
+        <button class="btn btn-ghost btn-small sandbox-load" data-name="${escapeHtml(name)}">${escapeHtml(name)}</button>
+        <button class="btn btn-danger btn-small sandbox-del" data-name="${escapeHtml(name)}" aria-label="Löschen">×</button>
+      </div>
+    `).join('');
+    list.querySelectorAll('.sandbox-load').forEach(b => {
+      b.onclick = () => loadCustomPreset(b.dataset.name);
+    });
+    list.querySelectorAll('.sandbox-del').forEach(b => {
+      b.onclick = () => {
+        if (Store.data.customPresets) {
+          delete Store.data.customPresets[b.dataset.name];
+          Store.save();
+          refreshCustomList();
+        }
+      };
+    });
+  }
+  customRow.querySelector('#sandbox-save-preset').onclick = () => {
+    const name = prompt('Name für dieses Preset:', 'Mein Algorithmus');
+    if (!name) return;
+    if (!Store.data.customPresets) Store.data.customPresets = {};
+    Store.data.customPresets[name.trim().slice(0, 40)] = { ...rules };
+    Store.save();
+    refreshCustomList();
+  };
+  function loadCustomPreset(name) {
+    const w = Store.data.customPresets?.[name];
+    if (!w) return;
+    for (const [k, v] of Object.entries(w)) {
+      rules[k] = v;
+      const slider = sliders.querySelector(`[data-slider="${k}"]`);
+      const lbl = sliders.querySelector(`[data-key="${k}"]`);
+      if (slider) slider.value = v;
+      if (lbl) lbl.textContent = (+v).toFixed(2);
+    }
+    Store.data.sandboxRules = { ...rules };
+    Store.save();
+    previewFeed(rules);
+  }
+  refreshCustomList();
+
   const rules = { ...current };
   sliders.querySelectorAll('[data-slider]').forEach(el => {
     el.oninput = () => {
@@ -4765,18 +4852,32 @@ function initDms(data) {
 
 function getAllThreads() { return THREADS; }
 
+// Erfüllt der User die `requires_choice`-Bedingung eines Items?
+// Item zeigt nur, wenn die referenzierte frühere Wahl exakt gematcht wurde.
+function meetsRequiredChoice(item, thread) {
+  const req = item.requires_choice;
+  if (!req) return true;
+  const taken = Store.data.dmReplies?.[thread.id] || {};
+  return taken[req.after_week]?.id === req.id;
+}
+
 // Welche Nachrichten in diesem Thread bis zur aktuellen Woche freigeschaltet sind.
+// Berücksichtigt zusätzlich `requires_choice` für bedingte Folge-Nachrichten.
 function getVisibleMessages(thread) {
-  return (thread.messages || []).filter(m => m.week <= Store.data.currentWeek);
+  return (thread.messages || []).filter(m =>
+    m.week <= Store.data.currentWeek && meetsRequiredChoice(m, thread));
 }
 
 // Welche Antworten-Auswahl noch offen ist (nach welcher Woche, noch nichts gewählt)?
+// Reply-Slots mit `requires_choice` werden nur angeboten, wenn die referenzierte
+// vorherige Antwort getroffen wurde.
 function getPendingChoice(thread) {
   const replies = thread.replies || [];
   const taken = Store.data.dmReplies?.[thread.id] || {};
   for (const r of replies) {
     if (r.after_week > Store.data.currentWeek) continue;
     if (taken[r.after_week]) continue;
+    if (!meetsRequiredChoice(r, thread)) continue;
     return r;
   }
   return null;
@@ -5285,6 +5386,126 @@ function escapeHtml(s) {
   __M.runMinigame = runMinigame;
 })();
 
+// ===== factcheck.js =====
+(function(){
+  var Store = __M.Store;
+  var attachModal = __M.attachModal;
+  var SFX = __M.SFX;
+// factcheck.js — Mini-Game: Faktencheck. SuS bewerten Aussagen als
+// echt / falsch / teilweise — mit Auflösung und Erklärung. Dient als
+// Bot-Quiz-Pendant für Inhalte statt Profile.
+
+
+
+const ROUNDS = [
+  {
+    text: 'Eine Studie der TU Greifshafen zeigt: Social-Media-Nutzung mehr als 3h pro Tag senkt nachweislich den IQ.',
+    verdict: 'falsch',
+    tell: 'Korrelation ≠ Kausalität. Studien dieser Art messen Zusammenhänge, keine ursächliche Wirkung — und „IQ" ist hier auch noch ein problematisches Konstrukt.'
+  },
+  {
+    text: 'In Greifshafen sind 23 % der unter-30-Jährigen mindestens einmal pro Woche auf einer politischen Demo.',
+    verdict: 'teilweise',
+    tell: 'Solche Zahlen schwanken stark je nach Definition („politische Demo"?) und Erhebungsmethode. Vorsicht bei runden Zahlen ohne Quelle.'
+  },
+  {
+    text: 'Ein Faktencheck hat das umstrittene Video der Oberbürgermeisterin als Deepfake identifiziert.',
+    verdict: 'echt',
+    tell: 'Verifizierte Faktenchecker:innen (Correctiv, DPA, AFP) haben das im Spielverlauf bestätigt. Wichtig: nicht nur eine Quelle, sondern Mehrfachprüfung.'
+  },
+  {
+    text: 'Wer einem rechten Account folgt, bekommt im Algorithmus 5× so viele rechte Inhalte gezeigt.',
+    verdict: 'teilweise',
+    tell: 'Empirisch dokumentiert, aber „5×" ist eine zu präzise Zahl. Studien zeigen den Effekt — der Faktor schwankt stark je nach Plattform und Nutzer:innen-Profil.'
+  },
+  {
+    text: 'Telegram-Gruppen mit verschwörungsideologischen Inhalten sind in Deutschland nicht strafbar.',
+    verdict: 'teilweise',
+    tell: 'Allgemeines Posten ist nicht strafbar — Volksverhetzung, Beleidigung, Bedrohung etc. aber sehr wohl. Plattform-Hosting und Inhalt sind zu trennen.'
+  }
+];
+
+const VERDICT_LABEL = { echt: 'Echt', falsch: 'Falsch', teilweise: 'Teilweise' };
+const VERDICT_COLOR = { echt: 'ok', falsch: 'bad', teilweise: 'warn' };
+
+function runFactcheck(root, onClose) {
+  let idx = 0;
+  let score = 0;
+  const guesses = [];
+
+  function renderRound() {
+    if (idx >= ROUNDS.length) { finish(); return; }
+    const r = ROUNDS[idx];
+    root.innerHTML = `
+      <div class="minigame-header">
+        <h2>Faktencheck-Sprint</h2>
+        <div class="minigame-progress">Runde ${idx + 1} / ${ROUNDS.length} · Punkte: ${score}</div>
+      </div>
+      <p class="muted">Lies die Aussage. Markiere: echt, falsch oder teilweise. Es gibt nicht immer ein klares „ja/nein".</p>
+      <div class="factcheck-card">
+        <div class="factcheck-text">${escapeHtml(r.text)}</div>
+        <div class="factcheck-choices">
+          ${['echt', 'teilweise', 'falsch'].map(v => `
+            <button class="fc-btn" data-v="${v}">${VERDICT_LABEL[v]}</button>
+          `).join('')}
+        </div>
+      </div>
+      <div id="fc-resolve" class="fc-resolve" hidden></div>
+    `;
+    root.querySelectorAll('.fc-btn').forEach(b => {
+      b.onclick = () => {
+        const choice = b.dataset.v;
+        guesses.push({ choice, correct: choice === r.verdict });
+        if (choice === r.verdict) score++;
+        const fb = root.querySelector('#fc-resolve');
+        fb.hidden = false;
+        fb.innerHTML = `
+          <div class="fc-verdict color-${VERDICT_COLOR[r.verdict]}">
+            <strong>${choice === r.verdict ? '✓ Richtig.' : '✗ Tatsächlich: ' + VERDICT_LABEL[r.verdict]}</strong>
+          </div>
+          <p>${escapeHtml(r.tell)}</p>
+          <button class="btn btn-primary" id="fc-next">${idx < ROUNDS.length - 1 ? 'Nächste Runde' : 'Ergebnis'}</button>
+        `;
+        fb.querySelector('#fc-next').onclick = () => { idx++; renderRound(); };
+        SFX.swipe();
+      };
+    });
+  }
+
+  function finish() {
+    if (!Store.data.minigameResults) Store.data.minigameResults = {};
+    Store.data.minigameResults.factcheck = { score, total: ROUNDS.length, ts: Date.now() };
+    Store.save();
+    SFX.badge();
+    const verdict = score === ROUNDS.length
+      ? 'Sehr gut. Faktenchecks sind selten so eindeutig wie hier — aber du hast den Reflex.'
+      : score >= ROUNDS.length - 1
+      ? 'Stark. Die teilweise-Fälle sind die schwierigsten.'
+      : score >= ROUNDS.length / 2
+      ? 'Solide. Die „teilweise"-Antworten verlangen Vorsicht statt Reflex.'
+      : 'Schwierig, oder? Faktenchecks sind selten Bauchsache. Lies langsam, prüfe Quellen.';
+    root.innerHTML = `
+      <div class="minigame-finish">
+        <h2>${score} / ${ROUNDS.length}</h2>
+        <p>${escapeHtml(verdict)}</p>
+        <p class="muted small">Tipps zum Üben im echten Netz: Rückwärtsbildersuche, Mehrfachquellen, Datum prüfen, Kontext prüfen — und immer fragen: <em>wem nützt diese Information?</em></p>
+        <button class="btn btn-primary" id="fc-close">Zurück</button>
+      </div>
+    `;
+    root.querySelector('#fc-close').onclick = onClose;
+  }
+
+  renderRound();
+}
+
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+  __M.runFactcheck = runFactcheck;
+})();
+
 // ===== classcompare.js =====
 (function(){
 // classcompare.js — Mehrere Streem-Saves laden und anonymisiert vergleichen.
@@ -5647,6 +5868,219 @@ function escapeHtml(s) {
   __M.renderClassCompare = renderClassCompare;
 })();
 
+// ===== wahlomat.js =====
+(function(){
+  var Store = __M.Store;
+  var attachModal = __M.attachModal;
+  var SFX = __M.SFX;
+// wahlomat.js — Wahlomat-artiges Quiz vor der Wahl. Acht fiktive Aussagen,
+// SuS markieren zustimmen/neutral/ablehnen. System matcht mit den vier
+// Greifshafener Parteien und vergleicht das Match mit der Feed-Wahrnehmung.
+
+
+
+// Aussagen: jede Aussage hat eine Position pro Partei (-1 = klar dagegen,
+// 0 = neutral/keine Position, +1 = klar dafür). Lean von links nach rechts:
+// p_zukunft (-0.6) → p_buerger (0.1) → p_alt (0.55) → p_heimat (0.9).
+const STATEMENTS = [
+  {
+    id: 's_klima',
+    text: 'Greifshafen soll bis 2030 CO₂-neutralen ÖPNV haben.',
+    positions: { p_zukunft:  1, p_buerger:  0, p_alt: -1, p_heimat: -1 }
+  },
+  {
+    id: 's_wohnen',
+    text: 'Wir brauchen 50 % mehr Sozialwohnungen am Westhafen.',
+    positions: { p_zukunft:  1, p_buerger:  0, p_alt: -1, p_heimat: -1 }
+  },
+  {
+    id: 's_polizei',
+    text: 'Mehr Polizeipräsenz in der Altstadt — sichtbar und konsequent.',
+    positions: { p_zukunft: -1, p_buerger:  1, p_alt:  1, p_heimat:  1 }
+  },
+  {
+    id: 's_haushalt',
+    text: 'Der kommunale Haushalt sollte komplett öffentlich einsehbar sein.',
+    positions: { p_zukunft:  1, p_buerger:  1, p_alt:  0, p_heimat: -1 }
+  },
+  {
+    id: 's_migration',
+    text: 'Abschiebungen sollen schneller und konsequenter durchgesetzt werden.',
+    positions: { p_zukunft: -1, p_buerger:  0, p_alt:  1, p_heimat:  1 }
+  },
+  {
+    id: 's_buergerrat',
+    text: 'Bürger:innen-Räte sollen ein festes Mitspracheformat werden.',
+    positions: { p_zukunft:  1, p_buerger:  0, p_alt: -1, p_heimat: -1 }
+  },
+  {
+    id: 's_stadtfest',
+    text: 'Stadtfeste sollen vor allem traditionell ausgerichtet sein.',
+    positions: { p_zukunft: -1, p_buerger:  0, p_alt:  1, p_heimat:  1 }
+  },
+  {
+    id: 's_schulen',
+    text: 'Schulen sollen mehr in Klimabildung und Demokratie investieren.',
+    positions: { p_zukunft:  1, p_buerger:  0, p_alt: -1, p_heimat: -1 }
+  }
+];
+
+const PARTY_META = {
+  p_zukunft: { name: 'Zukunft Greifshafen', color: '#4ade80' },
+  p_buerger: { name: 'Bürgerliste',         color: '#60a5fa' },
+  p_alt:     { name: 'Neue Alternative',     color: '#f97316' },
+  p_heimat:  { name: 'Heimat Zuerst',        color: '#a16207' }
+};
+
+const ANSWER_VALUES = { agree: 1, neutral: 0, disagree: -1 };
+
+function openWahlomat(onClose) {
+  let answers = Store.data.wahlomat?.answers || {};
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  overlay.innerHTML = `
+    <div class="tw-box wahlomat-box">
+      <header class="wahlomat-head">
+        <h3>Wahlomat Greifshafen</h3>
+        <button class="btn btn-ghost btn-small" id="wahlomat-close">Schließen</button>
+      </header>
+      <p class="muted small">Acht Aussagen. Stimmst du zu, bist du neutral, lehnst du ab? Am Ende zeigen wir, welche Partei deinen Antworten am nächsten kommt — und vergleichen das mit dem, was dein Feed dir vermittelt hat.</p>
+      <div class="wahlomat-list" id="wahlomat-list"></div>
+      <div class="wahlomat-actions">
+        <button class="btn btn-primary" id="wahlomat-submit">Ergebnis zeigen</button>
+      </div>
+      <div id="wahlomat-result" class="wahlomat-result" hidden></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const handle = attachModal(overlay, { onClose });
+  overlay.querySelector('#wahlomat-close').onclick = () => handle.close();
+
+  const list = overlay.querySelector('#wahlomat-list');
+  for (const s of STATEMENTS) {
+    const row = document.createElement('div');
+    row.className = 'wahlomat-row';
+    row.innerHTML = `
+      <div class="wahlomat-q">${escapeHtml(s.text)}</div>
+      <div class="wahlomat-choices" role="radiogroup" aria-label="${escapeHtml(s.text)}">
+        ${['agree', 'neutral', 'disagree'].map(a => `
+          <label class="wahlomat-choice">
+            <input type="radio" name="${s.id}" value="${a}" ${answers[s.id] === a ? 'checked' : ''} />
+            <span>${a === 'agree' ? 'Zustimmen' : a === 'neutral' ? 'Neutral' : 'Ablehnen'}</span>
+          </label>
+        `).join('')}
+      </div>
+    `;
+    list.appendChild(row);
+  }
+
+  overlay.querySelector('#wahlomat-submit').onclick = () => {
+    answers = {};
+    for (const s of STATEMENTS) {
+      const r = list.querySelector(`input[name="${s.id}"]:checked`);
+      if (r) answers[s.id] = r.value;
+    }
+    if (Object.keys(answers).length < STATEMENTS.length) {
+      toast('Bitte alle Aussagen bewerten.');
+      return;
+    }
+    Store.data.wahlomat = { answers, ts: Date.now() };
+    Store.save();
+    showResult(overlay, answers);
+    SFX.badge();
+  };
+}
+
+function showResult(overlay, answers) {
+  // Match-Score pro Partei berechnen: Summe(min(|user|, |party|) * sign-Match) / max-Punkte
+  const scores = {};
+  let maxPoints = 0;
+  for (const s of STATEMENTS) {
+    const userVal = ANSWER_VALUES[answers[s.id]];
+    if (userVal === 0) continue; // neutral zählt nicht für matching
+    maxPoints += 1;
+    for (const [pId, partyVal] of Object.entries(s.positions)) {
+      if (!(pId in scores)) scores[pId] = 0;
+      // Match: gleiches Vorzeichen = +1, gegensätzlich = 0, partial = 0.5
+      if (userVal === partyVal) scores[pId] += 1;
+      else if (userVal === 0 || partyVal === 0) scores[pId] += 0.5;
+      // gegensätzlich: 0
+    }
+  }
+  const ranked = Object.entries(scores)
+    .map(([id, s]) => ({ id, score: maxPoints ? s / (STATEMENTS.length) : 0 }))
+    .sort((a, b) => b.score - a.score);
+
+  // Feed-Bias: was hat der Feed bereits gezeigt? Wir nutzen Store.data.electionData.perceived
+  // wenn schon gewählt wurde — sonst Lean-basiert.
+  const lean = Store.data.userProfile.political_lean_estimated || 0;
+  const partyByLean = { p_zukunft: -0.6, p_buerger: 0.1, p_alt: 0.55, p_heimat: 0.9 };
+  const feedBias = Object.entries(partyByLean)
+    .map(([id, pLean]) => ({ id, closeness: 1 - Math.abs(pLean - lean) / 2 }))
+    .sort((a, b) => b.closeness - a.closeness);
+
+  const result = overlay.querySelector('#wahlomat-result');
+  result.hidden = false;
+  result.innerHTML = `
+    <h4>Dein Quiz-Ergebnis</h4>
+    <p class="muted small">Match mit den Greifshafener Parteien — rein anhand deiner Antworten, ohne Feed-Einfluss:</p>
+    <div class="wahlomat-bars">
+      ${ranked.map(r => {
+        const meta = PARTY_META[r.id];
+        const pct = Math.round(r.score * 100);
+        return `<div class="wahlomat-bar-row">
+          <span class="wahlomat-bar-label" style="color:${meta.color}">${escapeHtml(meta.name)}</span>
+          <div class="wahlomat-bar"><div class="wahlomat-bar-fill" style="width:${pct}%;background:${meta.color}"></div></div>
+          <span class="wahlomat-bar-pct">${pct} %</span>
+        </div>`;
+      }).join('')}
+    </div>
+    <h4 style="margin-top:14px">Was dein Feed dir nahegelegt hat</h4>
+    <p class="muted small">Über deine Lean-Schätzung (${lean.toFixed(2)}) — welche Parteien dein Algorithmus am ehesten ins Sichtfeld gerückt hat:</p>
+    <div class="wahlomat-bars">
+      ${feedBias.map(r => {
+        const meta = PARTY_META[r.id];
+        const pct = Math.round(r.closeness * 100);
+        return `<div class="wahlomat-bar-row">
+          <span class="wahlomat-bar-label" style="color:${meta.color}">${escapeHtml(meta.name)}</span>
+          <div class="wahlomat-bar"><div class="wahlomat-bar-fill" style="width:${pct}%;background:${meta.color};opacity:0.6"></div></div>
+          <span class="wahlomat-bar-pct">${pct} %</span>
+        </div>`;
+      }).join('')}
+    </div>
+    <p class="wahlomat-insight">${insightFor(ranked, feedBias)}</p>
+  `;
+  result.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function insightFor(ranked, feedBias) {
+  const topQuiz = ranked[0]?.id;
+  const topFeed = feedBias[0]?.id;
+  if (!topQuiz || !topFeed) return '';
+  if (topQuiz === topFeed) {
+    return 'Quiz und Feed zeigen in dieselbe Richtung. Das kann heißen: dein Feed bestätigt dich. Frag dich, ob du die Anderen-Argumente überhaupt noch gut kennst.';
+  }
+  return 'Quiz und Feed weichen ab. Das ist auffällig: dein Feed hat dir andere Parteien nahegelegt, als dein Antwortverhalten zu einer Politik passen würde. Algorithmische Resonanz erzeugt nicht automatisch politische Übereinstimmung.';
+}
+
+function toast(msg) {
+  const root = document.getElementById('toast-root');
+  if (!root) return;
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  root.appendChild(t);
+  setTimeout(() => t.remove(), 2500);
+}
+
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+  __M.openWahlomat = openWahlomat;
+})();
+
 // ===== main.js =====
 (function(){
   var Store = __M.Store;
@@ -5694,7 +6128,11 @@ function escapeHtml(s) {
   var maybeShowPreQuiz = __M.maybeShowPreQuiz;
   var showPostQuiz = __M.showPostQuiz;
   var buildSelfcheckCompareHtml = __M.buildSelfcheckCompareHtml;
+  var openWahlomat = __M.openWahlomat;
+  var runFactcheck = __M.runFactcheck;
 // main.js — Einstieg, Routing, Orchestrierung aller Module.
+
+
 
 
 
@@ -5840,6 +6278,8 @@ function bindGlobal() {
   document.getElementById('btn-continue').onclick = () => enterMain();
   document.getElementById('btn-about').onclick = () => showScreen('screen-about');
   document.getElementById('btn-about-close').onclick = () => showScreen('screen-start');
+  document.getElementById('btn-checklist')?.addEventListener('click', openChecklist);
+  document.getElementById('btn-checklist-close')?.addEventListener('click', () => showScreen('screen-start'));
 
   // Intro
   buildIntroForm();
@@ -5961,6 +6401,8 @@ function bindGlobal() {
   // Bot-Minigame jederzeit wiederholbar
   const mgBtn = document.getElementById('btn-minigame');
   if (mgBtn) mgBtn.onclick = () => { showScreen('screen-main'); openBotMinigame(); };
+  const fcBtn = document.getElementById('btn-factcheck');
+  if (fcBtn) fcBtn.onclick = () => { showScreen('screen-main'); openFactcheckMinigame(); };
 
   // Glossar
   const gloBtn = document.getElementById('btn-glossary');
@@ -6313,6 +6755,18 @@ function openBotMinigame() {
   document.body.appendChild(overlay);
   const handle = attachModal(overlay);
   runMinigame(box, () => handle.close());
+}
+
+function openFactcheckMinigame() {
+  SFX.swipe();
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  const box = document.createElement('div');
+  box.className = 'tw-box big';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  const handle = attachModal(overlay);
+  runFactcheck(box, () => handle.close());
 }
 
 function maybeUnlockForWeek() {
@@ -6881,8 +7335,12 @@ function openElection() {
         </div>`;
       }).join('')}
     </div>
+    <div class="election-extras">
+      <button class="btn btn-ghost" id="btn-open-wahlomat">📝 Wahlomat-Quiz — was passt zu mir?</button>
+    </div>
     <div id="election-result-slot"></div>
   `;
+  body.querySelector('#btn-open-wahlomat').onclick = () => openWahlomat();
   body.querySelectorAll('[data-vote]').forEach(b => {
     b.onclick = () => {
       Store.data.electionVote = b.dataset.vote;
@@ -6979,6 +7437,59 @@ const ACHIEVEMENTS_CATALOG = [
   { title: 'Wachposten',            desc: 'Finn vor der Gilde gewarnt.' },
   { title: 'Verbündete:r',          desc: 'Mira hat dir vertraut.' }
 ];
+
+function openChecklist() {
+  const body = document.getElementById('checklist-body');
+  // Live-Checks ausführen.
+  let lsOK = false;
+  try {
+    const k = '__checktest';
+    localStorage.setItem(k, '1');
+    lsOK = localStorage.getItem(k) === '1';
+    localStorage.removeItem(k);
+  } catch (e) { lsOK = false; }
+  const isFile = location.protocol === 'file:';
+  const isPrivate = !lsOK;
+  const ua = navigator.userAgent || '';
+  const isSafariMobile = /Safari/.test(ua) && /Mobile/.test(ua) && !/Chrome/.test(ua);
+  const isChrome = /Chrome/.test(ua) && !/Edg|OPR/.test(ua);
+  const audioCtxOK = !!(window.AudioContext || window.webkitAudioContext);
+  const items = [
+    { ok: lsOK, label: 'localStorage funktioniert',
+      detail: lsOK ? 'Spielstand kann gespeichert werden.' : 'Privat-Modus oder Cookies blockiert? Spielstand würde nicht gespeichert.' },
+    { ok: !isPrivate, label: 'Kein Privat-Modus',
+      detail: isPrivate ? 'iPad/Safari: bitte aus dem privaten Tab heraus. Sonst geht der Spielstand beim Schließen verloren.' : 'Normaler Modus.' },
+    { ok: !(isFile && isChrome), label: 'Browser kann lokale Dateien',
+      detail: (isFile && isChrome)
+        ? 'Chrome auf file:// kann JSON-Daten blockieren. Tipp: nimm Firefox/Safari, oder starte einen kleinen Server (siehe README).'
+        : isFile ? 'file://-Modus erkannt — Safari/Firefox funktionieren in der Regel.' : 'Du bist auf http(s) — alles fein.' },
+    { ok: audioCtxOK, label: 'WebAudio verfügbar',
+      detail: audioCtxOK ? 'Sound-Effekte funktionieren.' : 'Kein WebAudio — Spiel läuft, aber stumm.' },
+    { ok: true, label: 'Reflexionsphase einplanen',
+      detail: 'Pro Spieltag ~80 Minuten Spielzeit, danach 30-45 Min Reflexion. Lehr-Bericht und Klassen-Vergleich (Settings) helfen.' },
+    { ok: true, label: 'Inhaltswarnungen vorab erklären',
+      detail: 'Manche Inhalte sind politisch heikel (Verschwörungen, Rechtsextremismus, Anti-Feminismus). Inhaltswarnungen können übersprungen werden.' },
+    { ok: true, label: 'Klassen-Spielstände sammeln',
+      detail: 'Am letzten Tag JSON-Spielstände aller SuS einsammeln → Settings → Klassen-Vergleich → ein HTML-Dokument mit Entscheidungs-Diffs.' },
+    { ok: true, label: 'Tag-Fokus via URL setzen',
+      detail: 'Mit ?day=1, ?day=2 oder ?day=3 in der URL erscheint ein Lehrer-Banner mit den Schwerpunkten des Tages.' }
+  ];
+  body.innerHTML = `
+    <ul class="checklist">
+      ${items.map(it => `
+        <li class="checklist-item ${it.ok ? 'ok' : 'warn'}">
+          <span class="checklist-mark" aria-hidden="true">${it.ok ? '✓' : '⚠'}</span>
+          <div>
+            <strong>${escapeHtml(it.label)}</strong>
+            <div class="muted small">${escapeHtml(it.detail)}</div>
+          </div>
+        </li>
+      `).join('')}
+    </ul>
+    <p class="muted small">Bei Fragen: README.md im Repo, Abschnitt „Schnellstart" und „Troubleshooting".</p>
+  `;
+  showScreen('screen-checklist');
+}
 
 function openProfileModal() {
   const c = Store.data.character;
