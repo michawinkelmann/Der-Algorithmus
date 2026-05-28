@@ -2462,8 +2462,6 @@ const STEPS = [
 
 function maybeRunTutorial() {
   if (Store.data.tutorialDone) return;
-  // Wenn die Wochen schon vorangeschritten sind: Tutorial trotzdem nachholen,
-  // aber nur, wenn der User es explizit angefordert hat (Replay).
   setTimeout(() => runTutorial(0), 800);
 }
 
@@ -2474,10 +2472,33 @@ function forceRunTutorial() {
   setTimeout(() => runTutorial(0), 600);
 }
 
+// Globaler Esc-Handler — wird beim ersten Tutorial-Schritt registriert,
+// beim Abschluss / Schließen wieder entfernt.
+let _escHandler = null;
+
+function cleanupStrayTutorialNodes() {
+  // Falls aus irgendeinem Grund (Bug, abgebrochener Vorgänger) Tutorial-
+  // Elemente im DOM hängen, vor dem nächsten Schritt wegräumen.
+  document.querySelectorAll('.tutorial-overlay, .tutorial-spot, .tutorial-tip')
+    .forEach(el => { try { el.remove(); } catch (e) { /* ignore */ } });
+}
+
+function endTutorial() {
+  cleanupStrayTutorialNodes();
+  if (_escHandler) {
+    document.removeEventListener('keydown', _escHandler);
+    _escHandler = null;
+  }
+  Store.data.tutorialDone = true;
+  Store.save();
+}
+
 function runTutorial(idx) {
+  // Alte Schritte sauber wegräumen, bevor ein neuer angelegt wird.
+  cleanupStrayTutorialNodes();
+
   if (idx >= STEPS.length) {
-    Store.data.tutorialDone = true;
-    Store.save();
+    endTutorial();
     return;
   }
   const step = STEPS[idx];
@@ -2492,13 +2513,17 @@ function runTutorial(idx) {
 
   const tip = document.createElement('div');
   tip.className = 'tutorial-tip placement-' + (step.placement || 'top');
+  tip.setAttribute('role', 'dialog');
+  tip.setAttribute('aria-modal', 'true');
+  tip.setAttribute('aria-label', `Tutorial Schritt ${idx + 1} von ${STEPS.length}`);
   tip.innerHTML = `
+    <button class="tutorial-close" aria-label="Tutorial schließen" id="tut-close">×</button>
     <p>${escapeHtml(step.text)}</p>
     <div class="tutorial-actions">
       <span class="muted small">Schritt ${idx + 1} von ${STEPS.length}</span>
       <div>
-        <button class="btn btn-ghost btn-small" id="tut-skip">Überspringen</button>
-        <button class="btn btn-primary btn-small" id="tut-next">${idx === STEPS.length - 1 ? 'Verstanden' : 'Weiter'}</button>
+        <button type="button" class="btn btn-ghost btn-small" id="tut-skip">Überspringen</button>
+        <button type="button" class="btn btn-primary btn-small" id="tut-next">${idx === STEPS.length - 1 ? 'Verstanden' : 'Weiter'}</button>
       </div>
     </div>
   `;
@@ -2507,16 +2532,41 @@ function runTutorial(idx) {
   document.body.appendChild(spot);
   document.body.appendChild(tip);
 
-  positionAround(target, spot, tip, step.placement);
+  // Position erst nach Layout-Reflow setzen — sonst kann offsetHeight
+  // in seltenen Fällen 0 zurückliefern und den Tip off-screen platzieren.
+  requestAnimationFrame(() => positionAround(target, spot, tip, step.placement));
 
+  // Defensives close(): jedes remove() einzeln in try/catch, damit
+  // ein bereits detachtes Element die anderen nicht blockiert.
   const close = () => {
-    overlay.remove(); spot.remove(); tip.remove();
+    for (const el of [overlay, spot, tip]) {
+      try { el.remove(); } catch (e) { /* ignore */ }
+    }
   };
-  tip.querySelector('#tut-next').onclick = () => { close(); runTutorial(idx + 1); };
-  tip.querySelector('#tut-skip').onclick = () => { close(); Store.data.tutorialDone = true; Store.save(); };
+
+  // Esc-Key schließt das Tutorial komplett — nicht weiter, sondern aus.
+  if (!_escHandler) {
+    _escHandler = (e) => { if (e.key === 'Escape') { close(); endTutorial(); } };
+    document.addEventListener('keydown', _escHandler);
+  }
+
+  // Backdrop-Klick (auf das dunkle Overlay außerhalb des Tips) schließt
+  // das Tutorial. So sind User nicht gefangen, wenn der Tip irgendwo
+  // schlecht positioniert sein sollte.
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) { close(); endTutorial(); }
+  });
+
+  const nextBtn = tip.querySelector('#tut-next');
+  const skipBtn = tip.querySelector('#tut-skip');
+  const closeBtn = tip.querySelector('#tut-close');
+  if (nextBtn) nextBtn.onclick = () => { close(); runTutorial(idx + 1); };
+  if (skipBtn) skipBtn.onclick = () => { close(); endTutorial(); };
+  if (closeBtn) closeBtn.onclick = () => { close(); endTutorial(); };
 }
 
 function positionAround(target, spot, tip, placement) {
+  if (!target || !target.getBoundingClientRect) return;
   const rect = target.getBoundingClientRect();
   const pad = 8;
   spot.style.left   = (rect.left - pad) + 'px';
@@ -2534,8 +2584,12 @@ function positionAround(target, spot, tip, placement) {
   if (placement === 'bottom') {
     tip.style.top = (rect.bottom + 18) + 'px';
   } else {
-    const tipH = tip.offsetHeight || 140;
-    tip.style.top = Math.max(8, rect.top - tipH - 18) + 'px';
+    const tipH = tip.offsetHeight || 160;
+    let top = rect.top - tipH - 18;
+    // Wenn nicht genug Platz nach oben (z.B. Target ganz oben am Bildschirm):
+    // unten platzieren.
+    if (top < 8) top = Math.min(window.innerHeight - tipH - 8, rect.bottom + 18);
+    tip.style.top = Math.max(8, top) + 'px';
   }
 }
 
