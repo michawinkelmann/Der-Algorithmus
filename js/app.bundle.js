@@ -78,6 +78,11 @@ function freshSave() {
     ending: null,
     placeEvents: {},
     microReflections: {},
+    ownPostReplies: {},
+    pushNotificationsSeen: {},
+    tutorialDone: false,
+    trendingViewed: {},
+    conceptsSeen: {},
     random_seed: Math.floor(Math.random() * 1e9)
   };
 }
@@ -576,15 +581,27 @@ function askWarning(twKey) {
 // Keine externen Bilder — Avatare werden aus Index + Farbe generiert.
 
 let CHAR_MAP = null;
+let DYNAMIC_HOOK = null;
 
 function setCharacters(list) {
   CHAR_MAP = new Map();
   for (const c of list) CHAR_MAP.set(c.id, c);
 }
 
+// Anderer Modul (typischerweise main.js) kann eine Funktion registrieren, die
+// den dynamischen Charakter-Zustand (Bio nach NPC-Arc) nachschiebt.
+// Ohne Hook bleibt das Verhalten unverändert.
+function setDynamicHook(fn) {
+  DYNAMIC_HOOK = typeof fn === 'function' ? fn : null;
+}
+
 function getCharacter(id) {
   if (!CHAR_MAP) return null;
-  return CHAR_MAP.get(id) || { id, name: id, handle: '@' + id, avatar: 0, bio: '' };
+  const base = CHAR_MAP.get(id) || { id, name: id, handle: '@' + id, avatar: 0, bio: '' };
+  if (!DYNAMIC_HOOK) return base;
+  const overlay = DYNAMIC_HOOK(id, base);
+  if (!overlay) return base;
+  return { ...base, ...overlay };
 }
 
 /**
@@ -1076,6 +1093,7 @@ function renderMotif(m, bg, fg, tone, seed) {
 }
 
   __M.setCharacters = setCharacters;
+  __M.setDynamicHook = setDynamicHook;
   __M.getCharacter = getCharacter;
   __M.avatarSvg = avatarSvg;
   __M.memeSvg = memeSvg;
@@ -1314,6 +1332,155 @@ function escapeHtml(s) {
   __M.maybeQueueMicroReflection = maybeQueueMicroReflection;
 })();
 
+// ===== postreplies.js =====
+(function(){
+  var Store = __M.Store;
+// postreplies.js — Generiert NPC-Antworten auf eigene User-Posts.
+// Aufgerufen am Wochen-Ende für alle Posts der gerade beendeten Woche,
+// damit die Antworten in der darauffolgenden Woche im Notifications-Tab auftauchen.
+
+// Tag → Liste plausibler Reaktionen [author, text, stance]
+const REPLY_POOL = {
+  'klima': [
+    ['char_mira',    'danke fürs Posten. wenn wir leise bleiben, hört uns niemand.', 'support'],
+    ['char_bens',    'schon wieder klimathema. langsam wird das zur sekte.',        'pushback'],
+    ['char_tariq',   'die zahlen dazu sind nicht so eindeutig, wie es klingt — quelle?', 'curious'],
+    ['char_sophia',  'sauber differenziert. teile ich.',                            'support']
+  ],
+  'politik-links': [
+    ['char_mira',    'genau. weiter so.',                                           'support'],
+    ['char_bens',    'naive sichtweise. ihr versteht die wirtschaft nicht.',        'pushback'],
+    ['char_noah',    'sehe ich anders, aber gut formuliert.',                       'curious']
+  ],
+  'politik-rechts': [
+    ['char_bens',    'endlich sagt mal jemand was.',                                'support'],
+    ['char_mira',    'das ist gefährlich. überleg, was du da reproduzierst.',       'pushback'],
+    ['char_marla',   'mit dem framing arbeitet auch die afd. bewusst?',             'curious']
+  ],
+  'politik-mitte': [
+    ['char_buerger', 'pragmatisch — danke.',                                        'support'],
+    ['char_mira',    'mitte ist auch eine entscheidung.',                           'pushback']
+  ],
+  'wissenschaft': [
+    ['char_tariq',   'guter punkt. methodisch sauber gedacht.',                     'support'],
+    ['char_sophia',  'an welcher studie hängst du das fest?',                       'curious'],
+    ['char_nele',    'kann ich in der leserunde aufnehmen?',                        'support']
+  ],
+  'verschwoerung': [
+    ['char_bens',    'ja. genau. nicht nachgeben.',                                 'support'],
+    ['char_tariq',   'hast du dafür eine primärquelle? ernsthaft, ich frag.',       'curious'],
+    ['char_marla',   'das ist ein bekanntes muster. bitte vorsicht.',               'pushback']
+  ],
+  'feminismus': [
+    ['char_fem',     'danke. ich weiß nicht, wie oft das schon gesagt wurde, aber: danke.', 'support'],
+    ['char_mira',    'stehe dahinter.',                                              'support'],
+    ['char_redpill', 'klassisches victim narrative. langweilig.',                    'pushback']
+  ],
+  'anti-feminismus': [
+    ['char_redpill', 'stark. so sieht das aus.',                                     'support'],
+    ['char_fem',     'das brauchen wir nicht. wirklich nicht.',                      'pushback'],
+    ['char_lea',     'ehrlich, das ist nicht du. dachte, wir wären weiter.',         'pushback']
+  ],
+  'hass': [
+    ['char_fem',     'das melde ich. tut mir leid, dass du das sagst.',              'pushback'],
+    ['char_lea',     'bitte nicht.',                                                 'pushback']
+  ],
+  'lifestyle': [
+    ['char_lea',     'fühl ich. ist greifshafen halt.',                              'support'],
+    ['char_jule',    'kommentier auch deine story. so wholesome.',                   'support']
+  ],
+  'humor': [
+    ['char_jule',    'haha. genau das.',                                             'support'],
+    ['char_finn',    'mein humor 100%.',                                             'support'],
+    ['char_lea',     'der musste sein.',                                             'support']
+  ],
+  'gaming': [
+    ['char_finn',    'pog. spielst du das wirklich noch?',                           'support'],
+    ['char_moritz',  'queue heute abend?',                                           'support']
+  ],
+  'musik': [
+    ['char_ana',     'gönn dir. an welcher stelle?',                                 'support'],
+    ['char_jule',    'auf meine playlist.',                                          'support']
+  ],
+  'sport': [
+    ['char_moritz',  'training morgen halb sechs. dabei?',                           'support']
+  ],
+  'true-crime': [
+    ['char_tc',      'wir sind dran. mehr nächste woche.',                           'support'],
+    ['char_marla',   'kurzer reminder: opferperspektive bleibt wichtig.',            'curious']
+  ]
+};
+
+const GENERIC = [
+  ['char_lea',    'gesehen.',         'support'],
+  ['char_moritz', '👀',               'curious'],
+  ['char_jule',   'hochgeladen.',     'support']
+];
+
+function pickFor(tags) {
+  const candidates = [];
+  for (const t of tags || []) {
+    const arr = REPLY_POOL[t];
+    if (arr) for (const r of arr) candidates.push(r);
+  }
+  if (!candidates.length) return GENERIC.slice();
+  return candidates;
+}
+
+// Erzeugt 1-2 Reaktionen pro Post; deterministisch über post.ts.
+function generateRepliesFor(ownPost) {
+  const pool = pickFor(ownPost.tags);
+  if (!pool.length) return [];
+  const seed = (ownPost.ts || 0) ^ (ownPost.week || 0) ^ 0x9e3779b9;
+  function rand(n) {
+    let x = seed;
+    return () => { x = (x * 16807) % 2147483647; return x % n; };
+  }
+  const r = rand(pool.length);
+  const a = pool[r()];
+  const out = [{ author: a[0], text: a[1], stance: a[2], ts: Date.now() }];
+  if (pool.length > 1 && Math.random() > 0.4) {
+    let b;
+    let tries = 0;
+    do { b = pool[r()]; tries++; } while (b[0] === a[0] && tries < 5);
+    if (b[0] !== a[0]) out.push({ author: b[0], text: b[1], stance: b[2], ts: Date.now() + 1 });
+  }
+  return out;
+}
+
+// Am Wochen-Ende: für alle Posts der gerade beendeten Woche Antworten erzeugen
+// und im Store unter ownPostReplies ablegen.
+function generateRepliesForJustEndedWeek(weekJustEnded) {
+  if (!Store.data.ownPostReplies) Store.data.ownPostReplies = {};
+  for (const op of Store.data.ownPosts || []) {
+    if (op.week !== weekJustEnded) continue;
+    const key = `${op.week}_${op.ts || 0}`;
+    if (Store.data.ownPostReplies[key]) continue;
+    Store.data.ownPostReplies[key] = {
+      week: weekJustEnded + 1,
+      postSnippet: (op.text || '').slice(0, 120),
+      replies: generateRepliesFor(op)
+    };
+  }
+  Store.save();
+}
+
+function getRepliesForInbox() {
+  const out = [];
+  const all = Store.data.ownPostReplies || {};
+  for (const [key, entry] of Object.entries(all)) {
+    if (entry.week > Store.data.currentWeek) continue;
+    out.push({ key, ...entry });
+  }
+  out.sort((a, b) => b.week - a.week);
+  return out;
+}
+
+  __M.generateRepliesFor = generateRepliesFor;
+  __M.generateRepliesForJustEndedWeek = generateRepliesForJustEndedWeek;
+  __M.getRepliesForInbox = getRepliesForInbox;
+})();
+
 // ===== feed.js =====
 (function(){
   var Store = __M.Store;
@@ -1325,7 +1492,9 @@ function escapeHtml(s) {
   var memeSvg = __M.memeSvg;
   var askWarning = __M.askWarning;
   var SFX = __M.SFX;
+  var getRepliesForInbox = __M.getRepliesForInbox;
 // feed.js — Feed-Rendering und Interaktionen.
+
 
 
 
@@ -1377,6 +1546,29 @@ function getActiveStories() {
     picks.push({ id: `fb_${w}_${i}`, author: f.authorId, week: w, text: f.text, emoji: f.emoji, _fallback: true });
   }
   return [...curated, ...picks];
+}
+
+// Trending-Hashtags pro Woche: aggregiert aus #-Vorkommen und dominanten
+// Tags der gerade sichtbaren Posts. Liefert die 5 häufigsten.
+function getTrendingHashtags() {
+  const counts = new Map();
+  const tagRe = /#[A-Za-zÄÖÜäöüß0-9_]{3,}/g;
+  const candidates = POSTS.filter(p => isFeedEligible(p, Store.data));
+  for (const p of candidates) {
+    const matches = (p.text || '').match(tagRe) || [];
+    for (const m of matches) counts.set(m, (counts.get(m) || 0) + 1);
+  }
+  // Plus thematische Pseudo-Hashtags aus dominanten Post-Tags.
+  for (const p of candidates.slice(0, 30)) {
+    for (const t of p.tags || []) {
+      const key = '#' + t.replace(/[^a-zA-Z0-9]/g, '');
+      if (!counts.has(key) && Math.random() < 0.4) counts.set(key, 1);
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([tag, count]) => ({ tag, count }));
 }
 
 function setCallbacks({ onWeekEnd: wEnd, onOpenCompose: oc, onOpenStory: os }) {
@@ -1507,6 +1699,27 @@ async function renderFeed(view = 'feed') {
       <p>${escapeHtml(w.intro)}</p>
     `;
     root.appendChild(header);
+
+    // Trending-Bar (ab W3, wenn der Feed Inhalt hat).
+    if (d.currentWeek >= 3) {
+      const trending = getTrendingHashtags();
+      if (trending.length) {
+        const tb = document.createElement('div');
+        tb.className = 'trending-bar';
+        tb.innerHTML = `<span class="trending-label muted small">Trending in Greifshafen:</span>` +
+          trending.map(t => `<button class="trending-tag" data-tag="${escapeHtml(t.tag)}">${escapeHtml(t.tag)}</button>`).join('');
+        tb.querySelectorAll('.trending-tag').forEach(b => {
+          b.onclick = () => {
+            const tag = b.dataset.tag.toLowerCase();
+            if (!Store.data.trendingViewed) Store.data.trendingViewed = {};
+            Store.data.trendingViewed[tag] = Store.data.currentWeek;
+            Store.save();
+            toast(`Stell dir vor, du klickst ${b.dataset.tag} und siehst nur noch diese Posts. Was würde das mit deinem Feed machen?`, { long: true });
+          };
+        });
+        root.appendChild(tb);
+      }
+    }
 
     const list = document.createElement('div');
     list.className = 'feed-list';
@@ -1683,6 +1896,13 @@ function buildComposeBox() {
   const chosen = new Set();
   const MAX = 280;
 
+  const trending = getTrendingHashtags();
+  const trendingRow = trending.length
+    ? `<div class="compose-trending">
+        <span class="muted small">Trending — anklicken hängt an:</span>
+        ${trending.slice(0, 4).map(t => `<button type="button" class="compose-trend" data-tag="${escapeHtml(t.tag)}">${escapeHtml(t.tag)}</button>`).join('')}
+      </div>`
+    : '';
   wrap.innerHTML = `
     <textarea id="compose-text" maxlength="${MAX}" placeholder="Was ist los?" aria-label="Beitragstext"></textarea>
     <div class="compose-meta">
@@ -1690,6 +1910,7 @@ function buildComposeBox() {
       <span class="compose-counter" id="compose-counter" aria-live="polite">0 / ${MAX}</span>
     </div>
     <div class="compose-topic-grid" id="compose-topics"></div>
+    ${trendingRow}
     <div class="compose-row">
       <span class="muted small" id="compose-status"></span>
       <button class="btn btn-primary" id="btn-publish">Posten</button>
@@ -1708,6 +1929,16 @@ function buildComposeBox() {
   }
   const txt = wrap.querySelector('#compose-text');
   const counter = wrap.querySelector('#compose-counter');
+  wrap.querySelectorAll('.compose-trend').forEach(b => {
+    b.onclick = () => {
+      const cur = txt.value.trimEnd();
+      const sep = cur && !cur.endsWith(' ') ? ' ' : '';
+      const next = (cur + sep + b.dataset.tag + ' ').slice(0, MAX);
+      txt.value = next;
+      txt.dispatchEvent(new Event('input'));
+      txt.focus();
+    };
+  });
   txt.addEventListener('input', () => {
     const n = txt.value.length;
     counter.textContent = `${n} / ${MAX}`;
@@ -1742,6 +1973,32 @@ function renderNotifications() {
   const wrap = document.createElement('div');
   wrap.className = 'feed-list';
 
+  // NPC-Antworten auf eigene Posts
+  const postReplies = getRepliesForInbox();
+  if (postReplies.length) {
+    const h = document.createElement('div');
+    h.className = 'feed-header';
+    h.innerHTML = '<h3>Antworten auf deine Posts</h3>';
+    wrap.appendChild(h);
+    for (const entry of postReplies) {
+      const card = document.createElement('div');
+      card.className = 'reply-bundle';
+      const head = `<div class="reply-bundle-head muted small">Auf deinen Post in W${entry.week - 1}: „${escapeHtml(entry.postSnippet)}${entry.postSnippet.length >= 120 ? '…' : ''}"</div>`;
+      const body = entry.replies.map(r => {
+        const c = getCharacter(r.author);
+        return `<div class="reply-bundle-item stance-${r.stance}">
+          <div class="avatar small">${avatarSvg(c?.avatar || 0)}</div>
+          <div class="reply-meta">
+            <div class="reply-author"><strong>${escapeHtml(c?.name || r.author)}</strong> <span class="muted small">${escapeHtml(c?.handle || '')}</span></div>
+            <div class="reply-text">${escapeHtml(r.text)}</div>
+          </div>
+        </div>`;
+      }).join('');
+      card.innerHTML = head + '<div class="reply-bundle-body">' + body + '</div>';
+      wrap.appendChild(card);
+    }
+  }
+
   // Badges
   if (Store.data.badges.length) {
     const h = document.createElement('div');
@@ -1764,7 +2021,7 @@ function renderNotifications() {
     wrap.appendChild(card);
   }
 
-  if (!Store.data.badges.length && !Store.data.shitstormHistory.length) {
+  if (!postReplies.length && !Store.data.badges.length && !Store.data.shitstormHistory.length) {
     wrap.innerHTML = '<p class="muted">Noch keine Benachrichtigungen. Spiele weiter.</p>';
   }
   return wrap;
@@ -2760,7 +3017,48 @@ function computeEnding(d) {
   const tw = d.contentWarningsAccepted || {};
   const twSkip = Object.values(tw).reduce((a, b) => a + (b.skipped || 0), 0);
   const arcs = d.npcArcs || {};
+  const leaClose  = arcs.lea_close || 0;
+  const finnPath  = arcs.finn_path || 0;
+  const miraClose = arcs.mira_close || 0;
+  const selfAware = arcs.self_aware || 0;
 
+  // NPC-Arc-Endings haben Priorität, wenn sie eindeutig sind.
+  if (finnPath >= 3) {
+    return {
+      key: 'finn_lost',
+      emoji: '🕳️',
+      title: 'Finn ist abgerutscht',
+      text: 'Du hast Finn auf seinem Weg in die radikale Gilde nicht aufgehalten — vielleicht warst du auch dort. In W24 hat er nicht widersprochen, als jemand Lara Weiss beleidigt wurde. Du hast es gesehen. Du warst nicht der Grund, aber du warst ein Teil der Stimmung.',
+      facts: [`Finn-Bahn: +${finnPath} (in Richtung radikal)`, inRabbit ? 'eigene Mitgliedschaft: Echte Werte' : 'Finn radikalisiert, du nicht', `Hass-Affinität: ${Math.round((p.interests?.hass||0)*100)}%`]
+    };
+  }
+  if (finnPath <= -3) {
+    return {
+      key: 'finn_saved',
+      emoji: '🪢',
+      title: 'Du hast Finn gehalten',
+      text: 'In Woche 8 hast du widersprochen, als Finn anfing, von Clout-Chaser-Mädels zu reden. In Woche 17 hast du ihn vor der Gilde gewarnt. Es klingt klein, ist aber genau das, was im Echten Radikalisierung verhindert: jemand, der „hey, nein" sagt — bevor es Routine wird.',
+      facts: [`Finn-Bahn: ${finnPath} (in Richtung zurückgeholt)`, `selbst nicht in „Echte Werte"`, `${ownPosts} eigene Posts geschrieben`]
+    };
+  }
+  if (leaClose >= 0.6 && selfAware >= 1) {
+    return {
+      key: 'aware',
+      emoji: '🪞',
+      title: 'Selbstbewusst durch den Feed',
+      text: 'Du hast Lea zugehört, ihr im richtigen Moment ehrlich geantwortet, dass dieser Feed etwas mit dir macht. Diese Bewegung — Reflexion *während* des Scrollens, nicht erst danach — ist die schwierigste und seltenste in diesem Spiel.',
+      facts: [`Lea-Nähe: ${leaClose.toFixed(2)}`, `du hast eingestanden, was Algorithmen mit dir machen`, `Lean stabil bei ${lean.toFixed(2)}`]
+    };
+  }
+  if (miraClose >= 0.4 && (p.interests?.feminismus || 0) > 0.3) {
+    return {
+      key: 'allyship',
+      emoji: '🤝',
+      title: 'Verbündete:r',
+      text: 'Mira hat dich nach Hass-Kommentaren um einen Reality-Check gebeten. Du warst da. Allyship ist nicht groß, sie ist diese kurze DM, die ankommt, wenn es nötig ist.',
+      facts: [`Mira-Nähe: ${miraClose.toFixed(2)}`, `Feminismus-Affinität: ${Math.round((p.interests?.feminismus||0)*100)}%`, `${angry} wütende Kommentare`]
+    };
+  }
   // Prioritäten-Logik: das eindeutigste Profil gewinnt.
   if (inRabbit && (verschw > 0.4 || lean > 0.55)) {
     return {
@@ -2807,7 +3105,9 @@ function computeEnding(d) {
       facts: [`Wissenschafts-Affinität: ${Math.round((p.interests?.wissenschaft||0)*100)}%`, `Gilde: Leserunde 2028`]
     };
   }
-  if (arcs.self_aware >= 1 && twSkip < 3) {
+  // Fallback-Aware: self_aware ohne hohe Lea-Nähe (das stärkere Aware-Ending
+  // oben verlangt beides — Reflexionsgespräch + Beziehungspflege).
+  if (selfAware >= 1 && twSkip < 3) {
     return {
       key: 'aware',
       emoji: '🪞',
@@ -3722,6 +4022,306 @@ function escapeHtml(s) {
   __M.renderClassCompare = renderClassCompare;
 })();
 
+// ===== push.js =====
+(function(){
+  var Store = __M.Store;
+  var SFX = __M.SFX;
+// push.js — Fake-Push-Notifications, die mid-Feed hochpoppen.
+// Didaktischer Sinn: SuS sollen die Manipulationsmechanik nicht nur lesen,
+// sondern selbst spüren.
+
+
+const TEMPLATES = [
+  { id: 'mention_sara',    from: 'Streem', text: 'Sara hat dich in einem Kommentar erwähnt.',         deceptive: true,  week_min: 3 },
+  { id: 'streak',          from: 'Streem', text: 'Du bist seit {W} Wochen aktiv — Streak halten!',     deceptive: true,  week_min: 7 },
+  { id: 'reactivate',      from: 'Streem', text: '3 neue Aktivitäten warten auf dich.',                deceptive: true,  week_min: 5 },
+  { id: 'trending',        from: 'Streem', text: 'Dein Post von letzter Woche bekommt jetzt Schub.',   deceptive: true,  week_min: 8, needs_own_post: true },
+  { id: 'finn_typing',     from: 'Streem', text: 'Finn schreibt dir gerade…',                          deceptive: true,  week_min: 8 },
+  { id: 'similar_account', from: 'Streem', text: 'Jemand, dem du ähnelst, folgt jetzt einer Gilde.',   deceptive: true,  week_min: 10 },
+  { id: 'fomo',            from: 'Streem', text: '12 Personen aus Greifshafen sind gerade online.',    deceptive: true,  week_min: 6 },
+  { id: 'badge_ready',     from: 'Streem', text: 'Ein neues Abzeichen ist fast freigeschaltet — bleib dran!', deceptive: true, week_min: 4 }
+];
+
+const RATE_LIMIT_WEEKS = 2; // höchstens alle 2 Wochen ein Push.
+
+function pickTemplate() {
+  const w = Store.data.currentWeek;
+  const seen = Store.data.pushNotificationsSeen || {};
+  const hasOwn = (Store.data.ownPosts || []).length > 0;
+  const eligible = TEMPLATES.filter(t => {
+    if (t.week_min > w) return false;
+    if (t.needs_own_post && !hasOwn) return false;
+    if (seen[t.id]) return false;
+    return true;
+  });
+  if (!eligible.length) return null;
+  // Deterministisch pro Woche, damit es nicht zufällig springt bei Re-Render.
+  const idx = (w * 7 + (Store.data.random_seed || 1)) % eligible.length;
+  return eligible[idx];
+}
+
+let lastShownWeek = -RATE_LIMIT_WEEKS;
+
+function maybeShowPush() {
+  const w = Store.data.currentWeek;
+  if (w - lastShownWeek < RATE_LIMIT_WEEKS) return false;
+  if (w < 3) return false; // erste Wochen ruhig lassen.
+  const t = pickTemplate();
+  if (!t) return false;
+  lastShownWeek = w;
+  showPushBanner(t);
+  if (!Store.data.pushNotificationsSeen) Store.data.pushNotificationsSeen = {};
+  Store.data.pushNotificationsSeen[t.id] = w;
+  Store.save();
+  return true;
+}
+
+function showPushBanner(template) {
+  const w = Store.data.currentWeek;
+  const text = template.text.replace('{W}', w);
+  const banner = document.createElement('div');
+  banner.className = 'push-banner';
+  banner.setAttribute('role', 'alert');
+  banner.innerHTML = `
+    <div class="push-app">📱 ${escapeHtml(template.from)}</div>
+    <div class="push-body">
+      <div class="push-text">${escapeHtml(text)}</div>
+      <button class="push-close" aria-label="Schließen">×</button>
+    </div>
+    <div class="push-disclaimer muted small">${template.deceptive ? 'Das war eine fiktive Notification. Echte Apps senden so etwas, um dich zurückzuholen — meistens, ohne dass etwas Echtes passiert ist.' : ''}</div>
+  `;
+  document.body.appendChild(banner);
+  SFX.toast();
+  // Slide-in via Klasse.
+  requestAnimationFrame(() => banner.classList.add('in'));
+  const close = () => {
+    banner.classList.remove('in');
+    setTimeout(() => banner.remove(), 280);
+    clearTimeout(autoClose);
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  banner.querySelector('.push-close').onclick = close;
+  banner.addEventListener('click', e => {
+    if (e.target === banner.querySelector('.push-close')) return;
+    // Klick auf Banner zeigt den Disclaimer (Reflexionsmoment).
+    banner.classList.add('expanded');
+  });
+  const autoClose = setTimeout(close, 6500);
+}
+
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+  __M.maybeShowPush = maybeShowPush;
+})();
+
+// ===== tutorial.js =====
+(function(){
+  var Store = __M.Store;
+// tutorial.js — Erst-Erklärungs-Tooltips beim allerersten Feed-Render.
+
+const STEPS = [
+  {
+    selector: '.post-card .actions',
+    text: 'Likes, Kommentare und Shares füttern den Algorithmus. Auch wütende Kommentare gelten als Engagement — das ist genau der Punkt.',
+    placement: 'top'
+  },
+  {
+    selector: '.bottombar .navbtn[data-view="dms"]',
+    text: 'Hier landen Direkt-Nachrichten von NPCs. Lea, Finn, Mira melden sich im Lauf der Wochen. Deine Antworten verändern, was passiert.',
+    placement: 'top'
+  },
+  {
+    selector: '.stories-bar .story-item:first-child',
+    text: 'Stories: 24-h-Inhalte. Klick öffnet sie. Nach einer Spielwoche verschwinden sie.',
+    placement: 'bottom'
+  }
+];
+
+function maybeRunTutorial() {
+  if (Store.data.tutorialDone) return;
+  if (Store.data.currentWeek > 0) { Store.data.tutorialDone = true; Store.save(); return; }
+  setTimeout(() => runTutorial(0), 800);
+}
+
+function runTutorial(idx) {
+  if (idx >= STEPS.length) {
+    Store.data.tutorialDone = true;
+    Store.save();
+    return;
+  }
+  const step = STEPS[idx];
+  const target = document.querySelector(step.selector);
+  if (!target) { runTutorial(idx + 1); return; }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'tutorial-overlay';
+
+  const spot = document.createElement('div');
+  spot.className = 'tutorial-spot';
+
+  const tip = document.createElement('div');
+  tip.className = 'tutorial-tip placement-' + (step.placement || 'top');
+  tip.innerHTML = `
+    <p>${escapeHtml(step.text)}</p>
+    <div class="tutorial-actions">
+      <span class="muted small">Schritt ${idx + 1} von ${STEPS.length}</span>
+      <div>
+        <button class="btn btn-ghost btn-small" id="tut-skip">Überspringen</button>
+        <button class="btn btn-primary btn-small" id="tut-next">${idx === STEPS.length - 1 ? 'Verstanden' : 'Weiter'}</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+  document.body.appendChild(spot);
+  document.body.appendChild(tip);
+
+  positionAround(target, spot, tip, step.placement);
+
+  const close = () => {
+    overlay.remove(); spot.remove(); tip.remove();
+  };
+  tip.querySelector('#tut-next').onclick = () => { close(); runTutorial(idx + 1); };
+  tip.querySelector('#tut-skip').onclick = () => { close(); Store.data.tutorialDone = true; Store.save(); };
+}
+
+function positionAround(target, spot, tip, placement) {
+  const rect = target.getBoundingClientRect();
+  const pad = 8;
+  spot.style.left   = (rect.left - pad) + 'px';
+  spot.style.top    = (rect.top - pad) + 'px';
+  spot.style.width  = (rect.width + pad * 2) + 'px';
+  spot.style.height = (rect.height + pad * 2) + 'px';
+
+  const tipW = 280;
+  let tipX = rect.left + rect.width / 2 - tipW / 2;
+  if (tipX < 8) tipX = 8;
+  if (tipX + tipW > window.innerWidth - 8) tipX = window.innerWidth - tipW - 8;
+  tip.style.width = tipW + 'px';
+  tip.style.left  = tipX + 'px';
+
+  if (placement === 'bottom') {
+    tip.style.top = (rect.bottom + 18) + 'px';
+  } else {
+    const tipH = tip.offsetHeight || 140;
+    tip.style.top = Math.max(8, rect.top - tipH - 18) + 'px';
+  }
+}
+
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+  __M.maybeRunTutorial = maybeRunTutorial;
+})();
+
+// ===== concepts.js =====
+(function(){
+  var Store = __M.Store;
+// concepts.js — Kurze Konzept-Karten, die vor didaktischen Wendepunkten
+// angezeigt werden. Bewusst sehr knapp gehalten — eine Karte ≤ 60 Sekunden Lesezeit.
+
+const CONCEPTS = {
+  bots_intro: {
+    title: 'Was ist ein Bot?',
+    points: [
+      'Ein Bot ist ein automatisiertes Konto, das aussieht wie ein Mensch — postet, liked, kommentiert.',
+      'Typische Tells: sehr junger Account, hohe Posting-Frequenz, generisches Profilbild oder Naming-Schema mit Zahlen.',
+      'Gefährlich, weil sie Stimmungen verstärken können, ohne dass jemand dafür Verantwortung trägt.',
+      'Plattformen erkennen viele, aber nicht alle. Manche Profile sind „Cyborgs": teils Mensch, teils Auto-Posting.'
+    ],
+    bg: 'tech'
+  },
+  bot_minigame_intro: {
+    title: 'Gleich: Bot oder Mensch?',
+    points: [
+      'Du siehst gleich Profile mit Bio, Beitrag, Account-Alter und Posting-Frequenz.',
+      'Markiere für jedes: Bot oder Mensch. Beide können vorkommen — auch beide Bots oder beide Menschen.',
+      'Es ist absichtlich nicht immer eindeutig. Genau das ist der Punkt.'
+    ],
+    bg: 'tech'
+  },
+  algorithm_panel_intro: {
+    title: 'Blick hinter den Algorithmus',
+    points: [
+      'Plattformen speichern Modelle über dich. Deine Interessen, deine politische Neigung, deine Outrage-Toleranz.',
+      'Diese Werte siehst du oben rechts unter 🔍 — sie werden mit jeder Aktion neu justiert.',
+      'In der echten Welt sind diese Werte meist nicht einsehbar. Streem ist hier ehrlich, damit du siehst, wie es funktioniert.'
+    ],
+    bg: 'tech'
+  },
+  ads_intro: {
+    title: 'Warum jetzt Anzeigen?',
+    points: [
+      'Anzeigen sind gekennzeichnet. Sie werden nach deinen Interessen ausgespielt — die Plattform verdient daran.',
+      'Politische Anzeigen sind besonders heikel: sie können gezielt nur bestimmte Gruppen erreichen ohne öffentliche Debatte.',
+      'Klick „Warum sehe ich das?" unter Anzeigen, um das Targeting zu sehen.'
+    ],
+    bg: 'commerce'
+  }
+};
+
+let queued = null;
+
+function queueConcept(key) {
+  if (!CONCEPTS[key]) return;
+  if (Store.data.conceptsSeen?.[key]) return;
+  queued = key;
+}
+
+function maybeShowQueuedConcept() {
+  if (!queued) return false;
+  const key = queued;
+  queued = null;
+  showConcept(key);
+  return true;
+}
+
+function showConcept(key) {
+  const c = CONCEPTS[key];
+  if (!c) return;
+  if (!Store.data.conceptsSeen) Store.data.conceptsSeen = {};
+  Store.data.conceptsSeen[key] = Date.now();
+  Store.save();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay concept-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.innerHTML = `
+    <div class="concept-box concept-bg-${c.bg}">
+      <div class="concept-kicker">Kurz erklärt</div>
+      <h2>${escapeHtml(c.title)}</h2>
+      <ul class="concept-points">
+        ${c.points.map(p => `<li>${escapeHtml(p)}</li>`).join('')}
+      </ul>
+      <button class="btn btn-primary concept-go" id="concept-close">Verstanden</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('#concept-close').onclick = close;
+}
+
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+  __M.queueConcept = queueConcept;
+  __M.maybeShowQueuedConcept = maybeShowQueuedConcept;
+  __M.showConcept = showConcept;
+})();
+
 // ===== main.js =====
 (function(){
   var Store = __M.Store;
@@ -3741,6 +4341,7 @@ function escapeHtml(s) {
   var setCharacters = __M.setCharacters;
   var avatarSvg = __M.avatarSvg;
   var getCharacter = __M.getCharacter;
+  var setDynamicHook = __M.setDynamicHook;
   var setPostsLookup = __M.setPostsLookup;
   var renderWrapped = __M.renderWrapped;
   var initSandbox = __M.initSandbox;
@@ -3757,7 +4358,15 @@ function escapeHtml(s) {
   var SFX = __M.SFX;
   var setSoundEnabled = __M.setSoundEnabled;
   var maybeQueueMicroReflection = __M.maybeQueueMicroReflection;
+  var generateRepliesForJustEndedWeek = __M.generateRepliesForJustEndedWeek;
+  var maybeShowPush = __M.maybeShowPush;
+  var maybeRunTutorial = __M.maybeRunTutorial;
+  var showConcept = __M.showConcept;
 // main.js — Einstieg, Routing, Orchestrierung aller Module.
+
+
+
+
 
 
 
@@ -3823,6 +4432,7 @@ async function boot() {
   }
 
   setCharacters(DATA.characters.characters);
+  setDynamicHook(dynamicCharacterOverlay);
   initFeed({
     posts: DATA.posts.posts,
     ads: DATA.ads.ads,
@@ -4129,6 +4739,10 @@ function enterMain() {
   updateTopbar();
   renderFeed('feed');
   maybeUnlockForWeek();
+  // Tutorial nur beim allerersten Reinkommen.
+  maybeRunTutorial();
+  // Fake-Push verzögert, sodass es mid-scroll wirkt — nicht direkt beim Reinkommen.
+  setTimeout(() => maybeShowPush(), 4500);
 }
 
 function updateTopbar() {
@@ -4299,15 +4913,29 @@ function maybeUnlockForWeek() {
   if (!weekDef) return;
   for (const u of weekDef.unlock || []) Store.unlock(u);
   updateTopbar();
+
+  // Konzept-Karten passend zum Wochen-Unlock.
+  const unlocks = weekDef.unlock || [];
+  if (unlocks.includes('ads') && !Store.data.conceptsSeen?.ads_intro) {
+    setTimeout(() => showConcept('ads_intro'), 800);
+  }
+  if (unlocks.includes('algorithm_panel') && !Store.data.conceptsSeen?.algorithm_panel_intro) {
+    setTimeout(() => showConcept('algorithm_panel_intro'), 1600);
+  }
+  if (unlocks.includes('bots') && !Store.data.conceptsSeen?.bots_intro) {
+    setTimeout(() => showConcept('bots_intro'), 800);
+  }
+
   // Bot-Minigame als optionales Bonbon in W12 (Bot-Unlock-Woche).
   if (w === 12 && !Store.data.minigameResults?.bot_or_human && !Store.data.minigameAsked_bot) {
     Store.data.minigameAsked_bot = true;
     Store.save();
     setTimeout(() => {
-      if (confirm('Streem hat dir gerade Bot-Profile vorgesetzt. Willst du ein kurzes Quiz spielen: Bot oder Mensch?')) {
-        openBotMinigame();
-      }
-    }, 600);
+      showConcept('bot_minigame_intro');
+      setTimeout(() => {
+        if (confirm('Bereit für „Bot oder Mensch?"?')) openBotMinigame();
+      }, 400);
+    }, 2400);
   }
 }
 
@@ -4316,6 +4944,7 @@ function handleWeekEnd(seenIds) {
   const week = Store.data.currentWeek;
   const eventResults = triggerWeekEvents(week);
   const badges = checkBadges();
+  generateRepliesForJustEndedWeek(week);
   Store.endWeek(seenIds);
   maybeUnlockForWeek();
   showWeekendCard(week, eventResults, badges);
@@ -4563,6 +5192,25 @@ function openAlgoPanel() {
   showScreen('screen-algo');
 }
 
+// NPCs verändern Bio je nach Spielverlauf — wird in getCharacter überlagert.
+// Nur ein dünner Datenüberzug, kein Mutieren der Original-Charakter-Records.
+function dynamicCharacterOverlay(id, base) {
+  if (!Store.data) return null;
+  const arcs = Store.data.npcArcs || {};
+  if (id === 'char_finn') {
+    if ((arcs.finn_path || 0) >= 2) return { bio: 'Mindset > Excuses.' };
+    if ((arcs.finn_path || 0) <= -2) return { bio: 'Zocker aus Greifshafen. Lerngruppe Mittwoch.' };
+  }
+  if (id === 'char_lea') {
+    if ((arcs.lea_close || 0) >= 0.5) return { bio: 'Café Hafen, jeden Mittwoch. Bring jemand mit.' };
+  }
+  if (id === 'char_mira') {
+    if ((arcs.mira_close || 0) >= 0.4) return { bio: 'Klima-Aktivistin · danke an alle, die zuhören.' };
+    if ((arcs.mira_close || 0) <= -0.2) return { bio: 'Klima-Aktivistin. DMs vorerst zu.' };
+  }
+  return null;
+}
+
 function tagLabel(tag) {
   const m = {
     gaming: 'Gaming', musik: 'Musik', lifestyle: 'Lifestyle', sport: 'Sport',
@@ -4776,10 +5424,12 @@ function openProfileModal() {
   const body = document.createElement('div');
   body.className = 'profile-box';
   const pronounLine = c.pronoun && c.pronoun !== 'keine' ? `${escapeHtml(c.pronoun)} · ` : '';
+  const bioBlock = c.bio ? `<p class="profile-bio">${escapeHtml(c.bio)}</p>` : '';
   body.innerHTML = `
     <div class="big-avatar">${avatarSvg(c.avatar || 0)}</div>
     <h2 style="text-align:center;margin:0">${escapeHtml(c.name)}</h2>
     <p class="muted small" style="text-align:center">${pronounLine}${escapeHtml(c.city)}</p>
+    ${bioBlock}
     <p class="muted small" style="text-align:center">Woche ${Store.data.currentWeek} · Tag ${Store.getDay()}</p>
     <div class="stat-row" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0">
       <div class="stat"><div class="num">${profile.followed.length}</div><div class="lbl">folgst du</div></div>
@@ -4904,10 +5554,12 @@ function exportReport() {
   .foot { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #ddd; color: #777; font-size: 13px; }
   ul.interests { list-style: none; padding: 0; }
   ul.interests li { display: inline-block; background: #eef; padding: 2px 8px; border-radius: 10px; margin: 2px; font-size: 13px; }
+  .profile-bio { font-style: italic; color: #555; border-left: 3px solid #c026d3; padding: 6px 12px; margin: 1rem 0; background: #faf7fb; }
 </style></head>
 <body>
   <h1>Streem-Bericht</h1>
-  <p class="meta"><strong>${escapeHtml(c.name)}</strong>${c.pronoun && c.pronoun !== 'keine' ? ' · ' + escapeHtml(c.pronoun) : ''} · ${escapeHtml(c.city || '')}<br/>Stand: Woche ${d.currentWeek} · erstellt ${new Date().toLocaleString('de-DE')}</p>
+  <p class="meta"><strong>${escapeHtml(c.name)}</strong>${c.pronoun && c.pronoun !== 'keine' ? ' · ' + escapeHtml(c.pronoun) : ''} · ${escapeHtml(c.city || '')} · Protagonist:in: ${escapeHtml(c.protagonist || 'alex')}<br/>Stand: Woche ${d.currentWeek} · erstellt ${new Date().toLocaleString('de-DE')}</p>
+  ${c.bio ? `<blockquote class="profile-bio">${escapeHtml(c.bio)}</blockquote>` : ''}
 
   <h2>Übersicht</h2>
   <div class="stats">
