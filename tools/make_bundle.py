@@ -18,6 +18,7 @@ ORDER = [
     "warnings.js",
     "characters.js",
     "sound.js",
+    "postreplies.js",
     "feed.js",
     "events.js",
     "sandbox.js",
@@ -26,6 +27,9 @@ ORDER = [
     "places.js",
     "minigame.js",
     "classcompare.js",
+    "push.js",
+    "tutorial.js",
+    "concepts.js",
     "main.js",
 ]
 
