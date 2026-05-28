@@ -5,6 +5,8 @@
 import { Store, clamp } from './state.js';
 import { getCharacter, avatarSvg } from './characters.js';
 import { SFX } from './sound.js';
+import { askWarning } from './warnings.js';
+import { maybeQueueMicroReflection } from './microreflect.js';
 
 let THREADS = [];
 
@@ -74,6 +76,10 @@ export function applyReply(threadId, afterWeek, choice) {
   if (!Store.data.dmReplies[threadId]) Store.data.dmReplies[threadId] = {};
   Store.data.dmReplies[threadId][afterWeek] = { id: choice.id, text: choice.text, ts: Date.now() };
   Store.save();
+  // Wendepunkt-spezifische Mikro-Reflexion direkt nach Marc-Antwort.
+  if (threadId === 'dm_marc') {
+    setTimeout(() => maybeQueueMicroReflection('marc_dm'), 1800);
+  }
 }
 
 // Rendert die DM-Inbox-Liste.
@@ -112,7 +118,17 @@ export function renderDmList(root, onOpenThread) {
 }
 
 // Rendert einen Thread.
-export function renderDmThread(root, thread, onBack) {
+export async function renderDmThread(root, thread, onBack) {
+  // Threads mit trigger_warning werden vor dem ersten Öffnen gegated —
+  // konsistent zu Posts und Gilden.
+  if (thread.trigger_warning && !Store.data.dmThreads?.[thread.id]?.warningAccepted) {
+    const r = await askWarning(thread.trigger_warning);
+    if (!r.show) { onBack && onBack(); return; }
+    if (!Store.data.dmThreads) Store.data.dmThreads = {};
+    if (!Store.data.dmThreads[thread.id]) Store.data.dmThreads[thread.id] = {};
+    Store.data.dmThreads[thread.id].warningAccepted = true;
+    Store.save();
+  }
   const c = getCharacter(thread.with);
   const visible = getVisibleMessages(thread);
   const pending = getPendingChoice(thread);

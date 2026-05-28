@@ -20,6 +20,27 @@
   color-scheme: dark;
 }
 
+/* Light-Mode — gedacht für Projektor-Einsatz im Klassenzimmer.
+   Aktivierung über data-theme="light" am <html>-Element. */
+html[data-theme="light"] {
+  --bg: #f5f7fb;
+  --bg-elev: #ffffff;
+  --bg-elev-2: #eef0f7;
+  --line: #d8dce6;
+  --text: #1a1d29;
+  --text-dim: #4a5168;
+  --muted: #767e94;
+  --accent: #c026d3;          /* etwas dunkleres Magenta für Kontrast */
+  --accent-2: #0891b2;         /* dunkles Cyan */
+  --ok: #16a34a;
+  --warn: #ca8a04;
+  --danger: #dc2626;
+  --right: #c2410c;
+  --left: #1d4ed8;
+  --shadow: 0 6px 18px rgba(0,0,0,0.08);
+  color-scheme: light;
+}
+
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); }
 body {
@@ -166,21 +187,28 @@ a { color: var(--accent-2); }
 .navbtn.active { color: var(--accent); }
 .navicon { font-size: 22px; }
 
-/* ===== Weekend & Reflection Cards ===== */
+/* ===== Weekend & Reflection Cards =====
+   Karte scrollt mit visuellem Scroll-Schatten am unteren Rand, der signalisiert,
+   dass mehr Inhalt folgt. Der „Weiter"-Button hängt unten am Inhalt — mit
+   genug Padding-Bottom, dass er auch bei voller Karte sichtbar bleibt. */
 .weekend-card {
   background: var(--bg-elev); border-radius: var(--radius);
-  padding: 24px; max-width: 520px; width: 100%;
+  padding: 24px 24px 20px;
+  max-width: 520px; width: 100%;
   max-height: 85vh; overflow-y: auto;
   box-shadow: var(--shadow); border: 1px solid var(--line);
   display: flex; flex-direction: column;
+  /* Scroll-Indikator (Schatten am unteren Rand, wenn scrollbar). */
+  background:
+    var(--bg-elev) linear-gradient(var(--bg-elev), var(--bg-elev)) padding-box,
+    radial-gradient(farthest-side at 50% 100%, rgba(0,0,0,0.4), transparent) bottom no-repeat;
+  background-size: 100% 100%, 100% 24px;
+  background-attachment: local, scroll;
 }
 .weekend-card.big { max-width: 720px; }
-.weekend-card > .btn-primary {
-  position: sticky;
-  bottom: 0;
-  margin-top: auto;
+.weekend-card > .btn-primary:last-child {
+  margin-top: 16px;
   align-self: stretch;
-  box-shadow: 0 -10px 16px -6px rgba(0,0,0,0.4);
 }
 .weekend-card h2 { margin-top: 0; }
 .muted { color: var(--text-dim); }

@@ -72,9 +72,12 @@ function freshSave() {
     storiesViewed: {},
     placesVisited: {},
     soundEnabled: true,
+    theme: 'dark',
     challengeMode: null,
     minigameResults: {},
     ending: null,
+    placeEvents: {},
+    microReflections: {},
     random_seed: Math.floor(Math.random() * 1e9)
   };
 }
@@ -1140,6 +1143,177 @@ function setSoundEnabled(enabled) {
   __M.setSoundEnabled = setSoundEnabled;
 })();
 
+// ===== modals.js =====
+(function(){
+// modals.js — Konsistente Modal-Mechanik (ESC, Backdrop, Focus-Trap).
+// Statt jedes Modul rollt das selbst, nutzen es alle neuen Overlays gleich.
+
+const TRAPPED = [];
+
+function getFocusable(root) {
+  return Array.from(root.querySelectorAll(
+    'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )).filter(el => !el.hidden && el.offsetParent !== null);
+}
+
+function onKey(e) {
+  if (!TRAPPED.length) return;
+  const top = TRAPPED[TRAPPED.length - 1];
+  if (e.key === 'Escape') { e.preventDefault(); top.close(); return; }
+  if (e.key !== 'Tab') return;
+  const items = getFocusable(top.el);
+  if (!items.length) return;
+  const first = items[0];
+  const last = items[items.length - 1];
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault(); last.focus();
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault(); first.focus();
+  }
+}
+document.addEventListener('keydown', onKey, true);
+
+/**
+ * Macht ein Overlay-Element zu einem barrierearmen Modal:
+ *  - role="dialog" / aria-modal
+ *  - ESC schließt
+ *  - Klick auf Backdrop schließt (nur direktes Overlay-Target)
+ *  - Tab bleibt innerhalb
+ *  - vorheriger Fokus wird wiederhergestellt
+ */
+function attachModal(overlay, { onClose, initialFocus } = {}) {
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  const restoreFocus = document.activeElement;
+
+  const handle = {
+    el: overlay,
+    close() {
+      const idx = TRAPPED.indexOf(handle);
+      if (idx >= 0) TRAPPED.splice(idx, 1);
+      overlay.removeEventListener('click', onBackdrop);
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      if (restoreFocus && typeof restoreFocus.focus === 'function') {
+        try { restoreFocus.focus(); } catch (e) { /* ignore */ }
+      }
+      if (typeof onClose === 'function') onClose();
+    }
+  };
+  function onBackdrop(e) {
+    if (e.target === overlay) handle.close();
+  }
+  overlay.addEventListener('click', onBackdrop);
+  TRAPPED.push(handle);
+
+  // Initialer Fokus auf erstes interaktives Element.
+  setTimeout(() => {
+    const target = (typeof initialFocus === 'function' ? initialFocus(overlay) : initialFocus)
+      || getFocusable(overlay)[0];
+    if (target && typeof target.focus === 'function') {
+      try { target.focus(); } catch (e) { /* ignore */ }
+    }
+  }, 30);
+
+  return handle;
+}
+
+  __M.attachModal = attachModal;
+})();
+
+// ===== microreflect.js =====
+(function(){
+  var Store = __M.Store;
+// microreflect.js — Eine-Frage-Reflexionen unmittelbar nach Wendepunkten.
+// Anders als die geplanten 3-Fragen-Reflexionen sind diese unmittelbar nach
+// dem Ereignis und haben nur eine einzige Frage. Antworten werden ins Save
+// geschrieben und landen im Lehr-Bericht.
+
+const PROMPTS = {
+  marc_dm: {
+    title: 'Kurzer Moment',
+    intro: 'Marc — der „Stay Based"-Account — hat dich gerade angeschrieben.',
+    question: 'Was war dein Bauchgefühl in dem Moment, als du die Nachricht gesehen hast?',
+    placeholder: 'Stichworte reichen.'
+  },
+  hate_incident: {
+    title: 'Kurzer Moment',
+    intro: 'In der Gilde ist gerade etwas eskaliert. Lara Weiss wurde wüst beleidigt.',
+    question: 'Wie hast du dich entschieden zu reagieren — und warum?',
+    placeholder: 'Stichworte reichen.'
+  },
+  first_shitstorm: {
+    title: 'Kurzer Moment',
+    intro: 'Einer deiner Posts ist gerade viral gegangen.',
+    question: 'Hat sich das gut angefühlt, schlecht — oder beides? Versuch das in einem Satz zu fassen.',
+    placeholder: 'Stichworte reichen.'
+  }
+};
+
+function maybeQueueMicroReflection(key) {
+  if (!PROMPTS[key]) return false;
+  if (Store.data.microReflections?.[key]) return false;
+  showMicroReflection(key);
+  return true;
+}
+
+function showMicroReflection(key) {
+  const p = PROMPTS[key];
+  if (!p) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay micro-reflect';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.innerHTML = `
+    <div class="tw-box micro-box">
+      <h3>${escapeHtml(p.title)}</h3>
+      <p class="muted small">${escapeHtml(p.intro)}</p>
+      <label class="micro-q">
+        <span>${escapeHtml(p.question)}</span>
+        <textarea id="micro-input" rows="3" placeholder="${escapeHtml(p.placeholder)}"></textarea>
+      </label>
+      <div class="tw-actions">
+        <button class="btn btn-ghost" id="micro-skip">Überspringen</button>
+        <button class="btn btn-primary" id="micro-save">Speichern</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const ta = overlay.querySelector('#micro-input');
+  setTimeout(() => ta.focus(), 30);
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('#micro-skip').onclick = () => {
+    if (!Store.data.microReflections) Store.data.microReflections = {};
+    Store.data.microReflections[key] = { skipped: true, week: Store.data.currentWeek, ts: Date.now() };
+    Store.save();
+    close();
+  };
+  overlay.querySelector('#micro-save').onclick = () => {
+    if (!Store.data.microReflections) Store.data.microReflections = {};
+    Store.data.microReflections[key] = {
+      answer: ta.value.trim(),
+      week: Store.data.currentWeek,
+      ts: Date.now(),
+      question: p.question
+    };
+    Store.save();
+    close();
+  };
+}
+
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+  __M.maybeQueueMicroReflection = maybeQueueMicroReflection;
+})();
+
 // ===== feed.js =====
 (function(){
   var Store = __M.Store;
@@ -1173,11 +1347,36 @@ function initFeed(data) {
   STORIES = data.stories || [];
 }
 
+// Fallback-Stories für Wochen ohne kuratierten Inhalt. Charaktere sind ihre
+// üblichen Stamm-Themen, Texte sind generisch genug, dass sie zu jeder Woche passen.
+const FALLBACK_STORIES = [
+  { authorId: 'char_lea',    emoji: '☕', text: 'morgens. erstmal kaffee. wie immer.' },
+  { authorId: 'char_finn',   emoji: '🎮', text: 'queue läuft. wenn ihr mich braucht: nicht.' },
+  { authorId: 'char_jule',   emoji: '🎧', text: 'auf repeat seit gestern.' },
+  { authorId: 'char_moritz', emoji: '🏃', text: 'training morgen. wer mit?' },
+  { authorId: 'char_sara',   emoji: '🤖', text: 'kleiner code-fortschritt. großer schritt fürs werkzeug.' },
+  { authorId: 'char_ana',    emoji: '🌊', text: 'hafen. fähre raus. ruhig.' },
+  { authorId: 'char_noah',   emoji: '📖', text: 'gerade gelesen. denke nach.' },
+  { authorId: 'char_tariq',  emoji: '🧪', text: 'die zahlen sagen was anderes als die schlagzeile.' }
+];
+
 // Stories-Bar: Stories aus den letzten 1-2 Wochen, deren Autor:in der User folgt
-// oder die durch Wochenfortschritt freigeschaltet sind.
+// oder die durch Wochenfortschritt freigeschaltet sind. Wenn keine kuratierten
+// Stories existieren, füllen wir mit deterministischen Fallback-Stories auf,
+// damit die Bar nie ganz leer ist.
 function getActiveStories() {
   const w = Store.data.currentWeek;
-  return STORIES.filter(s => s.week <= w && s.week >= w - 1);
+  const curated = STORIES.filter(s => s.week <= w && s.week >= w - 1);
+  if (curated.length >= 3) return curated;
+  // Fallback: deterministisch über Wochen-Index 3 aus FALLBACK_STORIES wählen.
+  const seed = w * 2654435761 >>> 0;
+  const picks = [];
+  for (let i = 0; i < 3 - curated.length; i++) {
+    const idx = (seed + i * 134775813) % FALLBACK_STORIES.length;
+    const f = FALLBACK_STORIES[idx];
+    picks.push({ id: `fb_${w}_${i}`, author: f.authorId, week: w, text: f.text, emoji: f.emoji, _fallback: true });
+  }
+  return [...curated, ...picks];
 }
 
 function setCallbacks({ onWeekEnd: wEnd, onOpenCompose: oc, onOpenStory: os }) {
@@ -2802,9 +3001,13 @@ function renderWrapped(onSandbox, onManifest) {
   var getCharacter = __M.getCharacter;
   var avatarSvg = __M.avatarSvg;
   var SFX = __M.SFX;
+  var askWarning = __M.askWarning;
+  var maybeQueueMicroReflection = __M.maybeQueueMicroReflection;
 // dms.js — Direkt-Nachrichten mit wiederkehrenden NPC-Arcs.
 // Threads sind datengetrieben (data/dms.json), Antworten beeinflussen
 // das Profil und auch interne NPC-Bindungs-Werte (npcArcs).
+
+
 
 
 
@@ -2876,6 +3079,10 @@ function applyReply(threadId, afterWeek, choice) {
   if (!Store.data.dmReplies[threadId]) Store.data.dmReplies[threadId] = {};
   Store.data.dmReplies[threadId][afterWeek] = { id: choice.id, text: choice.text, ts: Date.now() };
   Store.save();
+  // Wendepunkt-spezifische Mikro-Reflexion direkt nach Marc-Antwort.
+  if (threadId === 'dm_marc') {
+    setTimeout(() => maybeQueueMicroReflection('marc_dm'), 1800);
+  }
 }
 
 // Rendert die DM-Inbox-Liste.
@@ -2914,7 +3121,17 @@ function renderDmList(root, onOpenThread) {
 }
 
 // Rendert einen Thread.
-function renderDmThread(root, thread, onBack) {
+async function renderDmThread(root, thread, onBack) {
+  // Threads mit trigger_warning werden vor dem ersten Öffnen gegated —
+  // konsistent zu Posts und Gilden.
+  if (thread.trigger_warning && !Store.data.dmThreads?.[thread.id]?.warningAccepted) {
+    const r = await askWarning(thread.trigger_warning);
+    if (!r.show) { onBack && onBack(); return; }
+    if (!Store.data.dmThreads) Store.data.dmThreads = {};
+    if (!Store.data.dmThreads[thread.id]) Store.data.dmThreads[thread.id] = {};
+    Store.data.dmThreads[thread.id].warningAccepted = true;
+    Store.save();
+  }
   const c = getCharacter(thread.with);
   const visible = getVisibleMessages(thread);
   const pending = getPendingChoice(thread);
@@ -3012,9 +3229,13 @@ function escapeHtml(s) {
 // ===== places.js =====
 (function(){
   var Store = __M.Store;
+  var clamp = __M.clamp;
   var getCharacter = __M.getCharacter;
   var avatarSvg = __M.avatarSvg;
 // places.js — Greifshafen-Karte als entdeckbares Modal.
+// Klicks zählen, und ab dem zweiten Besuch eines Orts gibt es kleine
+// Vignetten: kurze Begegnungen oder Beobachtungen, die das Profil leicht
+// beeinflussen können.
 
 
 let PLACES = [];
@@ -3025,13 +3246,47 @@ function initPlaces(data) {
 
 function getPlaces() { return PLACES; }
 
+// Vignetten pro Ort. Jede Vignette hat eine Bedingung (Mindestbesuch,
+// Mindestwoche), einen Text und einen kleinen Effekt aufs Profil.
+const VIGNETTES = {
+  cafe_hafen: [
+    { minVisit: 2, minWeek: 3,  who: 'char_lea',  text: 'Lea sitzt am Fenster, winkt dich kurz dazu. "Setz dich, ich hab noch zehn Minuten."', tags: { lifestyle: 0.05 } },
+    { minVisit: 4, minWeek: 12, who: 'char_jule', text: 'Jule schreibt an einer Rezension. "Sag mal, wie liest sich das, ehrlich?"', tags: { lifestyle: 0.05 } }
+  ],
+  fleetplatz: [
+    { minVisit: 2, minWeek: 5,  who: 'char_mira', text: 'Mira mit zwei Pappschildern unterm Arm. "Du kommst zum Aufbau, oder?"', tags: { 'politik-links': 0.05, klima: 0.05 } },
+    { minVisit: 3, minWeek: 19, who: 'char_alt',  text: 'Wahlkampfstand der Neuen Alternative. Ein junger Mann drückt dir einen Flyer in die Hand. "Lies mal, was wir wirklich wollen."', tags: { 'politik-rechts': 0.04 } }
+  ],
+  schulhof: [
+    { minVisit: 2, minWeek: 4,  who: 'char_moritz', text: 'Moritz spielt mit dem Handy. "Yo, der Patch ist live. Gönnst du dir das?"', tags: { gaming: 0.04 } },
+    { minVisit: 3, minWeek: 16, who: 'char_sara',   text: 'Sara baut etwas Kleines aus zwei Steckbrettern. "Wenn ich morgen verloren bin, war\'s das hier."', tags: { wissenschaft: 0.05 } }
+  ],
+  marktplatz: [
+    { minVisit: 2, minWeek: 8,  who: 'char_greif',  text: 'Ein Reporter von Greifshafen News interviewt jemanden. Du bleibst kurz stehen, hörst zu.', tags: { 'politik-mitte': 0.04 } },
+    { minVisit: 3, minWeek: 21, who: 'char_buerger', text: 'Wahlkampfbühne der Bürgerliste. Die Kandidatin spricht ruhig, fast unaufgeregt. Ungewohnt.', tags: { 'politik-mitte': 0.04 } }
+  ],
+  buergerhaus: [
+    { minVisit: 2, minWeek: 6, who: 'char_noah', text: 'Noah kommt aus einer Sitzung. "War zäh, aber sie haben sich am Ende auf was geeinigt. Klingt nach Mitte? Ist aber Demokratie."', tags: { 'politik-mitte': 0.05 } }
+  ],
+  altstadt: [
+    { minVisit: 2, minWeek: 7, who: 'char_ana', text: 'Ana steht in einem Hauseingang, Kopfhörer auf, summt. Sie nickt dir zu.', tags: { musik: 0.04 } }
+  ],
+  campus: [
+    { minVisit: 2, minWeek: 9,  who: 'char_tariq',  text: 'Tariq winkt von einer Bank. "Wir lesen gerade die Studie, über die alle reden. Spoiler: die Schlagzeile stimmt nicht."', tags: { wissenschaft: 0.06 } },
+    { minVisit: 3, minWeek: 18, who: 'char_sophia', text: 'Sophia gibt gerade ein Interview. "Frag dich immer: cui bono?"', tags: { wissenschaft: 0.05 } }
+  ],
+  hafen: [
+    { minVisit: 2, minWeek: 11, who: null, text: 'Eine Fähre legt ab. Möwen schreien. Dein Telefon vibriert. Du steckst es wieder weg.', tags: { lifestyle: 0.03 } }
+  ]
+};
+
 function renderMap(root, onClose) {
   root.innerHTML = `
     <header class="map-head">
       <h2>Greifshafen</h2>
       <button class="btn btn-ghost" id="map-close">Schließen</button>
     </header>
-    <p class="muted small">Die Stadt deines Accounts. Wer ist wo unterwegs?</p>
+    <p class="muted small">Die Stadt deines Accounts. Wer ist wo unterwegs? Mehrmaliges Vorbeischauen kann unerwartete Begegnungen bringen.</p>
     <div class="map-grid" id="map-grid"></div>
     <div id="place-detail" class="place-detail" hidden></div>
   `;
@@ -3055,13 +3310,52 @@ function renderMap(root, onClose) {
   }
 }
 
+function pickVignetteFor(place) {
+  const visits = Store.data.placesVisited?.[place.id] || 0;
+  const week = Store.data.currentWeek;
+  if (!Store.data.placeEvents) Store.data.placeEvents = {};
+  const seen = Store.data.placeEvents[place.id] || [];
+  const list = VIGNETTES[place.id] || [];
+  for (const v of list) {
+    const key = `${v.who || 'narration'}_${v.minWeek}`;
+    if (visits >= v.minVisit && week >= v.minWeek && !seen.includes(key)) {
+      seen.push(key);
+      Store.data.placeEvents[place.id] = seen;
+      // Effekt aufs Profil.
+      if (v.tags) {
+        for (const [t, val] of Object.entries(v.tags)) {
+          Store.data.userProfile.interests[t] = clamp((Store.data.userProfile.interests[t] || 0) + val, 0, 1);
+        }
+      }
+      Store.save();
+      return v;
+    }
+  }
+  return null;
+}
+
 function showPlaceDetail(root, place) {
   const detail = root.querySelector('#place-detail');
   detail.hidden = false;
   const chars = (place.regulars || []).map(getCharacter).filter(Boolean);
+  const vignette = pickVignetteFor(place);
+  let vignetteHtml = '';
+  if (vignette) {
+    const c = vignette.who ? getCharacter(vignette.who) : null;
+    vignetteHtml = `
+      <div class="vignette-card">
+        <div class="vignette-tag muted small">Du triffst dort:</div>
+        <div class="vignette-body">
+          ${c ? `<div class="avatar small">${avatarSvg(c.avatar || 0)}</div>` : '<div class="vignette-icon">🌫️</div>'}
+          <div class="vignette-text">${escapeHtml(vignette.text)}</div>
+        </div>
+      </div>
+    `;
+  }
   detail.innerHTML = `
     <div class="place-head"><span class="map-emoji">${place.emoji}</span><h3>${escapeHtml(place.name)}</h3></div>
     <p>${escapeHtml(place.desc)}</p>
+    ${vignetteHtml}
     <div class="place-regulars">
       <div class="muted small">Stammgäste:</div>
       <div class="place-avatars">
@@ -3462,7 +3756,9 @@ function escapeHtml(s) {
   var renderClassCompare = __M.renderClassCompare;
   var SFX = __M.SFX;
   var setSoundEnabled = __M.setSoundEnabled;
+  var maybeQueueMicroReflection = __M.maybeQueueMicroReflection;
 // main.js — Einstieg, Routing, Orchestrierung aller Module.
+
 
 
 
@@ -3557,7 +3853,37 @@ async function boot() {
   if (Store.load()) {
     document.getElementById('btn-continue').hidden = false;
   }
+  applyTheme(Store.data?.theme || 'dark');
+  maybeShowTeacherBanner();
   showScreen('screen-start');
+}
+
+// Lehrer-Modus: ?day=1|2|3 in der URL blendet einen Fokus-Hinweis ein,
+// der die didaktischen Schwerpunkte des Schultags umreißt.
+function maybeShowTeacherBanner() {
+  let day = null;
+  try {
+    const p = new URLSearchParams(window.location.search);
+    day = parseInt(p.get('day'), 10);
+  } catch (e) { return; }
+  if (!day || day < 1 || day > 3) return;
+  const FOCUS = {
+    1: { title: 'Tag 1 · Onboarding & erste Wochen', text: 'Heute geht es um Vertrautwerden mit dem Feed. Achtet besonders auf die Stories-Bar, die ersten Likes, und wie sich euer Algorithmus-Profil schon in W4 zeigt.' },
+    2: { title: 'Tag 2 · Mechanik wird sichtbar', text: 'Heute schalten sich Anzeigen, das Algorithmus-Panel, Bots und Gilden frei. Schaut mindestens einmal in „Blick hinter den Algorithmus" (🔍 oben). Bot-Quiz in W12 — bitte mitnehmen.' },
+    3: { title: 'Tag 3 · Wahlkampf, Wrapped, Sandbox', text: 'Heute Wahltag, Jahresrückblick, eigener Algorithmus. Wer Zeit hat: Sandbox-Presets „Empörungs-Booster" und „Ruhe-Modus" ausprobieren und vergleichen.' }
+  };
+  const f = FOCUS[day];
+  const banner = document.createElement('div');
+  banner.className = 'teacher-banner';
+  banner.innerHTML = `
+    <div class="teacher-banner-inner">
+      <strong>${f.title}</strong>
+      <p>${f.text}</p>
+      <button class="teacher-banner-close" aria-label="Hinweis ausblenden">Verstanden</button>
+    </div>
+  `;
+  document.body.appendChild(banner);
+  banner.querySelector('.teacher-banner-close').onclick = () => banner.remove();
 }
 
 // ===== Start-Actions ======
@@ -3646,6 +3972,25 @@ function bindGlobal() {
       if (soundChk.checked) SFX.toast();
     };
   }
+
+  // Light-Mode-Toggle
+  const lightChk = document.getElementById('chk-light');
+  if (lightChk) {
+    lightChk.checked = Store.data?.theme === 'light';
+    lightChk.onchange = () => {
+      const t = lightChk.checked ? 'light' : 'dark';
+      if (Store.data) { Store.data.theme = t; Store.save(); }
+      applyTheme(t);
+    };
+  }
+
+  // Bot-Minigame jederzeit wiederholbar
+  const mgBtn = document.getElementById('btn-minigame');
+  if (mgBtn) mgBtn.onclick = () => { showScreen('screen-main'); openBotMinigame(); };
+
+  // Wochen-Sprung für Lehrkraft
+  const jumpBtn = document.getElementById('btn-jump-week');
+  if (jumpBtn) jumpBtn.onclick = openWeekJump;
 
   // Manifest
   document.getElementById('btn-manifest-back').onclick = () => showScreen('screen-main');
@@ -3824,14 +4169,14 @@ function openDmInbox() {
     <div id="dm-list-root"></div>
   `;
   root.appendChild(wrap);
-  renderDmList(wrap.querySelector('#dm-list-root'), (thread) => {
+  renderDmList(wrap.querySelector('#dm-list-root'), async (thread) => {
     SFX.swipe();
     const root2 = document.getElementById('feed-root');
     root2.innerHTML = '';
     const w2 = document.createElement('div');
     w2.className = 'dm-thread-wrap';
     root2.appendChild(w2);
-    renderDmThread(w2, thread, () => {
+    await renderDmThread(w2, thread, () => {
       openDmInbox();
       updateDmBadge();
     });
@@ -3904,6 +4249,34 @@ function openClassCompare() {
   const onKey = (e) => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', onKey);
   renderClassCompare(box, close);
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
+}
+
+function openWeekJump() {
+  const totalWeeks = DATA?.weeks?.weeks?.length || 27;
+  const current = Store.data.currentWeek;
+  const input = prompt(`Zu welcher Woche springen? (0 bis ${totalWeeks - 1})\n\nAktuell: W${current}\n\nHinweis: Wochen-Sprung ist für Lehrkräfte gedacht und überspringt Reflexionen sowie Wochenrückblicke. Du landest direkt am Feed-Anfang der Ziel-Woche.`, String(current));
+  if (input === null) return;
+  const target = parseInt(input, 10);
+  if (Number.isNaN(target) || target < 0 || target >= totalWeeks) {
+    alert('Ungültige Woche.');
+    return;
+  }
+  // Profil minimal anpassen für plausibles Spielgefühl: alle Unlocks bis Ziel-Woche freischalten.
+  for (let w = 0; w <= target; w++) {
+    const wd = DATA.weeks.weeks[w];
+    if (!wd) continue;
+    for (const u of wd.unlock || []) Store.unlock(u);
+  }
+  Store.data.currentWeek = target;
+  Store.data.actionsThisWeek = [];
+  Store.save();
+  showScreen('screen-main');
+  enterMain();
+  toast(`Sprung zu W${target}.`, { long: true });
 }
 
 function openBotMinigame() {
@@ -4289,6 +4662,7 @@ function openHateIncident() {
       applyGuildReaction('echte_werte', choice.id, choice);
       toast('Reaktion gespeichert.');
       showScreen('screen-main');
+      setTimeout(() => maybeQueueMicroReflection('hate_incident'), 400);
     };
   });
   showScreen('screen-guilds');
@@ -4316,7 +4690,7 @@ function openElection() {
         <div class="party-card" style="border-left:4px solid ${col}">
           <div class="name" style="color:${col}">${escapeHtml(p.name)}</div>
           <div class="slogan">„${escapeHtml(p.slogan)}"</div>
-          <div class="coverage">In deinem Feed: ${cov}</div>
+          <div class="coverage">In deinem Feed: <span class="cov cov-${cov.level}">${escapeHtml(cov.text)}</span></div>
           <div class="party-vote-bar">
             <button class="btn btn-primary" data-vote="${p.id}">Für ${escapeHtml(p.name)} stimmen</button>
           </div>
@@ -4338,6 +4712,8 @@ function openElection() {
 
 function estimateCoverageFor(party) {
   // Abschätzung: wie oft tauchte diese Richtung im User-Feed auf?
+  // Liefert reinen Text plus CSS-Klasse — kein HTML-in-String, damit nichts
+  // versehentlich als Markup interpretiert wird.
   const seen = Store.data.history.flatMap(h => h.feedSeen || []);
   const posts = DATA.posts.posts.filter(p => seen.includes(p.id));
   let close = 0, total = 0;
@@ -4346,12 +4722,12 @@ function estimateCoverageFor(party) {
     total++;
     if (Math.abs(p.political_lean - party.lean) < 0.25) close++;
   }
-  if (!total) return 'kaum Daten';
+  if (!total) return { text: 'kaum Daten', level: 'low' };
   const pct = Math.round(close / total * 100);
-  if (pct > 40) return `<strong>sehr präsent</strong> (~${pct}% deiner politischen Posts)`;
-  if (pct > 20) return `spürbar (~${pct}%)`;
-  if (pct > 5) return `am Rand (~${pct}%)`;
-  return 'so gut wie unsichtbar';
+  if (pct > 40) return { text: `sehr präsent (~${pct}% deiner politischen Posts)`, level: 'strong' };
+  if (pct > 20) return { text: `spürbar (~${pct}%)`, level: 'medium' };
+  if (pct > 5)  return { text: `am Rand (~${pct}%)`, level: 'weak' };
+  return { text: 'so gut wie unsichtbar', level: 'low' };
 }
 
 function showElectionResult() {
@@ -4551,6 +4927,16 @@ function exportReport() {
   ${refBlock('Reflexion · 1. Drittel', 'halftime')}
   ${refBlock('Reflexion · 2. Drittel', 'mid')}
   ${refBlock('Schluss-Reflexion', 'final')}
+
+  ${(() => {
+    const micros = d.microReflections || {};
+    const entries = Object.entries(micros).filter(([, v]) => v && v.answer);
+    if (!entries.length) return '';
+    const labels = { marc_dm: 'Direkt nach Marc-DM', hate_incident: 'Direkt nach Hate-Incident', first_shitstorm: 'Direkt nach erstem Shitstorm' };
+    return `<section><h2>Mikro-Reflexionen (im Moment des Ereignisses)</h2>${entries.map(([k, v]) =>
+      `<div class="qa"><div class="q">${escapeHtml(labels[k] || k)} · W${v.week}</div><div class="a">${escapeHtml(String(v.answer))}</div></div>`
+    ).join('')}</section>`;
+  })()}
 
   <h2>Medien-Manifest</h2>
   <ol>${manifestList}</ol>

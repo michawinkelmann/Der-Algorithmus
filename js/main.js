@@ -12,6 +12,7 @@ import { initPlaces, renderMap } from './places.js';
 import { runMinigame } from './minigame.js';
 import { renderClassCompare } from './classcompare.js';
 import { SFX, setSoundEnabled } from './sound.js';
+import { maybeQueueMicroReflection } from './microreflect.js';
 
 // ===== Daten-Bundle (statt fetch, damit file:// funktioniert) =====
 // Die JSONs werden zur Laufzeit geladen — funktioniert per fetch() auch bei file://
@@ -95,7 +96,37 @@ async function boot() {
   if (Store.load()) {
     document.getElementById('btn-continue').hidden = false;
   }
+  applyTheme(Store.data?.theme || 'dark');
+  maybeShowTeacherBanner();
   showScreen('screen-start');
+}
+
+// Lehrer-Modus: ?day=1|2|3 in der URL blendet einen Fokus-Hinweis ein,
+// der die didaktischen Schwerpunkte des Schultags umreißt.
+function maybeShowTeacherBanner() {
+  let day = null;
+  try {
+    const p = new URLSearchParams(window.location.search);
+    day = parseInt(p.get('day'), 10);
+  } catch (e) { return; }
+  if (!day || day < 1 || day > 3) return;
+  const FOCUS = {
+    1: { title: 'Tag 1 · Onboarding & erste Wochen', text: 'Heute geht es um Vertrautwerden mit dem Feed. Achtet besonders auf die Stories-Bar, die ersten Likes, und wie sich euer Algorithmus-Profil schon in W4 zeigt.' },
+    2: { title: 'Tag 2 · Mechanik wird sichtbar', text: 'Heute schalten sich Anzeigen, das Algorithmus-Panel, Bots und Gilden frei. Schaut mindestens einmal in „Blick hinter den Algorithmus" (🔍 oben). Bot-Quiz in W12 — bitte mitnehmen.' },
+    3: { title: 'Tag 3 · Wahlkampf, Wrapped, Sandbox', text: 'Heute Wahltag, Jahresrückblick, eigener Algorithmus. Wer Zeit hat: Sandbox-Presets „Empörungs-Booster" und „Ruhe-Modus" ausprobieren und vergleichen.' }
+  };
+  const f = FOCUS[day];
+  const banner = document.createElement('div');
+  banner.className = 'teacher-banner';
+  banner.innerHTML = `
+    <div class="teacher-banner-inner">
+      <strong>${f.title}</strong>
+      <p>${f.text}</p>
+      <button class="teacher-banner-close" aria-label="Hinweis ausblenden">Verstanden</button>
+    </div>
+  `;
+  document.body.appendChild(banner);
+  banner.querySelector('.teacher-banner-close').onclick = () => banner.remove();
 }
 
 // ===== Start-Actions ======
@@ -184,6 +215,25 @@ function bindGlobal() {
       if (soundChk.checked) SFX.toast();
     };
   }
+
+  // Light-Mode-Toggle
+  const lightChk = document.getElementById('chk-light');
+  if (lightChk) {
+    lightChk.checked = Store.data?.theme === 'light';
+    lightChk.onchange = () => {
+      const t = lightChk.checked ? 'light' : 'dark';
+      if (Store.data) { Store.data.theme = t; Store.save(); }
+      applyTheme(t);
+    };
+  }
+
+  // Bot-Minigame jederzeit wiederholbar
+  const mgBtn = document.getElementById('btn-minigame');
+  if (mgBtn) mgBtn.onclick = () => { showScreen('screen-main'); openBotMinigame(); };
+
+  // Wochen-Sprung für Lehrkraft
+  const jumpBtn = document.getElementById('btn-jump-week');
+  if (jumpBtn) jumpBtn.onclick = openWeekJump;
 
   // Manifest
   document.getElementById('btn-manifest-back').onclick = () => showScreen('screen-main');
@@ -362,14 +412,14 @@ function openDmInbox() {
     <div id="dm-list-root"></div>
   `;
   root.appendChild(wrap);
-  renderDmList(wrap.querySelector('#dm-list-root'), (thread) => {
+  renderDmList(wrap.querySelector('#dm-list-root'), async (thread) => {
     SFX.swipe();
     const root2 = document.getElementById('feed-root');
     root2.innerHTML = '';
     const w2 = document.createElement('div');
     w2.className = 'dm-thread-wrap';
     root2.appendChild(w2);
-    renderDmThread(w2, thread, () => {
+    await renderDmThread(w2, thread, () => {
       openDmInbox();
       updateDmBadge();
     });
@@ -442,6 +492,34 @@ function openClassCompare() {
   const onKey = (e) => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', onKey);
   renderClassCompare(box, close);
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
+}
+
+function openWeekJump() {
+  const totalWeeks = DATA?.weeks?.weeks?.length || 27;
+  const current = Store.data.currentWeek;
+  const input = prompt(`Zu welcher Woche springen? (0 bis ${totalWeeks - 1})\n\nAktuell: W${current}\n\nHinweis: Wochen-Sprung ist für Lehrkräfte gedacht und überspringt Reflexionen sowie Wochenrückblicke. Du landest direkt am Feed-Anfang der Ziel-Woche.`, String(current));
+  if (input === null) return;
+  const target = parseInt(input, 10);
+  if (Number.isNaN(target) || target < 0 || target >= totalWeeks) {
+    alert('Ungültige Woche.');
+    return;
+  }
+  // Profil minimal anpassen für plausibles Spielgefühl: alle Unlocks bis Ziel-Woche freischalten.
+  for (let w = 0; w <= target; w++) {
+    const wd = DATA.weeks.weeks[w];
+    if (!wd) continue;
+    for (const u of wd.unlock || []) Store.unlock(u);
+  }
+  Store.data.currentWeek = target;
+  Store.data.actionsThisWeek = [];
+  Store.save();
+  showScreen('screen-main');
+  enterMain();
+  toast(`Sprung zu W${target}.`, { long: true });
 }
 
 function openBotMinigame() {
@@ -827,6 +905,7 @@ function openHateIncident() {
       applyGuildReaction('echte_werte', choice.id, choice);
       toast('Reaktion gespeichert.');
       showScreen('screen-main');
+      setTimeout(() => maybeQueueMicroReflection('hate_incident'), 400);
     };
   });
   showScreen('screen-guilds');
@@ -854,7 +933,7 @@ function openElection() {
         <div class="party-card" style="border-left:4px solid ${col}">
           <div class="name" style="color:${col}">${escapeHtml(p.name)}</div>
           <div class="slogan">„${escapeHtml(p.slogan)}"</div>
-          <div class="coverage">In deinem Feed: ${cov}</div>
+          <div class="coverage">In deinem Feed: <span class="cov cov-${cov.level}">${escapeHtml(cov.text)}</span></div>
           <div class="party-vote-bar">
             <button class="btn btn-primary" data-vote="${p.id}">Für ${escapeHtml(p.name)} stimmen</button>
           </div>
@@ -876,6 +955,8 @@ function openElection() {
 
 function estimateCoverageFor(party) {
   // Abschätzung: wie oft tauchte diese Richtung im User-Feed auf?
+  // Liefert reinen Text plus CSS-Klasse — kein HTML-in-String, damit nichts
+  // versehentlich als Markup interpretiert wird.
   const seen = Store.data.history.flatMap(h => h.feedSeen || []);
   const posts = DATA.posts.posts.filter(p => seen.includes(p.id));
   let close = 0, total = 0;
@@ -884,12 +965,12 @@ function estimateCoverageFor(party) {
     total++;
     if (Math.abs(p.political_lean - party.lean) < 0.25) close++;
   }
-  if (!total) return 'kaum Daten';
+  if (!total) return { text: 'kaum Daten', level: 'low' };
   const pct = Math.round(close / total * 100);
-  if (pct > 40) return `<strong>sehr präsent</strong> (~${pct}% deiner politischen Posts)`;
-  if (pct > 20) return `spürbar (~${pct}%)`;
-  if (pct > 5) return `am Rand (~${pct}%)`;
-  return 'so gut wie unsichtbar';
+  if (pct > 40) return { text: `sehr präsent (~${pct}% deiner politischen Posts)`, level: 'strong' };
+  if (pct > 20) return { text: `spürbar (~${pct}%)`, level: 'medium' };
+  if (pct > 5)  return { text: `am Rand (~${pct}%)`, level: 'weak' };
+  return { text: 'so gut wie unsichtbar', level: 'low' };
 }
 
 function showElectionResult() {
@@ -1089,6 +1170,16 @@ function exportReport() {
   ${refBlock('Reflexion · 1. Drittel', 'halftime')}
   ${refBlock('Reflexion · 2. Drittel', 'mid')}
   ${refBlock('Schluss-Reflexion', 'final')}
+
+  ${(() => {
+    const micros = d.microReflections || {};
+    const entries = Object.entries(micros).filter(([, v]) => v && v.answer);
+    if (!entries.length) return '';
+    const labels = { marc_dm: 'Direkt nach Marc-DM', hate_incident: 'Direkt nach Hate-Incident', first_shitstorm: 'Direkt nach erstem Shitstorm' };
+    return `<section><h2>Mikro-Reflexionen (im Moment des Ereignisses)</h2>${entries.map(([k, v]) =>
+      `<div class="qa"><div class="q">${escapeHtml(labels[k] || k)} · W${v.week}</div><div class="a">${escapeHtml(String(v.answer))}</div></div>`
+    ).join('')}</section>`;
+  })()}
 
   <h2>Medien-Manifest</h2>
   <ol>${manifestList}</ol>

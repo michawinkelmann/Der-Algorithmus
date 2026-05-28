@@ -66,9 +66,12 @@ function freshSave() {
     storiesViewed: {},
     placesVisited: {},
     soundEnabled: true,
+    theme: 'dark',
     challengeMode: null,
     minigameResults: {},
     ending: null,
+    placeEvents: {},
+    microReflections: {},
     random_seed: Math.floor(Math.random() * 1e9)
   };
 }
