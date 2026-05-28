@@ -90,6 +90,18 @@ function freshSave() {
   };
 }
 
+// Sehr leichter Pub/Sub für „wurde gespeichert"-Listener. Wird debounced
+// gerufen, damit ein Rendervorgang mit vielen Saves nicht 30 Toasts auslöst.
+const _saveListeners = [];
+let _savePendingTimer = null;
+function _notifySaved() {
+  if (_savePendingTimer) clearTimeout(_savePendingTimer);
+  _savePendingTimer = setTimeout(() => {
+    _savePendingTimer = null;
+    for (const cb of _saveListeners) { try { cb(); } catch (e) { /* ignore */ } }
+  }, 400);
+}
+
 const Store = {
   data: null,
 
@@ -143,9 +155,14 @@ const Store = {
     try {
       this.data.meta.lastSavedAt = Date.now();
       localStorage.setItem(SAVE_KEY, JSON.stringify(this.data));
+      _notifySaved();
     } catch (e) {
       console.warn('Speichern fehlgeschlagen (Privat-Modus?)', e);
     }
+  },
+
+  onSaved(cb) {
+    if (typeof cb === 'function') _saveListeners.push(cb);
   },
 
   reset() {
@@ -3234,6 +3251,7 @@ function buildWrapped() {
         <p class="muted small">Jedes Kästchen ist das Thema, auf das du in dieser Woche am meisten reagiert hast.</p>
       `
     },
+    buildBeatMapSlide(d),
     {
       id: 's6',
       html: `
@@ -3267,6 +3285,7 @@ function buildWrapped() {
     },
     buildMissedStoriesSlide(d),
     buildEndingSlide(d),
+    buildWhatIfSlide(d),
     {
       id: 's9',
       html: `
@@ -3358,6 +3377,170 @@ function buildMissedStoriesSlide(d) {
       ${samples.length ? `<div class="missed-stories">
         ${samples.map(s => `<div class="missed-story"><span class="missed-emoji">${escapeHtml(s.emoji || '·')}</span><span class="muted small">W${s.week}</span><span>${escapeHtml(s.text)}</span></div>`).join('')}
       </div>` : ''}
+    `
+  };
+}
+
+// Beat-Map: visuelle 26-Wochen-Übersicht. Pro Woche eine kleine Marke mit
+// Aktivitätsdichte und ggf. Highlight-Icon (Shitstorm, Gilden-Beitritt,
+// Wahl, Hate-Incident, Mikro-Reflexion).
+function buildBeatMapSlide(d) {
+  const history = d.history || [];
+  const ownPosts = d.ownPosts || [];
+  const shitstorms = d.shitstormHistory || [];
+  const microRefs = d.microReflections || {};
+  const dmReplies = d.dmReplies || {};
+  const guildReact = d.guildReactions || {};
+  const electionVote = d.electionVote;
+  const totalWeeks = Math.max(history.length + 1, d.currentWeek + 1, 27);
+  // Pro Woche markante Ereignisse erfassen.
+  const events = {};
+  for (let w = 0; w < totalWeeks; w++) events[w] = [];
+  for (const s of shitstorms) (events[s.week] ||= []).push({ emoji: '🔥', label: 'Shitstorm' });
+  for (const op of ownPosts) (events[op.week] ||= []).push({ emoji: '✍️', label: 'eigener Post' });
+  for (const [key, info] of Object.entries(microRefs)) (events[info.week] ||= []).push({ emoji: '🪞', label: 'Mikro-Reflexion' });
+  for (const [thread, perWeek] of Object.entries(dmReplies)) {
+    for (const w of Object.keys(perWeek)) (events[+w] ||= []).push({ emoji: '💬', label: 'DM-Antwort' });
+  }
+  for (const [guildId, list] of Object.entries(guildReact)) {
+    for (const r of list || []) (events[r.week] ||= []).push({ emoji: '🛖', label: 'Gilden-Reaktion' });
+  }
+  if (electionVote != null) (events[22] ||= []).push({ emoji: '🗳️', label: 'Wahl' });
+  // Aktivitätsdichte pro Woche.
+  function densityFor(w) {
+    const h = history[w];
+    return h ? (h.actions || []).length : 0;
+  }
+  const maxDensity = Math.max(1, ...history.map(h => (h.actions || []).length));
+  const cells = [];
+  for (let w = 0; w < totalWeeks; w++) {
+    const d2 = densityFor(w);
+    const intensity = d2 / maxDensity; // 0..1
+    const evs = events[w] || [];
+    cells.push(`
+      <div class="beat-cell" style="opacity:${0.25 + intensity * 0.75}">
+        <div class="beat-num">${w}</div>
+        ${evs.length ? `<div class="beat-icons" title="${evs.map(e => e.label).join(', ')}">${evs.slice(0, 3).map(e => `<span aria-label="${e.label}">${e.emoji}</span>`).join('')}</div>` : ''}
+      </div>
+    `);
+  }
+  return {
+    id: 's5b',
+    html: `
+      <h2>Deine 26 Wochen — Beat-Map</h2>
+      <p class="muted small">Pro Woche: Helligkeit zeigt Aktivität, Icons markieren Pivot-Momente (🔥 Shitstorm, ✍️ eigener Post, 💬 DM-Antwort, 🛖 Gilden-Reaktion, 🗳️ Wahl, 🪞 Mikro-Reflexion).</p>
+      <div class="beat-map">${cells.join('')}</div>
+    `
+  };
+}
+
+// Pivot-Entscheidungen: nur die, die im computeEnding wirklich Gewicht haben.
+const WHATIF_PIVOTS = [
+  { key: 'finn8',  thread: 'dm_finn',  week: 8,
+    label: 'Finn (W8): „Ehrlich, die Mädels in Gaming-Streams sind nur Clout-Chaser"',
+    choices: {
+      pushback: { label: 'Widersprochen',  arc: { finn_path: -1 } },
+      curious:  { label: 'Nachgefragt',    arc: { finn_path: 0 } },
+      agree:    { label: 'Zugestimmt',     arc: { finn_path: 1 } }
+    },
+    extract: id => id?.replace('finn_8_', '') },
+  { key: 'finn17', thread: 'dm_finn',  week: 17,
+    label: 'Finn (W17): „Ich war beim Echte-Werte-Treffen, die hören wenigstens zu"',
+    choices: {
+      warn:    { label: 'Warnung',        arc: { finn_path: -2 } },
+      neutral: { label: 'Vorsicht',       arc: { finn_path: -1 } },
+      join:    { label: '„Erzähl mehr"',  arc: { finn_path: 2 } }
+    },
+    extract: id => id?.replace('finn_17_', '') },
+  { key: 'lea14',  thread: 'dm_lea',   week: 14,
+    label: 'Lea (W14): „Du wirkst irgendwie anders in letzter Zeit"',
+    choices: {
+      open:      { label: '„Der Feed macht was mit mir"',  arc: { lea_close: 0.4, self_aware: 1 } },
+      deflect:   { label: '„Stress halt"',                  arc: { lea_close: -0.1 } },
+      defensive: { label: '„Wie meinst du das?"',           arc: { lea_close: 0 } }
+    },
+    extract: id => id?.replace('lea_14_', '') },
+  { key: 'mira15', thread: 'dm_mira',  week: 15,
+    label: 'Mira (W15): Bitte um Reality-Check nach Hate-Welle',
+    choices: {
+      support:  { label: 'Empathie',                arc: { mira_close: 0.3 } },
+      advice:   { label: 'Praktischer Rat',         arc: { mira_close: 0.2 } },
+      distance: { label: '„Weniger provozieren"',   arc: { mira_close: -0.3 } }
+    },
+    extract: id => id?.replace('mira_15_', '') }
+];
+
+// Schätzt, welches Ending bei alternativen npcArcs herauskäme.
+// Profil bleibt sonst wie gehabt — wir tauschen nur den entsprechenden Arc-Wert.
+function endingForArcs(d, arcOverrides) {
+  const fake = { ...d, npcArcs: { ...(d.npcArcs || {}), ...arcOverrides } };
+  return computeEnding(fake);
+}
+
+function buildWhatIfSlide(d) {
+  const dmReplies = d.dmReplies || {};
+  const arcs = d.npcArcs || {};
+  // Welche Pivots hat der User überhaupt gespielt?
+  const pivotsPlayed = WHATIF_PIVOTS.map(p => {
+    const id = dmReplies[p.thread]?.[p.week]?.id;
+    const choice = id ? p.extract(id) : null;
+    return { ...p, chosen: choice };
+  }).filter(p => p.chosen);
+
+  if (!pivotsPlayed.length) {
+    return {
+      id: 's8d',
+      html: `<h2>Hätte ich anders entschieden?</h2><p>Du hast diesmal kaum DM-Entscheidungen getroffen — die meisten Pivots laufen über die DMs. In einem zweiten Durchlauf hättest du da mehr zu entscheiden.</p>`
+    };
+  }
+
+  const currentEnding = computeEnding(d);
+  // Pro Pivot: für jede alternative Wahl berechnen, wie das Ending wäre.
+  const cards = pivotsPlayed.map(p => {
+    const alternatives = Object.entries(p.choices)
+      .filter(([k]) => k !== p.chosen)
+      .map(([altKey, alt]) => {
+        // Differenz zum aktuell-gewählten Arc.
+        const cur = p.choices[p.chosen]?.arc || {};
+        const altArcs = {};
+        for (const [k, v] of Object.entries({ ...cur, ...alt.arc })) {
+          const curV = cur[k] || 0;
+          const altV = alt.arc[k] || 0;
+          // Verschiebung anwenden, basierend auf bestehendem Arc-Wert.
+          altArcs[k] = (arcs[k] || 0) - curV + altV;
+        }
+        const altEnding = endingForArcs(d, altArcs);
+        return { altKey, label: alt.label, ending: altEnding };
+      });
+    const chosenLabel = p.choices[p.chosen]?.label || p.chosen;
+    return `
+      <div class="whatif-pivot">
+        <div class="whatif-pivot-q">${escapeHtml(p.label)}</div>
+        <div class="whatif-row">
+          <div class="whatif-cell chosen">
+            <div class="whatif-cell-tag">deine Wahl</div>
+            <div class="whatif-cell-label">${escapeHtml(chosenLabel)}</div>
+            <div class="whatif-cell-ending">${currentEnding.emoji} ${escapeHtml(currentEnding.title)}</div>
+          </div>
+          ${alternatives.map(a => `
+            <div class="whatif-cell alt ${a.ending.key === currentEnding.key ? 'same' : 'diff'}">
+              <div class="whatif-cell-tag">stattdessen</div>
+              <div class="whatif-cell-label">${escapeHtml(a.label)}</div>
+              <div class="whatif-cell-ending">${a.ending.emoji} ${escapeHtml(a.ending.title)}${a.ending.key === currentEnding.key ? ' <span class="muted small">(gleich)</span>' : ''}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return {
+    id: 's8d',
+    html: `
+      <h2>Hätte ich anders entschieden?</h2>
+      <p>Hier siehst du, wo deine Antworten den Ausgang prägten. Manche Pivots hätten dich in einen ganz anderen Bogen geführt.</p>
+      <div class="whatif-grid">${cards}</div>
+      <p class="muted small">Diese Schätzung beruht nur auf den eingespielten Pivots — der Rest des Spielverlaufs bleibt unverändert.</p>
     `
   };
 }
@@ -4803,9 +4986,33 @@ function escapeHtml(s) {
 (function(){
   var Store = __M.Store;
   var attachModal = __M.attachModal;
+  var openGlossary = __M.openGlossary;
 // concepts.js — Kurze Konzept-Karten, die vor didaktischen Wendepunkten
 // angezeigt werden. Bewusst sehr knapp gehalten — eine Karte ≤ 60 Sekunden Lesezeit.
 
+
+
+// Begriffe, die in Konzept-Texten als Inline-Links zum Glossar werden.
+// Reihenfolge nach Länge absteigend, damit „Engagement-Bait" vor „Engagement"
+// gematcht wird.
+const GLOSSARY_TERMS = [
+  'Engagement-Bait', 'Filterblase', 'Echokammer', 'Algorithmus', 'Deepfake',
+  'Empörung', 'Shadowban', 'Targeting', 'Reichweite', 'Reach',
+  'Rabbit Hole', 'Outrage', 'Bot'
+];
+
+function linkifyGlossaryTerms(text) {
+  let safe = escapeHtml(text);
+  for (const term of GLOSSARY_TERMS) {
+    const re = new RegExp(`\\b(${escapeRegex(term)})\\b`, 'g');
+    safe = safe.replace(re, '<button type="button" class="glossary-link" data-term="$1">$1</button>');
+  }
+  return safe;
+}
+
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 const CONCEPTS = {
   bots_intro: {
@@ -4879,7 +5086,7 @@ function showConcept(key) {
       <div class="concept-kicker">Kurz erklärt</div>
       <h2>${escapeHtml(c.title)}</h2>
       <ul class="concept-points">
-        ${c.points.map(p => `<li>${escapeHtml(p)}</li>`).join('')}
+        ${c.points.map(p => `<li>${linkifyGlossaryTerms(p)}</li>`).join('')}
       </ul>
       <button class="btn btn-primary concept-go" id="concept-close">Verstanden</button>
     </div>
@@ -4887,6 +5094,12 @@ function showConcept(key) {
   document.body.appendChild(overlay);
   const handle = attachModal(overlay);
   overlay.querySelector('#concept-close').onclick = () => handle.close();
+  overlay.querySelectorAll('.glossary-link').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      openGlossary(btn.dataset.term);
+    };
+  });
 }
 
 function escapeHtml(s) {
@@ -4957,7 +5170,7 @@ const TERMS = [
   }
 ];
 
-function openGlossary() {
+function openGlossary(initialTerm = '') {
   const overlay = document.createElement('div');
   overlay.className = 'tw-overlay';
   overlay.innerHTML = `
@@ -5008,7 +5221,17 @@ function openGlossary() {
     });
   }
 
-  render('');
+  if (initialTerm) {
+    search.value = initialTerm;
+    render(initialTerm);
+    // Den ersten Match direkt aufklappen.
+    setTimeout(() => {
+      const first = overlay.querySelector('.glossary-term');
+      if (first) first.click();
+    }, 50);
+  } else {
+    render('');
+  }
   search.addEventListener('input', () => render(search.value));
 }
 
@@ -5162,6 +5385,9 @@ async function boot() {
   });
 
   bindGlobal();
+
+  // Subtilen Save-Indikator anzeigen, sobald Store auto-speichert.
+  Store.onSaved(() => showSaveIndicator());
 
   // Spielstand?
   if (Store.load()) {
@@ -5608,6 +5834,32 @@ function openClassCompare() {
   renderClassCompare(box, () => handle.close());
 }
 
+// Save-Indikator: kleines, dezentes Häkchen unten links. Verschwindet
+// nach 1,2 s. Erscheint höchstens alle paar Sekunden, weil _notifySaved
+// debounced ist.
+let _saveIndicator = null;
+let _saveIndicatorHideAt = 0;
+function showSaveIndicator() {
+  // Während des Onboardings (kein Save-Indikator über dem Start-Screen).
+  const startActive = document.getElementById('screen-start')?.classList.contains('active');
+  if (startActive) return;
+  if (!_saveIndicator) {
+    _saveIndicator = document.createElement('div');
+    _saveIndicator.className = 'save-indicator';
+    _saveIndicator.setAttribute('role', 'status');
+    _saveIndicator.setAttribute('aria-live', 'polite');
+    _saveIndicator.innerHTML = '<span aria-hidden="true">✓</span> gespeichert';
+    document.body.appendChild(_saveIndicator);
+  }
+  _saveIndicator.classList.add('in');
+  _saveIndicatorHideAt = Date.now() + 1200;
+  setTimeout(() => {
+    if (Date.now() >= _saveIndicatorHideAt - 50 && _saveIndicator) {
+      _saveIndicator.classList.remove('in');
+    }
+  }, 1300);
+}
+
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
 }
@@ -5719,6 +5971,15 @@ function showWeekendCard(weekNum, eventResults, badges) {
   // hervorhebt. Sehr knapp, damit es nicht mit den Events konkurriert.
   const highlight = weekHighlight(d, eventResults, badges, prev, now, leanDelta, followedDelta);
   let storyHtml = highlight ? `<div class="week-highlight"><span class="kicker">Highlight</span><span>${escapeHtml(highlight)}</span></div>` : '';
+
+  // NPC-Aktivitäts-Bulletin: simulierte, aber konsistente Stadt-Bewegungen.
+  const buzz = npcBuzzFor(weekNum);
+  if (buzz.length) {
+    storyHtml += `<div class="npc-buzz">
+      <div class="kicker muted small">In deiner Streem-Stadt diese Woche:</div>
+      <ul>${buzz.map(b => `<li>${escapeHtml(b)}</li>`).join('')}</ul>
+    </div>`;
+  }
   // Events
   for (const r of eventResults) {
     const e = r.event, res = r.result;
@@ -5960,6 +6221,43 @@ function dynamicCharacterOverlay(id, base) {
   return null;
 }
 
+// NPC-Buzz: kleine fiktive Stadt-Mikro-Bewegungen pro Woche. Zeigt, dass die
+// Welt um den User herum aktiv ist — auch ohne dass er etwas tut.
+// Deterministisch aus Woche + Seed, damit es nicht zufällig springt.
+const BUZZ_POOL = [
+  'Lea hat Mira\'s Klima-Post geteilt.',
+  'Finn hat in einem Stream stundenlang Patches kommentiert.',
+  'Mira hat eine Demo angekündigt — Fleetplatz, Samstag.',
+  'Tariq hat in einem Faden eine Studie korrigiert.',
+  'Sara hat ein neues Roboter-Video hochgeladen.',
+  'Marc Stay-Based hat einen Live-Stream gemacht — 4 800 Zuschauer:innen.',
+  'Jule hat ihre Playlist „Greifshafener Spätsommer" gepostet.',
+  'Lara Weiss wurde heute morgen in einer Talkshow zitiert.',
+  'Noah hat einen langen Faden zur Mitte gepostet — kaum Likes.',
+  'Streem Kuratiert hat ein neues Feature angeteasert — keiner weiß was.',
+  'Benedikt Schmitt hat 800 neue Follower bekommen — alle in dieser Woche.',
+  'Moritz hat einen Trainingspartner gesucht. Drei Antworten.',
+  'Ana hat aus Berlin gepostet, ohne zu sagen warum sie dort ist.',
+  'Nele empfiehlt ein Buch — kein Klick auf den Affiliate-Link.',
+  'truecrime.de hat einen alten Fall wieder ausgegraben.'
+];
+
+function npcBuzzFor(weekNum) {
+  const seed = (Store.data.random_seed || 1) ^ (weekNum * 2654435761);
+  const used = new Set();
+  const out = [];
+  let x = seed >>> 0;
+  while (out.length < 2 && used.size < BUZZ_POOL.length) {
+    x = (x * 16807 + 1) >>> 0;
+    const idx = x % BUZZ_POOL.length;
+    if (!used.has(idx)) {
+      used.add(idx);
+      out.push(BUZZ_POOL[idx]);
+    }
+  }
+  return out;
+}
+
 function weekHighlight(d, eventResults, badges, prev, now, leanDelta, followedDelta) {
   for (const r of eventResults) {
     if (r.result?.kind === 'shitstorm') return 'Einer deiner Posts ist viral gegangen.';
@@ -6096,20 +6394,69 @@ const PARTY_COLORS = {
   sonst:     '#94a3b8'
 };
 
+// Kurze, fiktive Parteiprogramme — bewusst klischeehaft, damit SuS die Muster
+// erkennen, nicht echte Parteien meinen.
+const PARTY_PROGRAMS = {
+  p_zukunft: {
+    headline: 'Klimaschutz, Bildung, Sozialwohnungen.',
+    bullets: [
+      'CO₂-neutraler ÖPNV bis 2030',
+      '50 % mehr Sozialwohnungen am Westhafen',
+      'Schulen modernisieren, mehr Lehrkräfte einstellen',
+      'Bürger:innen-Räte als ständiges Mitspracheformat'
+    ]
+  },
+  p_buerger: {
+    headline: 'Pragmatisch, transparent, ohne Lagerdenken.',
+    bullets: [
+      'Kommunalhaushalt offen einsehbar',
+      'Wirtschaftsförderung für lokale Betriebe',
+      'Bestehende Schulen sanieren statt neu bauen',
+      'Mehr Polizei in der Altstadt, mehr Sozialarbeit'
+    ]
+  },
+  p_alt: {
+    headline: 'Endlich zuhören — was die Bürger:innen wirklich wollen.',
+    bullets: [
+      'Senkung der Grundsteuer für Hauseigentümer',
+      'Mehr Kontrollen am Hafen',
+      'Stadtfeste nur noch traditionell ausrichten',
+      'Migration begrenzen, „klare Linie"'
+    ]
+  },
+  p_heimat: {
+    headline: 'Unsere Stadt, unsere Regeln.',
+    bullets: [
+      'Abschiebungen beschleunigen',
+      '„Echte Greifshafener" zuerst bei Wohnungsvergabe',
+      'Schulplan: weniger „bunte Themen", mehr Heimat',
+      'Bürgerwehr im Hafenviertel'
+    ]
+  }
+};
+
 function openElection() {
   const parties = [...getParties()].sort((a, b) => (a.lean ?? 0) - (b.lean ?? 0));
   const body = document.getElementById('election-body');
   body.innerHTML = `
-    <p class="muted">Wen willst du wählen? Die Parteien — sortiert von links nach rechts, wie sie dir im Feed begegnet sind:</p>
+    <p class="muted">Wen willst du wählen? Die Parteien — sortiert von links nach rechts, wie sie dir im Feed begegnet sind. Klick „Programm" für die Kernpunkte.</p>
     <div class="party-grid">
       ${parties.map(p => {
         const cov = estimateCoverageFor(p);
         const col = PARTY_COLORS[p.id] || '#888';
+        const prog = PARTY_PROGRAMS[p.id];
         return `
         <div class="party-card" style="border-left:4px solid ${col}">
           <div class="name" style="color:${col}">${escapeHtml(p.name)}</div>
           <div class="slogan">„${escapeHtml(p.slogan)}"</div>
           <div class="coverage">In deinem Feed: <span class="cov cov-${cov.level}">${escapeHtml(cov.text)}</span></div>
+          ${prog ? `<details class="party-program">
+            <summary>Programm</summary>
+            <div class="party-program-body">
+              <strong>${escapeHtml(prog.headline)}</strong>
+              <ul>${prog.bullets.map(b => `<li>${escapeHtml(b)}</li>`).join('')}</ul>
+            </div>
+          </details>` : ''}
           <div class="party-vote-bar">
             <button class="btn btn-primary" data-vote="${p.id}">Für ${escapeHtml(p.name)} stimmen</button>
           </div>
@@ -6329,11 +6676,29 @@ function exportReport() {
   ul.interests li { display: inline-block; background: #eef; padding: 2px 8px; border-radius: 10px; margin: 2px; font-size: 13px; }
   .profile-bio { font-style: italic; color: #555; border-left: 3px solid #c026d3; padding: 6px 12px; margin: 1rem 0; background: #faf7fb; }
   ol.disc li { margin: .8rem 0; font-size: 14px; }
+  .teacher-aside { background: #fffbe6; border: 1px solid #f0c060; border-radius: 8px; padding: 14px; margin: 1.5rem 0; }
+  .teacher-aside strong { display: block; color: #92520a; margin-bottom: 8px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .teacher-aside ol { margin: .5rem 0 .8rem 1.2rem; padding: 0; }
+  .teacher-aside ol li { margin: .3rem 0; font-size: 14px; }
+  @media print { .teacher-aside { page-break-inside: avoid; } }
 </style></head>
 <body>
   <h1>Streem-Bericht</h1>
   <p class="meta"><strong>${escapeHtml(c.name)}</strong>${c.pronoun && c.pronoun !== 'keine' ? ' · ' + escapeHtml(c.pronoun) : ''} · ${escapeHtml(c.city || '')} · Protagonist:in: ${escapeHtml(c.protagonist || 'alex')}<br/>Stand: Woche ${d.currentWeek} · erstellt ${new Date().toLocaleString('de-DE')}</p>
   ${c.bio ? `<blockquote class="profile-bio">${escapeHtml(c.bio)}</blockquote>` : ''}
+
+  <aside class="teacher-aside">
+    <strong>Für die Lehrkraft</strong>
+    <p>Dieses Dokument zeigt einen Spielverlauf — gedacht für die Reflexionsphase im Anschluss. Vorschlag für 45 Minuten:</p>
+    <ol>
+      <li>5 Min: SuS überfliegen ihren eigenen Bericht (besonders Mikro-Reflexionen, Lesezeichen, Ending).</li>
+      <li>10 Min: In Kleingruppen ein Lesezeichen vorstellen — warum genau dieses?</li>
+      <li>15 Min: Im Plenum eine der „Diskussionsfragen für die Klasse" unten am Dokument.</li>
+      <li>10 Min: Manifest-Sätze laut vorlesen, Konsens und Dissens markieren.</li>
+      <li>5 Min: Anlaufstellen kurz vorstellen — bei wem würden SuS sich melden, wenn etwas eskaliert?</li>
+    </ol>
+    <p class="muted small">Bei mehreren Berichten: „Klassen-Vergleich" in der App nutzen (Saves aller SuS als JSON sammeln → eine HTML-Übersicht mit Entscheidungs-Diffs und geteilten Lesezeichen).</p>
+  </aside>
 
   <h2>Übersicht</h2>
   <div class="stats">

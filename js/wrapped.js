@@ -142,6 +142,7 @@ export function buildWrapped() {
         <p class="muted small">Jedes Kästchen ist das Thema, auf das du in dieser Woche am meisten reagiert hast.</p>
       `
     },
+    buildBeatMapSlide(d),
     {
       id: 's6',
       html: `
@@ -175,6 +176,7 @@ export function buildWrapped() {
     },
     buildMissedStoriesSlide(d),
     buildEndingSlide(d),
+    buildWhatIfSlide(d),
     {
       id: 's9',
       html: `
@@ -266,6 +268,170 @@ function buildMissedStoriesSlide(d) {
       ${samples.length ? `<div class="missed-stories">
         ${samples.map(s => `<div class="missed-story"><span class="missed-emoji">${escapeHtml(s.emoji || '·')}</span><span class="muted small">W${s.week}</span><span>${escapeHtml(s.text)}</span></div>`).join('')}
       </div>` : ''}
+    `
+  };
+}
+
+// Beat-Map: visuelle 26-Wochen-Übersicht. Pro Woche eine kleine Marke mit
+// Aktivitätsdichte und ggf. Highlight-Icon (Shitstorm, Gilden-Beitritt,
+// Wahl, Hate-Incident, Mikro-Reflexion).
+function buildBeatMapSlide(d) {
+  const history = d.history || [];
+  const ownPosts = d.ownPosts || [];
+  const shitstorms = d.shitstormHistory || [];
+  const microRefs = d.microReflections || {};
+  const dmReplies = d.dmReplies || {};
+  const guildReact = d.guildReactions || {};
+  const electionVote = d.electionVote;
+  const totalWeeks = Math.max(history.length + 1, d.currentWeek + 1, 27);
+  // Pro Woche markante Ereignisse erfassen.
+  const events = {};
+  for (let w = 0; w < totalWeeks; w++) events[w] = [];
+  for (const s of shitstorms) (events[s.week] ||= []).push({ emoji: '🔥', label: 'Shitstorm' });
+  for (const op of ownPosts) (events[op.week] ||= []).push({ emoji: '✍️', label: 'eigener Post' });
+  for (const [key, info] of Object.entries(microRefs)) (events[info.week] ||= []).push({ emoji: '🪞', label: 'Mikro-Reflexion' });
+  for (const [thread, perWeek] of Object.entries(dmReplies)) {
+    for (const w of Object.keys(perWeek)) (events[+w] ||= []).push({ emoji: '💬', label: 'DM-Antwort' });
+  }
+  for (const [guildId, list] of Object.entries(guildReact)) {
+    for (const r of list || []) (events[r.week] ||= []).push({ emoji: '🛖', label: 'Gilden-Reaktion' });
+  }
+  if (electionVote != null) (events[22] ||= []).push({ emoji: '🗳️', label: 'Wahl' });
+  // Aktivitätsdichte pro Woche.
+  function densityFor(w) {
+    const h = history[w];
+    return h ? (h.actions || []).length : 0;
+  }
+  const maxDensity = Math.max(1, ...history.map(h => (h.actions || []).length));
+  const cells = [];
+  for (let w = 0; w < totalWeeks; w++) {
+    const d2 = densityFor(w);
+    const intensity = d2 / maxDensity; // 0..1
+    const evs = events[w] || [];
+    cells.push(`
+      <div class="beat-cell" style="opacity:${0.25 + intensity * 0.75}">
+        <div class="beat-num">${w}</div>
+        ${evs.length ? `<div class="beat-icons" title="${evs.map(e => e.label).join(', ')}">${evs.slice(0, 3).map(e => `<span aria-label="${e.label}">${e.emoji}</span>`).join('')}</div>` : ''}
+      </div>
+    `);
+  }
+  return {
+    id: 's5b',
+    html: `
+      <h2>Deine 26 Wochen — Beat-Map</h2>
+      <p class="muted small">Pro Woche: Helligkeit zeigt Aktivität, Icons markieren Pivot-Momente (🔥 Shitstorm, ✍️ eigener Post, 💬 DM-Antwort, 🛖 Gilden-Reaktion, 🗳️ Wahl, 🪞 Mikro-Reflexion).</p>
+      <div class="beat-map">${cells.join('')}</div>
+    `
+  };
+}
+
+// Pivot-Entscheidungen: nur die, die im computeEnding wirklich Gewicht haben.
+const WHATIF_PIVOTS = [
+  { key: 'finn8',  thread: 'dm_finn',  week: 8,
+    label: 'Finn (W8): „Ehrlich, die Mädels in Gaming-Streams sind nur Clout-Chaser"',
+    choices: {
+      pushback: { label: 'Widersprochen',  arc: { finn_path: -1 } },
+      curious:  { label: 'Nachgefragt',    arc: { finn_path: 0 } },
+      agree:    { label: 'Zugestimmt',     arc: { finn_path: 1 } }
+    },
+    extract: id => id?.replace('finn_8_', '') },
+  { key: 'finn17', thread: 'dm_finn',  week: 17,
+    label: 'Finn (W17): „Ich war beim Echte-Werte-Treffen, die hören wenigstens zu"',
+    choices: {
+      warn:    { label: 'Warnung',        arc: { finn_path: -2 } },
+      neutral: { label: 'Vorsicht',       arc: { finn_path: -1 } },
+      join:    { label: '„Erzähl mehr"',  arc: { finn_path: 2 } }
+    },
+    extract: id => id?.replace('finn_17_', '') },
+  { key: 'lea14',  thread: 'dm_lea',   week: 14,
+    label: 'Lea (W14): „Du wirkst irgendwie anders in letzter Zeit"',
+    choices: {
+      open:      { label: '„Der Feed macht was mit mir"',  arc: { lea_close: 0.4, self_aware: 1 } },
+      deflect:   { label: '„Stress halt"',                  arc: { lea_close: -0.1 } },
+      defensive: { label: '„Wie meinst du das?"',           arc: { lea_close: 0 } }
+    },
+    extract: id => id?.replace('lea_14_', '') },
+  { key: 'mira15', thread: 'dm_mira',  week: 15,
+    label: 'Mira (W15): Bitte um Reality-Check nach Hate-Welle',
+    choices: {
+      support:  { label: 'Empathie',                arc: { mira_close: 0.3 } },
+      advice:   { label: 'Praktischer Rat',         arc: { mira_close: 0.2 } },
+      distance: { label: '„Weniger provozieren"',   arc: { mira_close: -0.3 } }
+    },
+    extract: id => id?.replace('mira_15_', '') }
+];
+
+// Schätzt, welches Ending bei alternativen npcArcs herauskäme.
+// Profil bleibt sonst wie gehabt — wir tauschen nur den entsprechenden Arc-Wert.
+function endingForArcs(d, arcOverrides) {
+  const fake = { ...d, npcArcs: { ...(d.npcArcs || {}), ...arcOverrides } };
+  return computeEnding(fake);
+}
+
+function buildWhatIfSlide(d) {
+  const dmReplies = d.dmReplies || {};
+  const arcs = d.npcArcs || {};
+  // Welche Pivots hat der User überhaupt gespielt?
+  const pivotsPlayed = WHATIF_PIVOTS.map(p => {
+    const id = dmReplies[p.thread]?.[p.week]?.id;
+    const choice = id ? p.extract(id) : null;
+    return { ...p, chosen: choice };
+  }).filter(p => p.chosen);
+
+  if (!pivotsPlayed.length) {
+    return {
+      id: 's8d',
+      html: `<h2>Hätte ich anders entschieden?</h2><p>Du hast diesmal kaum DM-Entscheidungen getroffen — die meisten Pivots laufen über die DMs. In einem zweiten Durchlauf hättest du da mehr zu entscheiden.</p>`
+    };
+  }
+
+  const currentEnding = computeEnding(d);
+  // Pro Pivot: für jede alternative Wahl berechnen, wie das Ending wäre.
+  const cards = pivotsPlayed.map(p => {
+    const alternatives = Object.entries(p.choices)
+      .filter(([k]) => k !== p.chosen)
+      .map(([altKey, alt]) => {
+        // Differenz zum aktuell-gewählten Arc.
+        const cur = p.choices[p.chosen]?.arc || {};
+        const altArcs = {};
+        for (const [k, v] of Object.entries({ ...cur, ...alt.arc })) {
+          const curV = cur[k] || 0;
+          const altV = alt.arc[k] || 0;
+          // Verschiebung anwenden, basierend auf bestehendem Arc-Wert.
+          altArcs[k] = (arcs[k] || 0) - curV + altV;
+        }
+        const altEnding = endingForArcs(d, altArcs);
+        return { altKey, label: alt.label, ending: altEnding };
+      });
+    const chosenLabel = p.choices[p.chosen]?.label || p.chosen;
+    return `
+      <div class="whatif-pivot">
+        <div class="whatif-pivot-q">${escapeHtml(p.label)}</div>
+        <div class="whatif-row">
+          <div class="whatif-cell chosen">
+            <div class="whatif-cell-tag">deine Wahl</div>
+            <div class="whatif-cell-label">${escapeHtml(chosenLabel)}</div>
+            <div class="whatif-cell-ending">${currentEnding.emoji} ${escapeHtml(currentEnding.title)}</div>
+          </div>
+          ${alternatives.map(a => `
+            <div class="whatif-cell alt ${a.ending.key === currentEnding.key ? 'same' : 'diff'}">
+              <div class="whatif-cell-tag">stattdessen</div>
+              <div class="whatif-cell-label">${escapeHtml(a.label)}</div>
+              <div class="whatif-cell-ending">${a.ending.emoji} ${escapeHtml(a.ending.title)}${a.ending.key === currentEnding.key ? ' <span class="muted small">(gleich)</span>' : ''}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return {
+    id: 's8d',
+    html: `
+      <h2>Hätte ich anders entschieden?</h2>
+      <p>Hier siehst du, wo deine Antworten den Ausgang prägten. Manche Pivots hätten dich in einen ganz anderen Bogen geführt.</p>
+      <div class="whatif-grid">${cards}</div>
+      <p class="muted small">Diese Schätzung beruht nur auf den eingespielten Pivots — der Rest des Spielverlaufs bleibt unverändert.</p>
     `
   };
 }

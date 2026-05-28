@@ -55,7 +55,7 @@ const TERMS = [
   }
 ];
 
-export function openGlossary() {
+export function openGlossary(initialTerm = '') {
   const overlay = document.createElement('div');
   overlay.className = 'tw-overlay';
   overlay.innerHTML = `
@@ -106,7 +106,17 @@ export function openGlossary() {
     });
   }
 
-  render('');
+  if (initialTerm) {
+    search.value = initialTerm;
+    render(initialTerm);
+    // Den ersten Match direkt aufklappen.
+    setTimeout(() => {
+      const first = overlay.querySelector('.glossary-term');
+      if (first) first.click();
+    }, 50);
+  } else {
+    render('');
+  }
   search.addEventListener('input', () => render(search.value));
 }
 

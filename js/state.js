@@ -84,6 +84,18 @@ function freshSave() {
   };
 }
 
+// Sehr leichter Pub/Sub für „wurde gespeichert"-Listener. Wird debounced
+// gerufen, damit ein Rendervorgang mit vielen Saves nicht 30 Toasts auslöst.
+const _saveListeners = [];
+let _savePendingTimer = null;
+function _notifySaved() {
+  if (_savePendingTimer) clearTimeout(_savePendingTimer);
+  _savePendingTimer = setTimeout(() => {
+    _savePendingTimer = null;
+    for (const cb of _saveListeners) { try { cb(); } catch (e) { /* ignore */ } }
+  }, 400);
+}
+
 export const Store = {
   data: null,
 
@@ -137,9 +149,14 @@ export const Store = {
     try {
       this.data.meta.lastSavedAt = Date.now();
       localStorage.setItem(SAVE_KEY, JSON.stringify(this.data));
+      _notifySaved();
     } catch (e) {
       console.warn('Speichern fehlgeschlagen (Privat-Modus?)', e);
     }
+  },
+
+  onSaved(cb) {
+    if (typeof cb === 'function') _saveListeners.push(cb);
   },
 
   reset() {

@@ -3,6 +3,29 @@
 
 import { Store } from './state.js';
 import { attachModal } from './modals.js';
+import { openGlossary } from './glossary.js';
+
+// Begriffe, die in Konzept-Texten als Inline-Links zum Glossar werden.
+// Reihenfolge nach Länge absteigend, damit „Engagement-Bait" vor „Engagement"
+// gematcht wird.
+const GLOSSARY_TERMS = [
+  'Engagement-Bait', 'Filterblase', 'Echokammer', 'Algorithmus', 'Deepfake',
+  'Empörung', 'Shadowban', 'Targeting', 'Reichweite', 'Reach',
+  'Rabbit Hole', 'Outrage', 'Bot'
+];
+
+function linkifyGlossaryTerms(text) {
+  let safe = escapeHtml(text);
+  for (const term of GLOSSARY_TERMS) {
+    const re = new RegExp(`\\b(${escapeRegex(term)})\\b`, 'g');
+    safe = safe.replace(re, '<button type="button" class="glossary-link" data-term="$1">$1</button>');
+  }
+  return safe;
+}
+
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 const CONCEPTS = {
   bots_intro: {
@@ -76,7 +99,7 @@ export function showConcept(key) {
       <div class="concept-kicker">Kurz erklärt</div>
       <h2>${escapeHtml(c.title)}</h2>
       <ul class="concept-points">
-        ${c.points.map(p => `<li>${escapeHtml(p)}</li>`).join('')}
+        ${c.points.map(p => `<li>${linkifyGlossaryTerms(p)}</li>`).join('')}
       </ul>
       <button class="btn btn-primary concept-go" id="concept-close">Verstanden</button>
     </div>
@@ -84,6 +107,12 @@ export function showConcept(key) {
   document.body.appendChild(overlay);
   const handle = attachModal(overlay);
   overlay.querySelector('#concept-close').onclick = () => handle.close();
+  overlay.querySelectorAll('.glossary-link').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      openGlossary(btn.dataset.term);
+    };
+  });
 }
 
 function escapeHtml(s) {
