@@ -22,6 +22,7 @@ import { openGlossary } from './glossary.js';
 import { maybeShowPreQuiz, showPostQuiz, buildSelfcheckCompareHtml } from './selfcheck.js';
 import { openWahlomat } from './wahlomat.js';
 import { runFactcheck } from './factcheck.js';
+import { runHeadline } from './headline.js';
 
 // ===== Daten-Bundle (statt fetch, damit file:// funktioniert) =====
 // Die JSONs werden zur Laufzeit geladen — funktioniert per fetch() auch bei file://
@@ -273,6 +274,8 @@ function bindGlobal() {
   if (mgBtn) mgBtn.onclick = () => { showScreen('screen-main'); openBotMinigame(); };
   const fcBtn = document.getElementById('btn-factcheck');
   if (fcBtn) fcBtn.onclick = () => { showScreen('screen-main'); openFactcheckMinigame(); };
+  const hlBtn = document.getElementById('btn-headline');
+  if (hlBtn) hlBtn.onclick = () => { showScreen('screen-main'); openHeadlineMinigame(); };
 
   // Glossar
   const gloBtn = document.getElementById('btn-glossary');
@@ -641,6 +644,18 @@ function openFactcheckMinigame() {
   runFactcheck(box, () => handle.close());
 }
 
+function openHeadlineMinigame() {
+  SFX.swipe();
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  const box = document.createElement('div');
+  box.className = 'tw-box big';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  const handle = attachModal(overlay);
+  runHeadline(box, () => handle.close());
+}
+
 function maybeUnlockForWeek() {
   const w = Store.data.currentWeek;
   const weekDef = DATA.weeks.weeks[w];
@@ -898,6 +913,48 @@ function openAlgoPanel() {
     .filter(([,v])=>v>0.02)
     .slice(0,8);
 
+  // Verlaufs-Daten: Top-3 Tags über die Wochen für die Bias-Visualisierung.
+  const history = Store.data.history || [];
+  const topKeys = tags.slice(0, 3).map(([k]) => k);
+  const trajectory = topKeys.map(k => {
+    const points = history.map(h => h.profileSnapshot?.interests?.[k] || 0);
+    points.push(p.interests[k] || 0); // Aktueller Stand
+    return { key: k, points };
+  });
+  const maxY = Math.max(0.2, ...trajectory.flatMap(t => t.points));
+  const trajectoryHtml = trajectory.length && history.length >= 2 ? (() => {
+    const colors = { 0: 'var(--accent)', 1: 'var(--accent-2)', 2: 'var(--ok)' };
+    const W = 320, H = 80, padding = 6;
+    const xStep = (W - 2 * padding) / Math.max(1, trajectory[0].points.length - 1);
+    return `
+      <div class="algo-section">
+        <h3>Verlauf deiner Top-3-Themen</h3>
+        <p class="muted small">So hat der Algorithmus seine Einschätzung über die Wochen verschoben — die Linien sind dein Profil im Zeitverlauf.</p>
+        <svg viewBox="0 0 ${W} ${H + 20}" class="bias-chart" aria-label="Verlauf der Top-Themen">
+          <line x1="${padding}" x2="${W - padding}" y1="${H + 0.5}" y2="${H + 0.5}" stroke="var(--line)" stroke-width="1"/>
+          ${trajectory.map((t, i) => {
+            const color = colors[i] || 'var(--text-dim)';
+            const points = t.points.map((v, j) => {
+              const x = padding + xStep * j;
+              const y = H - (v / maxY) * (H - padding);
+              return `${x.toFixed(1)},${y.toFixed(1)}`;
+            }).join(' ');
+            return `<polyline points="${points}" fill="none" stroke="${color}" stroke-width="2.4" stroke-linejoin="round"/>`;
+          }).join('')}
+          ${trajectory.map((t, i) => {
+            const x = padding + xStep * (t.points.length - 1);
+            const y = H - ((t.points[t.points.length - 1]) / maxY) * (H - padding);
+            const color = colors[i] || 'var(--text-dim)';
+            return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="${color}"/>`;
+          }).join('')}
+        </svg>
+        <div class="bias-legend">
+          ${trajectory.map((t, i) => `<span class="bias-legend-item"><span class="bias-dot" style="background:${colors[i] || 'var(--text-dim)'}"></span>${escapeHtml(tagLabel(t.key))}</span>`).join('')}
+        </div>
+      </div>
+    `;
+  })() : '';
+
   let html = `
     <div class="algo-section">
       <h3>Deine 3 wichtigsten Interessen laut System</h3>
@@ -911,6 +968,7 @@ function openAlgoPanel() {
         `).join('')}
       </div>
     </div>
+    ${trajectoryHtml}
     <div class="algo-section">
       <h3>Politische Einschätzung</h3>
       <div class="algo-lean">
@@ -1436,6 +1494,9 @@ function openProfileModal() {
     <h2 style="text-align:center;margin:0">${escapeHtml(c.name)}</h2>
     <p class="muted small" style="text-align:center">${pronounLine}${escapeHtml(c.city)}</p>
     ${bioBlock}
+    <div style="text-align:center;margin:8px 0">
+      <button type="button" class="btn btn-ghost btn-small" id="profile-edit-btn">Profil bearbeiten</button>
+    </div>
     <p class="muted small" style="text-align:center">Woche ${Store.data.currentWeek} · Tag ${Store.getDay()}</p>
     <div class="stat-row" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0">
       <div class="stat"><div class="num">${profile.followed.length}</div><div class="lbl">folgst du</div></div>
@@ -1483,6 +1544,50 @@ function openProfileModal() {
   overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
   document.addEventListener('keydown', onKey);
   body.querySelector('#profile-close').onclick = close;
+  body.querySelector('#profile-edit-btn').onclick = () => { close(); openProfileEdit(); };
+}
+
+function openProfileEdit() {
+  const c = Store.data.character;
+  const overlay = document.createElement('div');
+  overlay.className = 'tw-overlay';
+  overlay.innerHTML = `
+    <div class="tw-box" style="max-width:460px">
+      <h3>Profil bearbeiten</h3>
+      <p class="muted small">Name lässt sich nicht ändern (es ist dein Spielstand-Schlüssel). Bio und Pronomen schon.</p>
+      <label class="profile-edit-row">
+        <span>Pronomen</span>
+        <select id="edit-pronoun">
+          <option value="sie/ihr">sie / ihr</option>
+          <option value="er/ihn">er / ihn</option>
+          <option value="they/them">they / them</option>
+          <option value="keine">keine Angabe</option>
+        </select>
+      </label>
+      <label class="profile-edit-row">
+        <span>Bio <span class="muted small">(max 180 Zeichen)</span></span>
+        <textarea id="edit-bio" maxlength="180" rows="3"></textarea>
+      </label>
+      <div class="tw-actions">
+        <button class="btn btn-ghost" id="edit-cancel">Abbrechen</button>
+        <button class="btn btn-primary" id="edit-save">Speichern</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const handle = attachModal(overlay);
+  const sel = overlay.querySelector('#edit-pronoun');
+  const ta = overlay.querySelector('#edit-bio');
+  sel.value = c.pronoun || 'keine';
+  ta.value = c.bio || '';
+  overlay.querySelector('#edit-cancel').onclick = () => handle.close();
+  overlay.querySelector('#edit-save').onclick = () => {
+    Store.data.character.pronoun = sel.value;
+    Store.data.character.bio = ta.value.trim().slice(0, 180);
+    Store.save();
+    handle.close();
+    toast('Profil aktualisiert.');
+  };
 }
 
 // ===== Manifest =====

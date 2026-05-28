@@ -187,6 +187,7 @@ export function buildWrapped() {
     },
     buildEndingSlide(d),
     buildWhatIfSlide(d),
+    buildNpcPerspectivesSlide(d),
     {
       id: 's9',
       html: `
@@ -378,6 +379,67 @@ const WHATIF_PIVOTS = [
 function endingForArcs(d, arcOverrides) {
   const fake = { ...d, npcArcs: { ...(d.npcArcs || {}), ...arcOverrides } };
   return computeEnding(fake);
+}
+
+// NPC-Reflexionen: was würde Lea / Finn / Mira / Tariq / Lara / Marc über
+// den User sagen, basierend auf seinen Arc-Werten und DM-Antworten? Macht
+// die NPC-Beziehungen am Ende emotional fassbar.
+function buildNpcPerspectivesSlide(d) {
+  const arcs = d.npcArcs || {};
+  const dm = d.dmReplies || {};
+  const lines = [];
+
+  // Lea
+  const leaClose = arcs.lea_close || 0;
+  if (leaClose >= 0.5) lines.push({ name: 'Lea', text: '„Du warst ehrlich, als ich gefragt hab. Das ist mehr, als die meisten machen."' });
+  else if (leaClose <= -0.1) lines.push({ name: 'Lea', text: '„Du bist irgendwie verschwunden. Schade."' });
+  else lines.push({ name: 'Lea', text: '„Wir haben uns ein paar Mal getroffen. Schön gewesen."' });
+
+  // Finn
+  const finnPath = arcs.finn_path || 0;
+  if (finnPath >= 3) lines.push({ name: 'Finn', text: '„Ich hab jetzt Leute, die mir zuhören. Du gehörtest nie dazu."' });
+  else if (finnPath <= -2) lines.push({ name: 'Finn', text: '„Du hast mir mal gesagt, das sei Quatsch. Ich war wütend. Jetzt bin ich dankbar."' });
+  else lines.push({ name: 'Finn', text: '„Du warst da. Manchmal. Was hätte ich mir noch wünschen sollen."' });
+
+  // Mira
+  const miraClose = arcs.mira_close || 0;
+  if (miraClose >= 0.4) lines.push({ name: 'Mira', text: '„Ich hab nicht viele gefragt. Dass du da warst, hab ich gemerkt."' });
+  else if (miraClose <= -0.2) lines.push({ name: 'Mira', text: '„Du fandest, ich übertreibe. Vielleicht hast du recht. Vielleicht auch nicht."' });
+
+  // Marc
+  const marcChoice = dm.dm_marc?.[11]?.id;
+  if (marcChoice === 'marc_join') lines.push({ name: 'Marc Stay-Based', text: '„Du bist dabei. Das vergisst man nicht."' });
+  else if (marcChoice === 'marc_block') lines.push({ name: 'Marc Stay-Based', text: '„Wieder einer, der nicht versteht. Stark, dass du blockierst."' });
+  else if (marcChoice === 'marc_curious') lines.push({ name: 'Marc Stay-Based', text: '„Du hast nachgefragt. Halb dabei ist halb nicht dabei. Schwach."' });
+
+  // Lara
+  const laraChoice = dm.dm_lara?.[24]?.id;
+  if (laraChoice === 'lara_24_solidarity') lines.push({ name: 'Lara Weiss', text: '„Du hast mir geschrieben. Danke. Das hat in der Woche gereicht."' });
+  else if (laraChoice === 'lara_24_silence') lines.push({ name: 'Lara Weiss', text: '„Schweigen war gerade das Lauteste. Ich nehm das nicht persönlich, aber ich merk es."' });
+
+  // Tariq (wenn DM beantwortet)
+  const tariqChoice = dm.dm_tariq?.[13]?.id;
+  if (tariqChoice === 'tariq_13_check') lines.push({ name: 'Tariq', text: '„Du hast aufgehört, vor dem Teilen zu klicken. Hat mir was über dich gesagt."' });
+
+  if (!lines.length) {
+    return {
+      id: 's_npcperspect',
+      html: `
+        <h2>Was die anderen sagen würden</h2>
+        <p>Du hast die Nähe zu wenigen aufgebaut. Vielleicht ein Spielzug fürs nächste Mal: in Streem ist das Teurer als gedacht — und gibt mehr zurück, als man denkt.</p>
+      `
+    };
+  }
+  return {
+    id: 's_npcperspect',
+    html: `
+      <h2>Was die anderen sagen würden</h2>
+      <p>Wenn man Lea, Finn, Mira (und andere) am Spielende fragen würde — so käme es vielleicht zurück:</p>
+      <div class="npc-quotes">
+        ${lines.map(l => `<div class="npc-quote"><div class="npc-quote-name">${escapeHtml(l.name)}</div><div class="npc-quote-text">${escapeHtml(l.text)}</div></div>`).join('')}
+      </div>
+    `
+  };
 }
 
 function buildWhatIfSlide(d) {
