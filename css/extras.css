@@ -571,9 +571,14 @@
 
 /* ===== Tutorial-Tooltips ===== */
 .tutorial-overlay {
+  /* Transparent: das Abdunkeln übernimmt der .tutorial-spot via box-shadow,
+     damit das hervorgehobene Element durch das "Loch" sichtbar bleibt.
+     Das Overlay fängt nur Backdrop-Klicks ab. */
   position: fixed; inset: 0; z-index: 150;
-  background: rgba(0,0,0,0.55);
+  background: transparent;
 }
+/* Fallback-Variante (kein Spotlight) dunkelt selbst ab. */
+.tutorial-overlay.dim { background: rgba(0,0,0,0.55); }
 .tutorial-spot {
   position: fixed; z-index: 151;
   pointer-events: none;
