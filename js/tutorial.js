@@ -43,40 +43,8 @@ function cleanupStrayTutorialNodes() {
     .forEach(el => { try { el.remove(); } catch (e) { /* ignore */ } });
 }
 
-// Hebt das hervorzuhebende Element temporär über das Overlay, damit es
-// sichtbar bleibt. Vorherige Inline-Styles werden für die spätere
-// Wiederherstellung gemerkt.
-let _liftedTarget = null;
-let _liftedOriginalStyles = null;
-function liftTarget(el) {
-  _liftedTarget = el;
-  _liftedOriginalStyles = {
-    position: el.style.position,
-    zIndex: el.style.zIndex,
-    boxShadow: el.style.boxShadow,
-  };
-  // Wenn das Element noch keine eigene positions-Einstellung hat, muss
-  // mindestens 'relative' gesetzt sein, damit z-index überhaupt greift.
-  try {
-    const cs = window.getComputedStyle && window.getComputedStyle(el);
-    if (cs && cs.position === 'static') el.style.position = 'relative';
-  } catch (e) { /* ignore — Test-Mocks haben kein getComputedStyle */ }
-  el.style.zIndex = '160';
-}
-function restoreLifted() {
-  if (!_liftedTarget || !_liftedOriginalStyles) return;
-  try {
-    _liftedTarget.style.position = _liftedOriginalStyles.position || '';
-    _liftedTarget.style.zIndex   = _liftedOriginalStyles.zIndex   || '';
-    _liftedTarget.style.boxShadow = _liftedOriginalStyles.boxShadow || '';
-  } catch (e) { /* ignore */ }
-  _liftedTarget = null;
-  _liftedOriginalStyles = null;
-}
-
 function endTutorial() {
   cleanupStrayTutorialNodes();
-  restoreLifted();
   if (_escHandler) {
     document.removeEventListener('keydown', _escHandler);
     _escHandler = null;
@@ -89,7 +57,8 @@ function endTutorial() {
 // ist. So bleibt der Erklärtext sichtbar, der User ist nicht verloren.
 function showCenteredFallback(step, idx) {
   const overlay = document.createElement('div');
-  overlay.className = 'tutorial-overlay';
+  // Kein Spotlight im Fallback → Overlay selbst abdunkeln.
+  overlay.className = 'tutorial-overlay dim';
   const tip = document.createElement('div');
   tip.className = 'tutorial-tip tutorial-tip-center';
   tip.setAttribute('role', 'dialog');
@@ -123,7 +92,6 @@ function showCenteredFallback(step, idx) {
 function runTutorial(idx, retry = 0) {
   // Alte Schritte sauber wegräumen, bevor ein neuer angelegt wird.
   cleanupStrayTutorialNodes();
-  restoreLifted();
 
   if (idx >= STEPS.length) {
     endTutorial();
@@ -134,8 +102,8 @@ function runTutorial(idx, retry = 0) {
   // Element nicht (mehr) im DOM, oder noch nicht ausgemessen (rect 0×0).
   // Einmal kurz warten und erneut versuchen — Bottombar/Stories werden
   // teils nach dem Feed-Render asynchron eingehängt.
-  const rect = target && target.getBoundingClientRect && target.getBoundingClientRect();
-  const visible = rect && rect.width > 0 && rect.height > 0;
+  let rect = target && target.getBoundingClientRect && target.getBoundingClientRect();
+  let visible = rect && rect.width > 0 && rect.height > 0;
   if (!target || !visible) {
     if (retry < 4) {
       setTimeout(() => runTutorial(idx, retry + 1), 250);
@@ -146,9 +114,11 @@ function runTutorial(idx, retry = 0) {
     return showCenteredFallback(step, idx);
   }
 
-  // Element über das Overlay heben, damit der User sieht, was hervorgehoben
-  // ist (sonst bleibt der "Spot" nur als dunkler Rahmen sichtbar).
-  liftTarget(target);
+  // Target in den sichtbaren Bereich scrollen. Auf breiten Screens ist die
+  // Bottombar position:absolute am unteren Ende eines sehr hohen
+  // #screen-main — ihr Rect liegt dann weit unterhalb des Viewports.
+  // Ohne dieses Scrollen landeten Spot + Tip off-screen ("nur dunkles Overlay").
+  try { target.scrollIntoView({ block: 'center', inline: 'center' }); } catch (e) { /* ignore */ }
 
   const overlay = document.createElement('div');
   overlay.className = 'tutorial-overlay';
@@ -177,9 +147,9 @@ function runTutorial(idx, retry = 0) {
   document.body.appendChild(spot);
   document.body.appendChild(tip);
 
-  // Position erst nach Layout-Reflow setzen — sonst kann offsetHeight
-  // in seltenen Fällen 0 zurückliefern und den Tip off-screen platzieren.
-  requestAnimationFrame(() => positionAround(target, spot, tip, step.placement));
+  // Position erst nach dem Scroll-Reflow setzen. Doppeltes rAF, damit
+  // scrollIntoView abgeschlossen ist und offsetHeight korrekt misst.
+  requestAnimationFrame(() => requestAnimationFrame(() => positionAround(target, spot, tip, step.placement)));
 
   // Defensives close(): jedes remove() einzeln in try/catch, damit
   // ein bereits detachtes Element die anderen nicht blockiert.
@@ -187,7 +157,6 @@ function runTutorial(idx, retry = 0) {
     for (const el of [overlay, spot, tip]) {
       try { el.remove(); } catch (e) { /* ignore */ }
     }
-    restoreLifted();
   };
 
   // Esc-Key schließt das Tutorial komplett — nicht weiter, sondern aus.
@@ -227,16 +196,20 @@ function positionAround(target, spot, tip, placement) {
   tip.style.width = tipW + 'px';
   tip.style.left  = tipX + 'px';
 
+  const tipH = tip.offsetHeight || 160;
+  let top;
   if (placement === 'bottom') {
-    tip.style.top = (rect.bottom + 18) + 'px';
+    top = rect.bottom + 18;
   } else {
-    const tipH = tip.offsetHeight || 160;
-    let top = rect.top - tipH - 18;
+    top = rect.top - tipH - 18;
     // Wenn nicht genug Platz nach oben (z.B. Target ganz oben am Bildschirm):
     // unten platzieren.
-    if (top < 8) top = Math.min(window.innerHeight - tipH - 8, rect.bottom + 18);
-    tip.style.top = Math.max(8, top) + 'px';
+    if (top < 8) top = rect.bottom + 18;
   }
+  // Immer in den sichtbaren Bereich klemmen — egal wo das Target sitzt,
+  // der Tip mit Erklärtext + Weiter-Button muss sichtbar bleiben.
+  const maxTop = window.innerHeight - tipH - 8;
+  tip.style.top = Math.max(8, Math.min(top, maxTop)) + 'px';
 }
 
 function escapeHtml(s) {
