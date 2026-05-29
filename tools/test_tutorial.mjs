@@ -1,12 +1,6 @@
 // Regression-Test für den Tutorial-Bug:
 // "Klick auf Weiter in Schritt 1 → Schritt 2 erscheint nicht, Overlay bleibt".
 //
-// Testet drei Szenarien:
-//   A) Happy path: alle 3 Targets vorhanden → User kann durch alle 3 Schritte
-//   B) Step 2 Target fehlt → kein hängendes Overlay (cleanup-Sweep)
-//   C) Tip-offsetHeight liest 0 (Layout noch nicht gerechnet) → kein Crash,
-//      Position wird per requestAnimationFrame nachgereicht
-//
 // Aufruf:  node tools/test_tutorial.mjs
 
 import vm from 'node:vm';
@@ -216,33 +210,45 @@ console.log('\nA) Happy path — alle 3 Targets vorhanden');
   assert(Store.data.tutorialDone === true, 'tutorialDone = true');
 }
 
-// ===== Test B: Step 2 Target fehlt =====
-console.log('\nB) Step 2 Target fehlt — kein hängendes Overlay');
+// ===== Test B: Step 2 Target fehlt → Center-Fallback =====
+console.log('\nB) Step 2 Target fehlt — zentrierter Fallback-Tip mit Erklärtext');
 {
   const { doc, Store } = runTest('B', { hasDmBtn: false });
   let tip = findByClass(doc, 'tutorial-tip');
   assert(tipStep(tip) === 'Schritt 1 von 3', 'Step 1 OK');
 
   tip.querySelector('#tut-next').click();
-  // Step 2 selector fehlt → recursion zu Step 3
+  // Step 2 selector fehlt → nach 4 Retries Center-Fallback mit Step-2-Text
   tip = findByClass(doc, 'tutorial-tip');
-  assert(!!tip, 'Springt zu Step 3 (nicht stecken bleiben)');
-  assert(tipStep(tip) === 'Schritt 3 von 3', 'Step 3 angezeigt');
+  assert(!!tip, 'Center-Fallback zeigt Tip statt stilles Überspringen');
+  assert(tipStep(tip) === 'Schritt 2 von 3', 'Step 2 Text wird angezeigt');
+  assert(tip.className.includes('tutorial-tip-center'), 'Center-Variante (kein Highlight)');
+
+  tip.querySelector('#tut-next').click();
+  tip = findByClass(doc, 'tutorial-tip');
+  assert(!!tip && tipStep(tip) === 'Schritt 3 von 3', 'Weiter zu Step 3');
 
   tip.querySelector('#tut-next').click();
   assert(countTutorialNodes(doc) === 0, 'Kein Overlay nach Abschluss');
 }
 
-// ===== Test C: Alle Targets fehlen nach Step 1 =====
-console.log('\nC) Step 2 und 3 Targets fehlen — Tutorial endet sauber');
+// ===== Test C: Step 2 und 3 fehlen → 2x Center-Fallback dann Ende =====
+console.log('\nC) Step 2 und 3 Targets fehlen — beide als Fallback, dann sauberes Ende');
 {
   const { doc, Store } = runTest('C', { hasDmBtn: false, hasStory: false });
   let tip = findByClass(doc, 'tutorial-tip');
   assert(tipStep(tip) === 'Schritt 1 von 3', 'Step 1 OK');
 
   tip.querySelector('#tut-next').click();
-  // Alle nachfolgenden Targets fehlen → Tutorial endet
-  assert(countTutorialNodes(doc) === 0, 'Kein Overlay nach Step 1 + Recursion');
+  tip = findByClass(doc, 'tutorial-tip');
+  assert(tipStep(tip) === 'Schritt 2 von 3', 'Step 2 als Center-Fallback');
+
+  tip.querySelector('#tut-next').click();
+  tip = findByClass(doc, 'tutorial-tip');
+  assert(tipStep(tip) === 'Schritt 3 von 3', 'Step 3 als Center-Fallback');
+
+  tip.querySelector('#tut-next').click();
+  assert(countTutorialNodes(doc) === 0, 'Kein Overlay nach Abschluss');
   assert(Store.data.tutorialDone === true, 'tutorialDone = true');
 }
 
@@ -278,15 +284,33 @@ console.log('\nF) Close-X-Button beendet');
   assert(Store.data.tutorialDone === true, 'tutorialDone = true');
 }
 
-// ===== Test G: Reproduktion des Original-Bugs =====
-console.log('\nG) Original-Bug: Weiter klicken ohne Step 2/3 Targets → kein Stuck-Overlay');
+// ===== Test G: Original-Bug — Step 2 nicht sichtbar, aber User kommt weiter =====
+console.log('\nG) Original-Bug: Step 2 erscheint nicht → trotzdem Erklärtext sichtbar');
 {
-  // Wenn aus irgendeinem Grund Step 2 und 3 Targets nicht da sind
-  // (z.B. Feed-View noch nicht gerendert), darf der User nicht gefangen sein.
-  const { doc, Store } = runTest('G', { hasDmBtn: false, hasStory: false });
-  const tip = findByClass(doc, 'tutorial-tip');
+  // Original-Report: "der zweite schritt erscheint nicht. man kann irgendwo
+  // hinklicken aber das ist nicht intuitiv". Ohne DM-Button-Target muss
+  // mindestens der Text mit Weiter-Button erscheinen — User darf nicht raten.
+  const { doc, Store } = runTest('G', { hasDmBtn: false });
+  let tip = findByClass(doc, 'tutorial-tip');
   tip.querySelector('#tut-next').click();
-  assert(countTutorialNodes(doc) === 0, 'Original-Bug behoben: kein Overlay-Stuck');
+  tip = findByClass(doc, 'tutorial-tip');
+  assert(!!tip, 'Step 2 zeigt Tip (Center-Fallback) statt zu verschwinden');
+  assert(tipStep(tip) === 'Schritt 2 von 3', 'Step-2-Text ist sichtbar');
+  assert(!!tip.querySelector('#tut-next'), 'Weiter-Button vorhanden — User nicht gefangen');
+}
+
+// ===== Test H: Element existiert, aber rect 0×0 → Retry findet es =====
+console.log('\nH) Element mit rect 0×0 → Retry-Mechanismus');
+{
+  const { doc, ctx, Store } = runTest('H', {});
+  let tip = findByClass(doc, 'tutorial-tip');
+  // DM-Btn vorhanden, aber rect 0×0 simulieren
+  doc._dmBtn.getBoundingClientRect = () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 });
+  tip.querySelector('#tut-next').click();
+  // Mit synchronem setTimeout im Test: 4 Retries, dann Fallback
+  tip = findByClass(doc, 'tutorial-tip');
+  assert(!!tip, 'Nach Retries Center-Fallback aktiv');
+  assert(tip.className.includes('tutorial-tip-center'), 'Center-Variante');
 }
 
 console.log(failed === 0 ? '\nALL TESTS PASS ✓' : `\n${failed} TESTS FAILED ✗`);

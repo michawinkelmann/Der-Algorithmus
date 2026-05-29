@@ -2479,12 +2479,44 @@ let _escHandler = null;
 function cleanupStrayTutorialNodes() {
   // Falls aus irgendeinem Grund (Bug, abgebrochener Vorgänger) Tutorial-
   // Elemente im DOM hängen, vor dem nächsten Schritt wegräumen.
-  document.querySelectorAll('.tutorial-overlay, .tutorial-spot, .tutorial-tip')
+  document.querySelectorAll('.tutorial-overlay, .tutorial-spot, .tutorial-tip, .tutorial-tip-center')
     .forEach(el => { try { el.remove(); } catch (e) { /* ignore */ } });
+}
+
+// Hebt das hervorzuhebende Element temporär über das Overlay, damit es
+// sichtbar bleibt. Vorherige Inline-Styles werden für die spätere
+// Wiederherstellung gemerkt.
+let _liftedTarget = null;
+let _liftedOriginalStyles = null;
+function liftTarget(el) {
+  _liftedTarget = el;
+  _liftedOriginalStyles = {
+    position: el.style.position,
+    zIndex: el.style.zIndex,
+    boxShadow: el.style.boxShadow,
+  };
+  // Wenn das Element noch keine eigene positions-Einstellung hat, muss
+  // mindestens 'relative' gesetzt sein, damit z-index überhaupt greift.
+  try {
+    const cs = window.getComputedStyle && window.getComputedStyle(el);
+    if (cs && cs.position === 'static') el.style.position = 'relative';
+  } catch (e) { /* ignore — Test-Mocks haben kein getComputedStyle */ }
+  el.style.zIndex = '160';
+}
+function restoreLifted() {
+  if (!_liftedTarget || !_liftedOriginalStyles) return;
+  try {
+    _liftedTarget.style.position = _liftedOriginalStyles.position || '';
+    _liftedTarget.style.zIndex   = _liftedOriginalStyles.zIndex   || '';
+    _liftedTarget.style.boxShadow = _liftedOriginalStyles.boxShadow || '';
+  } catch (e) { /* ignore */ }
+  _liftedTarget = null;
+  _liftedOriginalStyles = null;
 }
 
 function endTutorial() {
   cleanupStrayTutorialNodes();
+  restoreLifted();
   if (_escHandler) {
     document.removeEventListener('keydown', _escHandler);
     _escHandler = null;
@@ -2493,9 +2525,45 @@ function endTutorial() {
   Store.save();
 }
 
-function runTutorial(idx) {
+// Zentrierter Tip ohne Highlight, falls Target gar nicht (mehr) auffindbar
+// ist. So bleibt der Erklärtext sichtbar, der User ist nicht verloren.
+function showCenteredFallback(step, idx) {
+  const overlay = document.createElement('div');
+  overlay.className = 'tutorial-overlay';
+  const tip = document.createElement('div');
+  tip.className = 'tutorial-tip tutorial-tip-center';
+  tip.setAttribute('role', 'dialog');
+  tip.setAttribute('aria-modal', 'true');
+  tip.innerHTML = `
+    <button class="tutorial-close" aria-label="Tutorial schließen" id="tut-close">×</button>
+    <p>${escapeHtml(step.text)}</p>
+    <div class="tutorial-actions">
+      <span class="muted small">Schritt ${idx + 1} von ${STEPS.length}</span>
+      <div>
+        <button type="button" class="btn btn-ghost btn-small" id="tut-skip">Überspringen</button>
+        <button type="button" class="btn btn-primary btn-small" id="tut-next">${idx === STEPS.length - 1 ? 'Verstanden' : 'Weiter'}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  document.body.appendChild(tip);
+  if (!_escHandler) {
+    _escHandler = (e) => { if (e.key === 'Escape') { overlay.remove(); tip.remove(); endTutorial(); } };
+    document.addEventListener('keydown', _escHandler);
+  }
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) { overlay.remove(); tip.remove(); endTutorial(); }
+  });
+  const close = () => { try { overlay.remove(); } catch (e) {} try { tip.remove(); } catch (e) {} };
+  tip.querySelector('#tut-next').onclick = () => { close(); runTutorial(idx + 1); };
+  tip.querySelector('#tut-skip').onclick = () => { close(); endTutorial(); };
+  tip.querySelector('#tut-close').onclick = () => { close(); endTutorial(); };
+}
+
+function runTutorial(idx, retry = 0) {
   // Alte Schritte sauber wegräumen, bevor ein neuer angelegt wird.
   cleanupStrayTutorialNodes();
+  restoreLifted();
 
   if (idx >= STEPS.length) {
     endTutorial();
@@ -2503,7 +2571,24 @@ function runTutorial(idx) {
   }
   const step = STEPS[idx];
   const target = document.querySelector(step.selector);
-  if (!target) { runTutorial(idx + 1); return; }
+  // Element nicht (mehr) im DOM, oder noch nicht ausgemessen (rect 0×0).
+  // Einmal kurz warten und erneut versuchen — Bottombar/Stories werden
+  // teils nach dem Feed-Render asynchron eingehängt.
+  const rect = target && target.getBoundingClientRect && target.getBoundingClientRect();
+  const visible = rect && rect.width > 0 && rect.height > 0;
+  if (!target || !visible) {
+    if (retry < 4) {
+      setTimeout(() => runTutorial(idx, retry + 1), 250);
+      return;
+    }
+    // Auch nach Retry kein Target → zentrierter Fallback-Tip ohne Highlight,
+    // damit der User wenigstens den Erklärtext sieht.
+    return showCenteredFallback(step, idx);
+  }
+
+  // Element über das Overlay heben, damit der User sieht, was hervorgehoben
+  // ist (sonst bleibt der "Spot" nur als dunkler Rahmen sichtbar).
+  liftTarget(target);
 
   const overlay = document.createElement('div');
   overlay.className = 'tutorial-overlay';
@@ -2542,6 +2627,7 @@ function runTutorial(idx) {
     for (const el of [overlay, spot, tip]) {
       try { el.remove(); } catch (e) { /* ignore */ }
     }
+    restoreLifted();
   };
 
   // Esc-Key schließt das Tutorial komplett — nicht weiter, sondern aus.
