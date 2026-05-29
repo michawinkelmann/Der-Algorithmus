@@ -571,9 +571,14 @@
 
 /* ===== Tutorial-Tooltips ===== */
 .tutorial-overlay {
+  /* Transparent: das Abdunkeln übernimmt der .tutorial-spot via box-shadow,
+     damit das hervorgehobene Element durch das "Loch" sichtbar bleibt.
+     Das Overlay fängt nur Backdrop-Klicks ab. */
   position: fixed; inset: 0; z-index: 150;
-  background: rgba(0,0,0,0.55);
+  background: transparent;
 }
+/* Fallback-Variante (kein Spotlight) dunkelt selbst ab. */
+.tutorial-overlay.dim { background: rgba(0,0,0,0.55); }
 .tutorial-spot {
   position: fixed; z-index: 151;
   pointer-events: none;
@@ -591,6 +596,21 @@
 .tutorial-tip p { margin: 0 0 10px; font-size: 14px; }
 .tutorial-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
 .tutorial-actions .btn-small { padding: 6px 12px; font-size: 13px; min-height: 32px; }
+.tutorial-close {
+  position: absolute; top: 4px; right: 4px;
+  background: transparent; border: 0;
+  color: var(--text-dim); font-size: 18px;
+  width: 28px; height: 28px;
+  cursor: pointer; border-radius: 50%;
+  display: grid; place-items: center;
+  line-height: 1;
+}
+.tutorial-close:hover { background: var(--bg-elev-2); color: var(--text); }
+.tutorial-tip-center {
+  left: 50% !important; top: 50% !important;
+  transform: translate(-50%, -50%);
+  max-width: calc(100vw - 32px);
+}
 
 /* ===== Konzept-Karte ===== */
 .concept-box {
